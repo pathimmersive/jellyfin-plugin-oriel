@@ -65,8 +65,18 @@ describe('deviceId', () => {
     it('creates and keeps its own when jellyfin-web has none', () => {
         const storage = memoryStorage()
         const first = deviceId(storage)
-        expect(first).toMatch(/^[0-9a-f-]{36}$/)
+        expect(first).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
         expect(deviceId(storage)).toBe(first)
+    })
+
+    it('creates one on a plain http page, where crypto.randomUUID does not exist', () => {
+        const original = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(crypto), 'randomUUID')!
+        Object.defineProperty(Object.getPrototypeOf(crypto), 'randomUUID', { value: undefined, configurable: true })
+        try {
+            expect(deviceId(memoryStorage())).toMatch(/^[0-9a-f-]{36}$/)
+        } finally {
+            Object.defineProperty(Object.getPrototypeOf(crypto), 'randomUUID', original)
+        }
     })
 })
 
