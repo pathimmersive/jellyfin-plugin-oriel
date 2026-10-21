@@ -114,8 +114,13 @@ code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization
     -d '{"LibraryOptions":{}}' \
     "$base/Library/VirtualFolders?name=Books&collectionType=books&paths=%2Fmedia%2Fbooks&refreshLibrary=true")"
 [ "$code" = "204" ] || fail "creating the books library returned $code"
+# A library added while the startup scan is still running is left out of that
+# scan, and its own refresh is dropped, so ask for another scan every 10 s.
 item_id=""
-for _ in $(seq 1 60); do
+for i in $(seq 1 60); do
+    if [ $((i % 10)) = 0 ]; then
+        curl -sf -X POST -H "Authorization: $token_header" "$base/Library/Refresh" >/dev/null || true
+    fi
     item_id="$(curl -sf -H "Authorization: $token_header" \
         "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book" | json_str Id || true)"
     [ -n "$item_id" ] && break
