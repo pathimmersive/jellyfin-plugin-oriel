@@ -43,7 +43,7 @@ public class ReaderAssetsController : ControllerBase
         // A relative Location keeps any configured BaseUrl.
         if (!(Request.Path.Value ?? string.Empty).EndsWith('/'))
         {
-            return Redirect("Oriel/");
+            return Redirect("Oriel/" + Request.QueryString);
         }
 
         return GetAsset(ReaderAssets.IndexFile);
@@ -52,15 +52,15 @@ public class ReaderAssetsController : ControllerBase
     /// <summary>
     /// Serves one reader asset. Anonymous, like the page that references it.
     /// </summary>
-    /// <param name="fileName">The asset file name.</param>
+    /// <param name="path">The asset path under the reader route.</param>
     /// <returns>The asset.</returns>
-    [HttpGet("{fileName}")]
+    [HttpGet("{**path}")]
     [AllowAnonymous]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult GetAsset([FromRoute] string fileName)
+    public ActionResult GetAsset([FromRoute] string path)
     {
-        if (!_assets.TryOpen(fileName, out var content, out var contentType))
+        if (!_assets.TryOpen(path, out var content, out var contentType))
         {
             return NotFound();
         }

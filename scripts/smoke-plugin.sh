@@ -3,7 +3,7 @@
 # and check what the server reports and serves. Exits non-zero on the first
 # failed check and always removes the container.
 #
-# Needs: bash, curl, docker, the .NET 10 SDK.
+# Needs: bash, curl, docker, Node and npm, the .NET 10 SDK.
 # Override the image with JELLYFIN_IMAGE=jellyfin/jellyfin:<tag>.
 set -euo pipefail
 
@@ -13,6 +13,7 @@ PLUGIN_VERSION="0.1.0.0"
 ADMIN_USER="smoke"
 ADMIN_PW="smoke-$RANDOM$RANDOM"
 CLIENT_HEADER='MediaBrowser Client="oriel-smoke", Device="smoke", DeviceId="oriel-smoke", Version="1.0.0"'
+BOOK_TEXT="Oriel smoke chapter one opens here."
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 work="$(mktemp -d)"
@@ -54,11 +55,19 @@ bundled="$(cd "$plugin_dir" && ls -1 *.dll \
 [ -z "$bundled" ] || fail "publish output bundles host assemblies: $bundled"
 pass "publish output bundles no host assemblies"
 
+# --- book and browser ------------------------------------------------------
+
+reader="$repo/src/reader"
+mkdir -p "$work/media/books"
+node "$reader/e2e/make-epub.mjs" "$work/media/books/oriel-smoke.epub" "$BOOK_TEXT" || fail "generate test EPUB"
+(cd "$reader" && npx playwright install webkit >/dev/null) || fail "install Playwright WebKit"
+
 # --- server ----------------------------------------------------------------
 
 MSYS_NO_PATHCONV=1 docker run -d --name "$container" \
     -p 127.0.0.1::8096 \
     -v "$(hostpath "$plugin_dir"):/config/plugins/${PLUGIN_NAME}_${PLUGIN_VERSION}" \
+    -v "$(hostpath "$work/media/books"):/media/books:ro" \
     "$IMAGE" >/dev/null || fail "docker run $IMAGE"
 
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
@@ -95,8 +104,33 @@ token="$(echo "$auth" | json_str AccessToken)"
 token_header="$CLIENT_HEADER, Token=\"$token\""
 user_id="$(curl -sf -H "Authorization: $token_header" "$base/Users/Me" | json_str Id)"
 [ -n "$user_id" ] || fail "no user id from /Users/Me"
+server_id="$(curl -sf "$base/System/Info/Public" | json_str Id)"
+[ -n "$server_id" ] || fail "no server id from /System/Info/Public"
 
 get_status() { curl -s -o "$work/body" -w '%{http_code}' "$@"; }
+
+# A books library holding the generated EPUB.
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"LibraryOptions":{}}' \
+    "$base/Library/VirtualFolders?name=Books&collectionType=books&paths=%2Fmedia%2Fbooks&refreshLibrary=true")"
+[ "$code" = "204" ] || fail "creating the books library returned $code"
+item_id=""
+for _ in $(seq 1 60); do
+    item_id="$(curl -sf -H "Authorization: $token_header" \
+        "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book" | json_str Id || true)"
+    [ -n "$item_id" ] && break
+    sleep 1
+done
+[ -n "$item_id" ] || fail "the test EPUB never appeared in the books library"
+pass "books library lists the test EPUB as $item_id"
+
+# The reader in WebKit: renders the book, reports an unknown item, and sends
+# a signed-out visitor to the login page.
+check_reader_in_browser() {
+    ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+    ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$BOOK_TEXT" ORIEL_MISSING_ID="00000000000040008000000000000000" \
+        node "$reader/e2e/reader.e2e.mjs" || fail "reader in WebKit at $1"
+}
 
 # Plugin loaded and Active.
 code="$(get_status -H "Authorization: $token_header" "$base/Plugins")"
@@ -121,13 +155,20 @@ check_reader() {
         case "$ref" in
             /*|*://*) fail "reader page asset reference '$ref' is not relative" ;;
         esac
-        code="$(curl -s -o /dev/null -w '%{http_code}' "$prefix/Oriel/$ref")"
+        code="$(curl -s -D "$headers" -o /dev/null -w '%{http_code}' "$prefix/Oriel/$ref")"
         [ "$code" = "200" ] || fail "anonymous GET $prefix/Oriel/$ref returned $code"
+        case "$ref" in
+            *.js) grep -i -q '^content-type: *text/javascript' "$headers" || fail "GET $prefix/Oriel/$ref is not text/javascript" ;;
+            *.css) grep -i -q '^content-type: *text/css' "$headers" || fail "GET $prefix/Oriel/$ref is not text/css" ;;
+        esac
     done
-    pass "anonymous GET $prefix/Oriel/ is 200 text/html with relative assets that resolve"
+    code="$(curl -s -o /dev/null -w '%{http_code}' "$prefix/Oriel/assets/missing.js")"
+    [ "$code" = "404" ] || fail "GET $prefix/Oriel/assets/missing.js returned $code, expected 404"
+    pass "anonymous GET $prefix/Oriel/ is 200 text/html with relative assets that resolve with their content types; unknown assets are 404"
 }
 
 check_reader "$base"
+check_reader_in_browser "$base"
 
 code="$(get_status "$base/Oriel/Me")"
 [ "$code" = "401" ] || fail "GET /Oriel/Me without a token returned $code, expected 401"
@@ -148,5 +189,6 @@ docker restart "$container" >/dev/null || fail "docker restart"
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
+check_reader_in_browser "http://127.0.0.1:$port/jf"
 
 echo "smoke-plugin: all checks passed"
