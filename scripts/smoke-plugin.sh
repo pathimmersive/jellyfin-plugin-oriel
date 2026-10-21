@@ -121,7 +121,10 @@ for _ in $(seq 1 60); do
     [ -n "$item_id" ] && break
     sleep 1
 done
-[ -n "$item_id" ] || fail "the test EPUB never appeared in the books library"
+if [ -z "$item_id" ]; then
+    docker logs "$container" 2>&1 | tail -60 >&2
+    fail "the test EPUB never appeared in the books library"
+fi
 pass "books library lists the test EPUB as $item_id"
 
 # The reader in WebKit: renders the book, reports an unknown item, and sends
