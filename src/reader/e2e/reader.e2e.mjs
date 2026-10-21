@@ -82,6 +82,16 @@ try {
     }
     pass(`book rendered with first-chapter text at ${base}/Oriel/`)
 
+    if (await page.locator('#debug').count() !== 0) fail('debug overlay shown without ?debug=1')
+    await page.goto(`${base}/Oriel/?id=${itemId}&debug=1`)
+    const debugged = await settled(page)
+    if (debugged.state !== 'rendered') fail(`reader with ?debug=1 reported ${debugged.state}: ${debugged.message}`)
+    const overlay = await page.locator('#debug').textContent({ timeout: 5_000 }).catch(() => null)
+    if (!overlay || !/download \d+ ms/.test(overlay) || !/first page \d+ ms/.test(overlay)) {
+        fail(`debug overlay missing or without timings: '${overlay}'`)
+    }
+    pass(`?debug=1 shows the overlay: ${overlay.replace(/\s+/g, ' ').trim()}`)
+
     await page.goto(`${base}/Oriel/?id=${missingId}`)
     const missing = await settled(page)
     if (missing.state !== 'error' || !/not found/i.test(missing.message)) {
