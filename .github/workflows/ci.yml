@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/reader/package-lock.json
+      # Building the plugin runs npm ci and the reader build, then embeds it.
+      - run: dotnet test
+      - run: npm --prefix src/reader test
+
+  smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/reader/package-lock.json
+      - run: npm ci
+        working-directory: src/reader
+      # The smoke script installs WebKit itself; the runner also needs its system libraries.
+      - run: npx playwright install --with-deps webkit
+        working-directory: src/reader
+      - run: bash scripts/smoke-plugin.sh
