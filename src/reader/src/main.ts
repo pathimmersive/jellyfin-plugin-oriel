@@ -1,6 +1,8 @@
 import './reader.css'
 import { BookLoadError, downloadBook } from './api/client'
 import { serverBasePath } from './base'
+import { debugRequested } from './debug/frames'
+import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 
@@ -28,13 +30,18 @@ const start = async (): Promise<void> => {
         return
     }
 
+    const overlay = debugRequested(location.search) ? new DebugOverlay(document.body) : null
     show('loading', 'Loading the book…')
     let stage = 'downloaded'
     try {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
+        const started = performance.now()
         const file = await downloadBook(serverBasePath(location.pathname), itemId, authorization)
+        const downloaded = performance.now()
+        overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
-        await openBook(book, file)
+        await openBook(book, file, view => overlay?.timeTurns(view))
+        overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
     } catch (error) {
         console.error(error)
