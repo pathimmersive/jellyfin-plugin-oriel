@@ -32,14 +32,14 @@ The plugin hosts its own reader web app on the Jellyfin server, on the same orig
 3. Plugin storage is a private SQLite file in the plugin data folder (the Playback Reporting pattern). Plugins cannot add tables to `jellyfin.db`.
 4. Authentication reuses the jellyfin-web token from `localStorage["jellyfin_credentials"]` and sends it as an `Authorization: MediaBrowser Token="..."` header. Jellyfin 12.0 disables legacy auth headers by default. The reader HTML/assets are served anonymously; every data endpoint requires an authenticated user.
 5. Book files are fetched through `GET /Items/{id}/Download`, which respects the user's library access and download permission. Any plugin-owned file endpoint must enforce the same access checks.
-6. Distribution is a self-hosted Jellyfin plugin repository `manifest.json` (GitLab Pages) with release artifacts and checksums produced by CI.
+6. Distribution is a self-hosted Jellyfin plugin repository `manifest.json` (GitHub Pages) with release artifacts and checksums produced by CI.
 7. The primary target is iOS Safari and the iOS home-screen web app. Desktop browsers are secondary. Native clients (Swiftfin, Android TV, Roku) cannot run the reader and are out of scope.
 
 ## Open Source Considerations
 1. The repository is public and licensed GPL-3.0-or-later, consistent with the Jellyfin plugin template and the GPL licensing of the Jellyfin libraries the plugin links against.
 2. Third-party code (foliate-js, fonts, any other dependency) keeps its own license and is listed in `THIRD_PARTY_NOTICES.md`. Only GPL-3.0-compatible licenses are accepted.
 3. The plugin is an unofficial, third-party project. It does not use the Jellyfin logo or imply endorsement by the Jellyfin project.
-4. Standard community files: README, LICENSE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, and issue/MR templates.
+4. Standard community files: README, LICENSE, CONTRIBUTING, CODE_OF_CONDUCT, SECURITY, and issue and pull request templates.
 5. No private Path Immersive infrastructure details (hostnames, registry URLs, credentials, server configs) are committed to this repository.
 
 ## Known Unknowns (first spike)
