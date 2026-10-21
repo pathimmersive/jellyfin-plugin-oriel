@@ -29,15 +29,24 @@ const start = async (): Promise<void> => {
     }
 
     show('loading', 'Loading the book…')
+    let stage = 'downloaded'
     try {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const file = await downloadBook(serverBasePath(location.pathname), itemId, authorization)
+        stage = 'opened'
         await openBook(book, file)
         show('rendered')
     } catch (error) {
         console.error(error)
-        show('error', error instanceof BookLoadError ? error.message : 'The book could not be opened.')
+        // Name the failing step and the browser's own error, so a failure on a
+        // device without developer tools can still be diagnosed.
+        show('error', error instanceof BookLoadError
+            ? error.message
+            : `The book could not be ${stage}. ${describe(error)}`)
     }
 }
+
+const describe = (error: unknown): string =>
+    error instanceof Error ? `${error.name}: ${error.message}` : String(error)
 
 void start()

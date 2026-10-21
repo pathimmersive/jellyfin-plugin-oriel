@@ -58,9 +58,19 @@ export const readSession = (storage: Pick<Storage, 'getItem'>, origin: string): 
 export const deviceId = (storage: Pick<Storage, 'getItem' | 'setItem'>): string => {
     const existing = storage.getItem(WEB_DEVICE_ID_KEY) ?? storage.getItem(OWN_DEVICE_ID_KEY)
     if (existing) return existing
-    const created = crypto.randomUUID()
+    const created = randomId()
     storage.setItem(OWN_DEVICE_ID_KEY, created)
     return created
+}
+
+// A version 4 UUID. crypto.randomUUID exists only in secure contexts, and a
+// Jellyfin server on a home network is often plain http, so use getRandomValues.
+const randomId = (): string => {
+    const bytes = crypto.getRandomValues(new Uint8Array(16))
+    bytes[6] = (bytes[6] & 0x0f) | 0x40
+    bytes[8] = (bytes[8] & 0x3f) | 0x80
+    const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('')
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
 /** The Authorization header Jellyfin 12 accepts; legacy token headers are off by default. */
