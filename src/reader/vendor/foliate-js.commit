@@ -1,0 +1,10 @@
+# foliate-js, vendored in ./foliate-js
+repository: https://github.com/johnfactotum/foliate-js
+commit: 78914aef4466eb960965702401634c2cb348e9b1
+date: 2026-05-01
+license: MIT (./foliate-js/LICENSE); vendored zip.js BSD-3-Clause, fflate MIT
+# Left out of the copy: pdf.js and vendor/pdfjs (PDF support is a later
+# phase; vite.config.ts stubs the import), the demo reader (reader.html,
+# reader.js, ui/), tests/, and build and lint tooling.
+# Upgrade on purpose: replace ./foliate-js from the new commit with the same
+# exclusions, then update this file.

@@ -16,9 +16,30 @@
     <PackageReference Include="Jellyfin.Controller" Version="12.*" ExcludeAssets="runtime" />
   </ItemGroup>
 
+  <!-- The reader web app in ../reader is built with npm and its dist/ output embedded. -->
+  <PropertyGroup>
+    <ReaderDir>$(MSBuildThisFileDirectory)..\reader\</ReaderDir>
+  </PropertyGroup>
+
   <ItemGroup>
-    <EmbeddedResource Include="Web\**" />
+    <ReaderSource Include="$(ReaderDir)src\**;$(ReaderDir)vendor\**;$(ReaderDir)index.html;$(ReaderDir)vite.config.ts;$(ReaderDir)tsconfig.json;$(ReaderDir)package-lock.json" />
   </ItemGroup>
+
+  <Target Name="RestoreReader" Inputs="$(ReaderDir)package.json;$(ReaderDir)package-lock.json" Outputs="$(ReaderDir)node_modules\.package-lock.json">
+    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(ReaderDir)" />
+  </Target>
+
+  <Target Name="BuildReader" DependsOnTargets="RestoreReader" BeforeTargets="BeforeBuild" Inputs="@(ReaderSource)" Outputs="$(ReaderDir)dist\index.html">
+    <Exec Command="npm run build" WorkingDirectory="$(ReaderDir)" />
+  </Target>
+
+  <Target Name="EmbedReader" AfterTargets="BuildReader" BeforeTargets="BeforeBuild">
+    <ItemGroup>
+      <_ReaderDist Include="$(ReaderDir)dist\**" />
+      <EmbeddedResource Include="@(_ReaderDist)" LogicalName="oriel-web/%(_ReaderDist.RecursiveDir)%(_ReaderDist.Filename)%(_ReaderDist.Extension)" />
+    </ItemGroup>
+    <Error Condition="'@(_ReaderDist)' == ''" Text="The reader build produced no files in $(ReaderDir)dist." />
+  </Target>
 
   <!-- meta.json is the plugin manifest Jellyfin reads from the plugin folder. -->
   <Target Name="WritePluginMeta" BeforeTargets="BeforeBuild">

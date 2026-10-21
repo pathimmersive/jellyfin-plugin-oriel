@@ -4,12 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Oriel</title>
-  <link rel="stylesheet" href="reader.css">
+  <script type="module" src="./src/main.ts"></script>
 </head>
-<body>
-  <main>
-    <h1>Oriel</h1>
-    <p>The reader is not built yet.</p>
-  </main>
+<body data-state="starting">
+  <p id="status" role="status"></p>
+  <div id="book"></div>
 </body>
 </html>
