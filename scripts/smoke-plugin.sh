@@ -255,7 +255,10 @@ ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
 
 # --- jellyfin-web integration ----------------------------------------------
 
-docker logs "$container" 2>&1 | grep -q 'File Transformation 3.x is not installed' \
+# Read the whole log first: grep -q stops early, and under pipefail the cut-off
+# docker logs would fail the check.
+docker logs "$container" > "$work/server.log" 2>&1
+grep -q 'File Transformation 3.x is not installed' "$work/server.log" \
     || fail "without File Transformation the plugin did not log that the integration is unavailable"
 pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
 
