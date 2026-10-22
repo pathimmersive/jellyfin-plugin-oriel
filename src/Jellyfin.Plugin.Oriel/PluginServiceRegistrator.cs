@@ -1,3 +1,4 @@
+using Jellyfin.Plugin.Oriel.Integration;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,5 +14,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<ReaderAssets>();
+        serviceCollection.AddSingleton<FileTransformationBridge>();
+        serviceCollection.AddHostedService<WebIntegrationService>();
     }
 }
