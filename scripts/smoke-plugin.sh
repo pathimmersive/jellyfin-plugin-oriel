@@ -217,7 +217,7 @@ resume_lists_book() {
 
 write_user_data() {
     code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
-        -d "$1" "$base/UserItems/$item_id/UserData?userId=$user_id")"
+        -d "$1" "${2:-$base}/UserItems/$item_id/UserData?userId=$user_id")"
     [ "$code" = "200" ] || fail "POST /UserItems/$item_id/UserData $1 returned $code"
 }
 
@@ -259,11 +259,15 @@ docker logs "$container" 2>&1 | grep -q 'File Transformation 3.x is not installe
     || fail "without File Transformation the plugin did not log that the integration is unavailable"
 pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
 
+# Presses Play or Resume ($3) and expects the oriel or builtin reader ($2).
 check_takeover_in_browser() {
-    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_BUTTON="$3" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
     ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
-        node "$reader/e2e/takeover.e2e.mjs" || fail "Play in jellyfin-web at $1 did not open the $2 reader"
+        node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader"
 }
+
+# Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
+set_progress() { write_user_data "{\"PlaybackPositionTicks\":$2}" "$1"; }
 
 # The integration off: jellyfin-web is served exactly as shipped.
 check_web_stock() {
@@ -309,10 +313,15 @@ wait_ready "$base"
 check_plugin_active "$base" "File Transformation"
 
 check_web_stock "$base"
-check_takeover_in_browser "$base" builtin
+set_progress "$base" "$PROGRESS_TICKS"
+check_takeover_in_browser "$base" builtin Resume
+set_progress "$base" 0
+check_takeover_in_browser "$base" builtin Play
 set_integration "$base" true
 check_web_patched "$base"
-check_takeover_in_browser "$base" oriel
+check_takeover_in_browser "$base" oriel Play
+set_progress "$base" "$PROGRESS_TICKS"
+check_takeover_in_browser "$base" oriel Resume
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
@@ -328,6 +337,9 @@ wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
 check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
-check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel
+set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume
+set_progress "http://127.0.0.1:$port/jf" 0
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
 
 echo "smoke-plugin: all checks passed"
