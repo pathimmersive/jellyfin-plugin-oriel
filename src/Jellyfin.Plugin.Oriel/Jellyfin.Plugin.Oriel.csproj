@@ -41,6 +41,11 @@
     <Error Condition="'@(_ReaderDist)' == ''" Text="The reader build produced no files in $(ReaderDir)dist." />
   </Target>
 
+  <!-- The jellyfin-web launcher is served beside the reader at /Oriel/integration/launcher.js. -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\integration\launcher.js" LogicalName="oriel-web/integration/launcher.js" />
+  </ItemGroup>
+
   <!-- meta.json is the plugin manifest Jellyfin reads from the plugin folder. -->
   <Target Name="WritePluginMeta" BeforeTargets="BeforeBuild">
     <PropertyGroup>

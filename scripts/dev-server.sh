@@ -8,11 +8,13 @@
 #   scripts/dev-server.sh down                             # stop the server (its data is kept)
 #   scripts/dev-server.sh logs                             # follow the server log
 #   scripts/dev-server.sh reset                            # remove the server and its data
+#   scripts/dev-server.sh integration on|off               # jellyfin-web integration, via File Transformation
 #
 # The server listens on port 8096 on every interface (ORIEL_DEV_PORT to change
 # it), so phones on the same network can reach it. Server settings, users and
 # the library index live in Docker volumes and survive restarts. ORIEL_BOOKS is
-# read only when the server is first created.
+# read only when the server is first created. "integration on" installs the
+# pinned File Transformation plugin on this server only and restarts it.
 #
 # Needs: bash, docker, Node and npm, the .NET 10 SDK.
 set -euo pipefail
@@ -23,6 +25,7 @@ CONTAINER="oriel-dev"
 PLUGIN_DIR_NAME="Oriel_0.1.0.0"
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+. "$repo/scripts/file-transformation.sh"
 plugin_dir="$repo/.dev/plugins/$PLUGIN_DIR_NAME"
 
 fail() { echo "dev-server: $*" >&2; exit 1; }
@@ -37,6 +40,35 @@ build() {
     rm -rf "$plugin_dir"
     dotnet publish "$repo/src/Jellyfin.Plugin.Oriel/Jellyfin.Plugin.Oriel.csproj" \
         -c Release -o "$plugin_dir" --nologo -v quiet >/dev/null || fail "dotnet publish failed"
+}
+
+# The plugin's settings file, as Jellyfin writes it for PluginConfiguration.
+oriel_config() {
+    printf '<?xml version="1.0" encoding="utf-8"?>
+<PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <EnableWebIntegration>%s</EnableWebIntegration>
+</PluginConfiguration>
+' "$1"
+}
+
+set_integration() {
+    local value
+    case "${1:-}" in
+        on) value=true ;;
+        off) value=false ;;
+        *) fail "usage: $0 integration on|off" ;;
+    esac
+    exists || fail "no server yet; run '$0 up' first"
+    if [ "$value" = true ]; then
+        local ft="$repo/.dev/FileTransformation_$FT_VERSION"
+        [ -f "$ft/Jellyfin.Plugin.FileTransformation.dll" ] || fetch_file_transformation "$ft" || fail "fetch File Transformation $FT_VERSION"
+        MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" mkdir -p /config/plugins/configurations
+        MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$ft")/." "$CONTAINER:/config/plugins/FileTransformation_$FT_VERSION" >/dev/null             || fail "copy File Transformation into the server"
+    fi
+    oriel_config "$value" > "$repo/.dev/Jellyfin.Plugin.Oriel.xml"
+    MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$repo/.dev/Jellyfin.Plugin.Oriel.xml")"         "$CONTAINER:/config/plugins/configurations/Jellyfin.Plugin.Oriel.xml" >/dev/null || fail "write the plugin settings"
+    docker restart "$CONTAINER" >/dev/null
+    echo "dev-server: jellyfin-web integration $1"
 }
 
 show_urls() {
@@ -77,13 +109,17 @@ case "${1:-}" in
     logs)
         docker logs -f "$CONTAINER"
         ;;
+    integration)
+        set_integration "${2:-}"
+        show_urls
+        ;;
     reset)
         docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
         docker volume rm oriel-dev-config oriel-dev-cache >/dev/null 2>&1 || true
         echo "dev-server: removed the server and its data"
         ;;
     *)
-        sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
         exit 2
         ;;
 esac

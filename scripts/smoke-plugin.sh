@@ -14,8 +14,10 @@ ADMIN_USER="smoke"
 ADMIN_PW="smoke-$RANDOM$RANDOM"
 CLIENT_HEADER='MediaBrowser Client="oriel-smoke", Device="smoke", DeviceId="oriel-smoke", Version="1.0.0"'
 BOOK_TEXT="Oriel smoke chapter one opens here."
+PLUGIN_ID="2c488ea7-0cae-4499-a2a7-6bae27b4e8f6"
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
+. "$repo/scripts/file-transformation.sh"
 work="$(mktemp -d)"
 container="oriel-smoke-$$"
 
@@ -62,12 +64,15 @@ mkdir -p "$work/media/books"
 node "$reader/e2e/make-epub.mjs" "$work/media/books/oriel-smoke.epub" "$BOOK_TEXT" || fail "generate test EPUB"
 (cd "$reader" && npx playwright install webkit >/dev/null) || fail "install Playwright WebKit"
 
+fetch_file_transformation "$work/ft" || fail "fetch File Transformation $FT_VERSION"
+
 # --- server ----------------------------------------------------------------
 
 MSYS_NO_PATHCONV=1 docker run -d --name "$container" \
     -p 127.0.0.1::8096 \
     -v "$(hostpath "$plugin_dir"):/config/plugins/${PLUGIN_NAME}_${PLUGIN_VERSION}" \
     -v "$(hostpath "$work/media/books"):/media/books:ro" \
+    -v "$(hostpath "$work/ft"):/oriel-ft:ro" \
     "$IMAGE" >/dev/null || fail "docker run $IMAGE"
 
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
@@ -140,14 +145,19 @@ check_reader_in_browser() {
         node "$reader/e2e/reader.e2e.mjs" || fail "reader in WebKit at $1"
 }
 
-# Plugin loaded and Active.
-code="$(get_status -H "Authorization: $token_header" "$base/Plugins")"
-[ "$code" = "200" ] || fail "GET /Plugins returned $code"
-entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$PLUGIN_NAME\"" || true)"
-[ -n "$entry" ] || { docker logs "$container" 2>&1 | grep -i -E 'oriel|plugin' | tail -20 >&2; fail "$PLUGIN_NAME not listed by /Plugins"; }
-status="$(echo "$entry" | json_str Status)"
-[ "$status" = "Active" ] || fail "$PLUGIN_NAME status is '$status', expected Active"
-pass "/Plugins lists $PLUGIN_NAME as Active"
+# A plugin is loaded and Active.
+check_plugin_active() {
+    local prefix="$1" name="$2"
+    code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins")"
+    [ "$code" = "200" ] || fail "GET /Plugins returned $code"
+    entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$name\"" || true)"
+    [ -n "$entry" ] || { docker logs "$container" 2>&1 | grep -i -E 'oriel|plugin|transformation' | tail -20 >&2; fail "$name not listed by /Plugins"; }
+    status="$(echo "$entry" | json_str Status)"
+    [ "$status" = "Active" ] || fail "$name status is '$status', expected Active"
+    pass "/Plugins lists $name as Active"
+}
+
+check_plugin_active "$base" "$PLUGIN_NAME"
 
 # Reader page and its assets, served anonymously at a prefix.
 check_reader() {
@@ -185,6 +195,67 @@ code="$(get_status -H "Authorization: $token_header" "$base/Oriel/Me")"
 grep -q "$user_id" "$work/body" || fail "GET /Oriel/Me body does not carry user id $user_id: $(cat "$work/body")"
 pass "/Oriel/Me is 401 without a token and returns the user id with one"
 
+# --- jellyfin-web integration ----------------------------------------------
+
+docker logs "$container" 2>&1 | grep -q 'File Transformation 3.x is not installed' \
+    || fail "without File Transformation the plugin did not log that the integration is unavailable"
+pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
+
+check_takeover_in_browser() {
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
+    ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        node "$reader/e2e/takeover.e2e.mjs" || fail "Play in jellyfin-web at $1 did not open the $2 reader"
+}
+
+# The integration off: jellyfin-web is served exactly as shipped.
+check_web_stock() {
+    local prefix="$1"
+    for file in index.html config.json; do
+        curl -sf -o "$work/served" "$prefix/web/$file" || fail "GET $prefix/web/$file"
+        MSYS_NO_PATHCONV=1 docker exec "$container" cat "/jellyfin/jellyfin-web/$file" > "$work/stock" || fail "read the stock $file"
+        cmp -s "$work/served" "$work/stock" || fail "$prefix/web/$file differs from the stock file with the integration off"
+    done
+    pass "with the integration off, $prefix/web/index.html and config.json are byte-for-byte the stock files"
+}
+
+# The integration on: one classic launcher script in index.html, the player in config.json.
+check_web_patched() {
+    local prefix="$1"
+    curl -sf -o "$work/served" "$prefix/web/index.html" || fail "GET $prefix/web/index.html"
+    count="$(grep -o '<script src="../Oriel/integration/launcher.js"></script>' "$work/served" | wc -l | tr -d ' ')"
+    [ "$count" = "1" ] || fail "$prefix/web/index.html carries $count launcher script tags, expected 1"
+    curl -sf -o "$work/served" "$prefix/web/config.json" || fail "GET $prefix/web/config.json"
+    grep -q '"OrielBookPlayer"' "$work/served" || fail "$prefix/web/config.json does not list OrielBookPlayer"
+    grep -q '"bookPlayer/plugin"' "$work/served" || fail "$prefix/web/config.json lost the stock book player"
+    code="$(get_status "$prefix/Oriel/integration/launcher.js")"
+    [ "$code" = "200" ] || fail "GET $prefix/Oriel/integration/launcher.js returned $code"
+    pass "with the integration on, $prefix/web/index.html carries one launcher script and config.json lists OrielBookPlayer"
+}
+
+set_integration() {
+    local prefix="$1" value="$2"
+    code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
+    [ "$code" = "200" ] || fail "GET the $PLUGIN_NAME configuration returned $code"
+    sed -E "s/\"EnableWebIntegration\": *(true|false)/\"EnableWebIntegration\":$value/" "$work/body" > "$work/oriel-config.json"
+    grep -q "\"EnableWebIntegration\":$value" "$work/oriel-config.json" || fail "could not set EnableWebIntegration in $(cat "$work/body")"
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        --data-binary "@$work/oriel-config.json" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
+    [ "$code" = "204" ] || fail "POST the $PLUGIN_NAME configuration returned $code"
+}
+
+MSYS_NO_PATHCONV=1 docker exec "$container" cp -r /oriel-ft "/config/plugins/FileTransformation_$FT_VERSION" || fail "install File Transformation"
+docker restart "$container" >/dev/null || fail "docker restart"
+port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
+base="http://127.0.0.1:$port"
+wait_ready "$base"
+check_plugin_active "$base" "File Transformation"
+
+check_web_stock "$base"
+check_takeover_in_browser "$base" builtin
+set_integration "$base" true
+check_web_patched "$base"
+check_takeover_in_browser "$base" oriel
+
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
 [ "$code" = "200" ] || fail "GET network configuration returned $code"
@@ -198,5 +269,7 @@ port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
 check_reader_in_browser "http://127.0.0.1:$port/jf"
+check_web_patched "http://127.0.0.1:$port/jf"
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel
 
 echo "smoke-plugin: all checks passed"
