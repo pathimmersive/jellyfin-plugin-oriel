@@ -1,4 +1,7 @@
 // Writes a minimal EPUB 3 book with known first-chapter text, for the smoke test.
+// It has four chapters of about 4,000 characters each, so a reading position
+// given as a fraction of the book lands in a known chapter: 0.6 is in chapter
+// three, whose first line is "Oriel smoke chapter three starts here."
 // Usage: node e2e/make-epub.mjs <output.epub> <first-chapter text>
 import { writeFileSync } from 'node:fs'
 import { crc32 } from 'node:zlib'
@@ -8,6 +11,16 @@ if (!output || !chapterText) {
     console.error('usage: node e2e/make-epub.mjs <output.epub> <first-chapter text>')
     process.exit(2)
 }
+
+const filler = Array.from({ length: 20 }, (_, i) =>
+    `<p>Paragraph ${i + 1} holds plain filler text, so that every chapter is about the same length.</p>`).join('')
+    + Array.from({ length: 20 }, () => '<p>More filler follows here, a line at a time, to pad the chapter out.</p>').join('')
+const chapters = [
+    ['ch1', 'Chapter One', chapterText],
+    ['ch2', 'Chapter Two', 'Oriel smoke chapter two starts here.'],
+    ['ch3', 'Chapter Three', 'Oriel smoke chapter three starts here.'],
+    ['ch4', 'Chapter Four', 'Oriel smoke chapter four starts here.'],
+]
 
 const xhtml = (title, body) => `<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE html>
@@ -33,20 +46,16 @@ const files = [
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
-    <item id="ch1" href="ch1.xhtml" media-type="application/xhtml+xml"/>
-    <item id="ch2" href="ch2.xhtml" media-type="application/xhtml+xml"/>
+${chapters.map(([id]) => `    <item id="${id}" href="${id}.xhtml" media-type="application/xhtml+xml"/>`).join('\n')}
   </manifest>
   <spine>
-    <itemref idref="ch1"/>
-    <itemref idref="ch2"/>
+${chapters.map(([id]) => `    <itemref idref="${id}"/>`).join('\n')}
   </spine>
 </package>`],
     ['OEBPS/nav.xhtml', xhtml('Contents', `<nav epub:type="toc"><ol>
-<li><a href="ch1.xhtml">Chapter One</a></li>
-<li><a href="ch2.xhtml">Chapter Two</a></li>
+${chapters.map(([id, title]) => `<li><a href="${id}.xhtml">${title}</a></li>`).join('\n')}
 </ol></nav>`)],
-    ['OEBPS/ch1.xhtml', xhtml('Chapter One', `<h1>Chapter One</h1><p>${chapterText}</p>`)],
-    ['OEBPS/ch2.xhtml', xhtml('Chapter Two', '<h1>Chapter Two</h1><p>The second chapter.</p>')],
+    ...chapters.map(([id, title, first]) => [`OEBPS/${id}.xhtml`, xhtml(title, `<h1>${title}</h1><p>${first}</p>${filler}`)]),
 ]
 
 // Stored (uncompressed) zip entries, mimetype first, as EPUB requires.

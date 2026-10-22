@@ -195,6 +195,64 @@ code="$(get_status -H "Authorization: $token_header" "$base/Oriel/Me")"
 grep -q "$user_id" "$work/body" || fail "GET /Oriel/Me body does not carry user id $user_id: $(cat "$work/body")"
 pass "/Oriel/Me is 401 without a token and returns the user id with one"
 
+# --- progress in Jellyfin's user data --------------------------------------
+
+# Runs before anything opens the book in jellyfin-web's own book player. The
+# library scan gives every book a runtime of 10^7 ticks, the one-second
+# timeline that player reports on, so a position is round(fraction x 10^7)
+# ticks. 0.6 of the way through the test EPUB is in its third chapter.
+BOOK_RUNTIME_TICKS=10000000
+PROGRESS_TICKS=6000000
+PROGRESS_TEXT="Oriel smoke chapter three starts here."
+
+# First value of a number or boolean field in a JSON body, or nothing.
+json_val() { grep -o "\"$1\":[^,}]*" | head -1 | sed "s/^\"$1\"://" || true; }
+
+resume_lists_book() {
+    local query="$1"
+    code="$(get_status -H "Authorization: $token_header" "$base/UserItems/Resume?userId=$user_id&$query")"
+    [ "$code" = "200" ] || fail "GET /UserItems/Resume?$query returned $code"
+    grep -q "\"Id\":\"$item_id\"" "$work/body"
+}
+
+write_user_data() {
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        -d "$1" "$base/UserItems/$item_id/UserData?userId=$user_id")"
+    [ "$code" = "200" ] || fail "POST /UserItems/$item_id/UserData $1 returned $code"
+}
+
+show_user_data() {
+    code="$(get_status -H "Authorization: $token_header" "$base/UserItems/$item_id/UserData?userId=$user_id")"
+    [ "$code" = "200" ] || fail "GET /UserItems/$item_id/UserData returned $code"
+    echo "INFO: after writing $1 the server returns PlaybackPositionTicks=$(json_val PlaybackPositionTicks < "$work/body")" \
+        "PlayedPercentage=$(json_val PlayedPercentage < "$work/body") Played=$(json_val Played < "$work/body")"
+}
+
+code="$(get_status -H "Authorization: $token_header" "$base/Items/$item_id?userId=$user_id")"
+[ "$code" = "200" ] || fail "GET /Items/$item_id returned $code"
+runtime="$(json_val RunTimeTicks < "$work/body")"
+[ "$runtime" = "$BOOK_RUNTIME_TICKS" ] || fail "the test EPUB has RunTimeTicks='$runtime', expected $BOOK_RUNTIME_TICKS"
+for query in mediaTypes=Book includeItemTypes=Book; do
+    ! resume_lists_book "$query" || fail "/UserItems/Resume?$query lists the test EPUB before any progress is written"
+done
+pass "the library scan gives the test EPUB RunTimeTicks=$BOOK_RUNTIME_TICKS and /UserItems/Resume does not list it before any progress is written"
+
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
+show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS"
+[ "$(json_val PlaybackPositionTicks < "$work/body")" = "$PROGRESS_TICKS" ] \
+    || fail "the server did not keep PlaybackPositionTicks=$PROGRESS_TICKS"
+for query in mediaTypes=Book includeItemTypes=Book; do
+    resume_lists_book "$query" || fail "/UserItems/Resume?$query does not list the test EPUB after PlaybackPositionTicks=$PROGRESS_TICKS was written"
+done
+pass "after PlaybackPositionTicks=$PROGRESS_TICKS is written through /UserItems/{id}/UserData, /UserItems/Resume lists the test EPUB"
+
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS,\"PlayedPercentage\":60}"
+show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS and PlayedPercentage=60"
+
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
+    node "$reader/e2e/progress.e2e.mjs" || fail "jellyfin-web with saved progress at $base"
+
 # --- jellyfin-web integration ----------------------------------------------
 
 docker logs "$container" 2>&1 | grep -q 'File Transformation 3.x is not installed' \
