@@ -195,17 +195,82 @@ code="$(get_status -H "Authorization: $token_header" "$base/Oriel/Me")"
 grep -q "$user_id" "$work/body" || fail "GET /Oriel/Me body does not carry user id $user_id: $(cat "$work/body")"
 pass "/Oriel/Me is 401 without a token and returns the user id with one"
 
+# --- progress in Jellyfin's user data --------------------------------------
+
+# Runs before anything opens the book in jellyfin-web's own book player. The
+# library scan gives every book a runtime of 10^7 ticks, the one-second
+# timeline that player reports on, so a position is round(fraction x 10^7)
+# ticks. 0.6 of the way through the test EPUB is in its third chapter.
+BOOK_RUNTIME_TICKS=10000000
+PROGRESS_TICKS=6000000
+PROGRESS_TEXT="Oriel smoke chapter three starts here."
+
+# First value of a number or boolean field in a JSON body, or nothing.
+json_val() { grep -o "\"$1\":[^,}]*" | head -1 | sed "s/^\"$1\"://" || true; }
+
+resume_lists_book() {
+    local query="$1"
+    code="$(get_status -H "Authorization: $token_header" "$base/UserItems/Resume?userId=$user_id&$query")"
+    [ "$code" = "200" ] || fail "GET /UserItems/Resume?$query returned $code"
+    grep -q "\"Id\":\"$item_id\"" "$work/body"
+}
+
+write_user_data() {
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        -d "$1" "${2:-$base}/UserItems/$item_id/UserData?userId=$user_id")"
+    [ "$code" = "200" ] || fail "POST /UserItems/$item_id/UserData $1 returned $code"
+}
+
+show_user_data() {
+    code="$(get_status -H "Authorization: $token_header" "$base/UserItems/$item_id/UserData?userId=$user_id")"
+    [ "$code" = "200" ] || fail "GET /UserItems/$item_id/UserData returned $code"
+    echo "INFO: after writing $1 the server returns PlaybackPositionTicks=$(json_val PlaybackPositionTicks < "$work/body")" \
+        "PlayedPercentage=$(json_val PlayedPercentage < "$work/body") Played=$(json_val Played < "$work/body")"
+}
+
+code="$(get_status -H "Authorization: $token_header" "$base/Items/$item_id?userId=$user_id")"
+[ "$code" = "200" ] || fail "GET /Items/$item_id returned $code"
+runtime="$(json_val RunTimeTicks < "$work/body")"
+[ "$runtime" = "$BOOK_RUNTIME_TICKS" ] || fail "the test EPUB has RunTimeTicks='$runtime', expected $BOOK_RUNTIME_TICKS"
+for query in mediaTypes=Book includeItemTypes=Book; do
+    ! resume_lists_book "$query" || fail "/UserItems/Resume?$query lists the test EPUB before any progress is written"
+done
+pass "the library scan gives the test EPUB RunTimeTicks=$BOOK_RUNTIME_TICKS and /UserItems/Resume does not list it before any progress is written"
+
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
+show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS"
+[ "$(json_val PlaybackPositionTicks < "$work/body")" = "$PROGRESS_TICKS" ] \
+    || fail "the server did not keep PlaybackPositionTicks=$PROGRESS_TICKS"
+for query in mediaTypes=Book includeItemTypes=Book; do
+    resume_lists_book "$query" || fail "/UserItems/Resume?$query does not list the test EPUB after PlaybackPositionTicks=$PROGRESS_TICKS was written"
+done
+pass "after PlaybackPositionTicks=$PROGRESS_TICKS is written through /UserItems/{id}/UserData, /UserItems/Resume lists the test EPUB"
+
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS,\"PlayedPercentage\":60}"
+show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS and PlayedPercentage=60"
+
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
+    node "$reader/e2e/progress.e2e.mjs" || fail "jellyfin-web with saved progress at $base"
+
 # --- jellyfin-web integration ----------------------------------------------
 
-docker logs "$container" 2>&1 | grep -q 'File Transformation 3.x is not installed' \
+# Read the whole log first: grep -q stops early, and under pipefail the cut-off
+# docker logs would fail the check.
+docker logs "$container" > "$work/server.log" 2>&1
+grep -q 'File Transformation 3.x is not installed' "$work/server.log" \
     || fail "without File Transformation the plugin did not log that the integration is unavailable"
 pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
 
+# Presses Play or Resume ($3) and expects the oriel or builtin reader ($2).
 check_takeover_in_browser() {
-    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_BUTTON="$3" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
     ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
-        node "$reader/e2e/takeover.e2e.mjs" || fail "Play in jellyfin-web at $1 did not open the $2 reader"
+        node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader"
 }
+
+# Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
+set_progress() { write_user_data "{\"PlaybackPositionTicks\":$2}" "$1"; }
 
 # The integration off: jellyfin-web is served exactly as shipped.
 check_web_stock() {
@@ -251,10 +316,15 @@ wait_ready "$base"
 check_plugin_active "$base" "File Transformation"
 
 check_web_stock "$base"
-check_takeover_in_browser "$base" builtin
+set_progress "$base" "$PROGRESS_TICKS"
+check_takeover_in_browser "$base" builtin Resume
+set_progress "$base" 0
+check_takeover_in_browser "$base" builtin Play
 set_integration "$base" true
 check_web_patched "$base"
-check_takeover_in_browser "$base" oriel
+check_takeover_in_browser "$base" oriel Play
+set_progress "$base" "$PROGRESS_TICKS"
+check_takeover_in_browser "$base" oriel Resume
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
@@ -270,6 +340,9 @@ wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
 check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
-check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel
+set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume
+set_progress "http://127.0.0.1:$port/jf" 0
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
 
 echo "smoke-plugin: all checks passed"

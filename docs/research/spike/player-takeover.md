@@ -36,8 +36,14 @@ PASS when pressing Play (or Resume) on an EPUB opens it in Oriel at `/Oriel/?id=
 | takeover-safari | PASS | iOS 26.6.2 | iPhone 17 Pro | Jellyfin 12.2.0 | n/a | Play on The Pillars of the Earth opened /Oriel/?id=<id> in Safari, not the built-in reader |
 | takeover-ios-app | PASS | iOS 26.6.2 | iPhone 17 Pro | Jellyfin 12.2.0 | Jellyfin for iOS 1.8.0 | after a force-quit so the app reloaded the web client, Play opened Oriel inside the app; before the integration, the same Play opened the built-in reader |
 | takeover-android-app | PASS | Android 14 | Samsung Galaxy S23 FE | Jellyfin 12.2.0 | Jellyfin for Android 2.7.3 | Play opened Oriel inside the app |
+| resume-webkit | PASS | n/a (Windows 11) | Playwright 1.64.1 WebKit | Jellyfin 12.2.0 | n/a | scripts/smoke-plugin.sh with saved progress, so the play button reads Resume: integration off, Resume opens the built-in book player; integration on, Resume opens /Oriel/?id=<id>, at the root and under /jf |
+| resume-safari | PASS | iOS 26.6.2 | iPhone 17 Pro | Jellyfin 12.2.0 | n/a | with 60% saved on The Pillars of the Earth, the detail page shows the progress and the Resume button opens Oriel, at the start of the book |
+| resume-ios-app | PASS | iOS 26.6.2 | iPhone 17 Pro | Jellyfin 12.2.0 | Jellyfin for iOS 1.8.0 | same as Safari: Resume opens Oriel inside the app, at the start of the book |
+| resume-android-app | PASS | Android 14 | Samsung Galaxy S23 FE | Jellyfin 12.2.0 | Jellyfin for Android 2.7.3 | same as Safari: Resume opens Oriel inside the app, at the start of the book |
 
-Resume was not pressed separately on the devices. jellyfin-web picks the player for Resume the same way as for Play, by asking each player in priority order whether it can play the item, so Resume is expected to behave the same; that is inferred from the bundle, not observed.
+Resume behaves like Play: jellyfin-web picks the player the same way, by asking each player in priority order whether it can play the item, and the resume rows confirm it on every surface. Oriel opens at the start of the book for now, because it does not yet read the position Jellyfin passes in (`startPositionTicks`) or stores.
+
+A browser tab opened before the integration was turned on keeps the page it loaded, so it still opens the built-in reader, at the saved position, until it is reloaded. Desktop Chrome did this until a hard reload, after which Resume opened Oriel.
 
 ## Consequence for MVP
 

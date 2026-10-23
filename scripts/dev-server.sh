@@ -9,12 +9,15 @@
 #   scripts/dev-server.sh logs                             # follow the server log
 #   scripts/dev-server.sh reset                            # remove the server and its data
 #   scripts/dev-server.sh integration on|off               # jellyfin-web integration, via File Transformation
+#   scripts/dev-server.sh progress "<book title>" <0-1>    # save a reading position for your user
 #
 # The server listens on port 8096 on every interface (ORIEL_DEV_PORT to change
 # it), so phones on the same network can reach it. Server settings, users and
 # the library index live in Docker volumes and survive restarts. ORIEL_BOOKS is
 # read only when the server is first created. "integration on" installs the
 # pinned File Transformation plugin on this server only and restarts it.
+# "progress" asks for a Jellyfin user name and password on this server and
+# writes the position the way jellyfin-web's book player stores it.
 #
 # Needs: bash, docker, Node and npm, the .NET 10 SDK.
 set -euo pipefail
@@ -63,12 +66,51 @@ set_integration() {
         local ft="$repo/.dev/FileTransformation_$FT_VERSION"
         [ -f "$ft/Jellyfin.Plugin.FileTransformation.dll" ] || fetch_file_transformation "$ft" || fail "fetch File Transformation $FT_VERSION"
         MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" mkdir -p /config/plugins/configurations
-        MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$ft")/." "$CONTAINER:/config/plugins/FileTransformation_$FT_VERSION" >/dev/null             || fail "copy File Transformation into the server"
+        MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$ft")/." "$CONTAINER:/config/plugins/FileTransformation_$FT_VERSION" >/dev/null \
+            || fail "copy File Transformation into the server"
     fi
     oriel_config "$value" > "$repo/.dev/Jellyfin.Plugin.Oriel.xml"
-    MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$repo/.dev/Jellyfin.Plugin.Oriel.xml")"         "$CONTAINER:/config/plugins/configurations/Jellyfin.Plugin.Oriel.xml" >/dev/null || fail "write the plugin settings"
+    MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$repo/.dev/Jellyfin.Plugin.Oriel.xml")" \
+        "$CONTAINER:/config/plugins/configurations/Jellyfin.Plugin.Oriel.xml" >/dev/null || fail "write the plugin settings"
     docker restart "$CONTAINER" >/dev/null
     echo "dev-server: jellyfin-web integration $1"
+}
+
+# First value of a string field in a JSON body, or nothing; enough for the
+# flat fields read here.
+json_str() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/^\"$1\":\"\(.*\)\"$/\1/" || true; }
+
+save_progress() {
+    local title="${1:-}" fraction="${2:-}"
+    [ -n "$title" ] && [ -n "$fraction" ] || fail "usage: $0 progress \"<book title>\" <fraction from 0 to 1>"
+    # jellyfin-web's book player stores a position as round(fraction x 10^7) ticks.
+    local ticks
+    ticks="$(awk -v f="$fraction" 'BEGIN { if (f !~ /^(0|1|0?\.[0-9]+)$/ || f > 1) exit 1; printf "%d", f * 10000000 + 0.5 }')" \
+        || fail "the fraction must be a number from 0 to 1, such as 0.6"
+    exists || fail "no server yet; run '$0 up' first"
+    local base="http://localhost:$PORT"
+    local client='MediaBrowser Client="oriel-dev", Device="dev-server", DeviceId="oriel-dev-server", Version="1.0.0"'
+    local user pw auth token header user_id query item_id
+    read -r -p "Jellyfin user on this server: " user
+    read -r -s -p "Password: " pw
+    echo
+    auth="$(curl -sf -X POST -H 'Content-Type: application/json' -H "Authorization: $client" \
+        --data-binary @- "$base/Users/AuthenticateByName" <<< "{\"Username\":\"$user\",\"Pw\":\"$pw\"}")" \
+        || fail "sign-in failed"
+    token="$(echo "$auth" | json_str AccessToken)"
+    [ -n "$token" ] || fail "no access token in the sign-in response"
+    header="$client, Token=\"$token\""
+    user_id="$(curl -sf -H "Authorization: $header" "$base/Users/Me" | json_str Id)"
+    [ -n "$user_id" ] || fail "no user id from /Users/Me"
+    query="$(node -e 'process.stdout.write(encodeURIComponent(process.argv[1]))' "$title")"
+    item_id="$(curl -sf -H "Authorization: $header" \
+        "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book&searchTerm=$query&Limit=1" | json_str Id)"
+    [ -n "$item_id" ] || fail "no book matching '$title'"
+    curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorization: $header" \
+        -d "{\"PlaybackPositionTicks\":$ticks}" "$base/UserItems/$item_id/UserData?userId=$user_id" \
+        || fail "saving the position failed"
+    curl -sf -o /dev/null -X POST -H "Authorization: $header" "$base/Sessions/Logout" || true
+    echo "dev-server: saved $fraction of the way through '$title' ($item_id) for $user"
 }
 
 show_urls() {
@@ -113,13 +155,16 @@ case "${1:-}" in
         set_integration "${2:-}"
         show_urls
         ;;
+    progress)
+        save_progress "${2:-}" "${3:-}"
+        ;;
     reset)
         docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
         docker volume rm oriel-dev-config oriel-dev-cache >/dev/null 2>&1 || true
         echo "dev-server: removed the server and its data"
         ;;
     *)
-        sed -n '2,18p' "$0" | sed 's/^# \{0,1\}//'
+        sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'
         exit 2
         ;;
 esac
