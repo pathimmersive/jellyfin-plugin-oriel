@@ -13,7 +13,7 @@
 
   <ItemGroup>
     <!-- The host provides these at runtime; ExcludeAssets keeps them out of the plugin folder. -->
-    <PackageReference Include="Jellyfin.Controller" Version="12.*" ExcludeAssets="runtime" />
+    <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <!-- The reader web app in ../reader is built with npm and its dist/ output embedded. -->

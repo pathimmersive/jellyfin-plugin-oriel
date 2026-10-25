@@ -4,7 +4,8 @@
 # failed check and always removes the container.
 #
 # Needs: bash, curl, docker, Node and npm, the .NET 10 SDK.
-# Override the image with JELLYFIN_IMAGE=jellyfin/jellyfin:<tag>.
+# Override the image with JELLYFIN_IMAGE=jellyfin/jellyfin:<tag>. The plugin is
+# built against the Jellyfin version in the tag; JELLYFIN_VERSION overrides it.
 set -euo pipefail
 
 IMAGE="${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.2.20261005-225228}"
@@ -42,9 +43,30 @@ json_str() { grep -o "\"$1\":\"[^\"]*\"" | head -1 | sed "s/^\"$1\":\"\(.*\)\"$/
 project="$repo/src/Jellyfin.Plugin.Oriel/Jellyfin.Plugin.Oriel.csproj"
 [ -f "$project" ] || fail "plugin project not found at $project"
 
+# The Jellyfin version the image runs: the tag's major.minor, and its patch
+# unless that field is a build date (12.2.20261005-225228 is 12.2.0). The
+# plugin is built against it, or against JELLYFIN_VERSION when that is set.
+tag="${IMAGE##*:}"
+image_version=""
+if [[ "$tag" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))? ]]; then
+    patch="${BASH_REMATCH[4]:-0}"
+    [ "${#patch}" -lt 8 ] || patch=0
+    image_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$patch"
+fi
+JELLYFIN_VERSION="${JELLYFIN_VERSION:-$image_version}"
+[ -n "$JELLYFIN_VERSION" ] || fail "cannot read a Jellyfin version from image tag '$tag'; set JELLYFIN_VERSION"
+
 plugin_dir="$work/plugins/${PLUGIN_NAME}_${PLUGIN_VERSION}"
-dotnet publish "$project" -c Release -o "$plugin_dir" --nologo -v quiet \
+dotnet publish "$project" -c Release -o "$plugin_dir" --nologo -v quiet -p:JellyfinVersion="$JELLYFIN_VERSION" \
     || fail "dotnet publish"
+
+# A plugin built against a newer Jellyfin than the server is refused as NotSupported.
+assets="$(dirname "$project")/obj/project.assets.json"
+built="$(grep -o '"Jellyfin\.Controller/[^"]*"' "$assets" | head -1 | sed 's/^"Jellyfin\.Controller\/\(.*\)"$/\1/' || true)"
+[ "$built" = "$JELLYFIN_VERSION" ] || fail "plugin built against Jellyfin.Controller '$built', expected $JELLYFIN_VERSION"
+[ -z "$image_version" ] || [ "$built" = "$image_version" ] \
+    || fail "plugin built against Jellyfin.Controller $built, but $IMAGE runs $image_version"
+pass "plugin built against Jellyfin.Controller $built for $IMAGE"
 
 [ -f "$plugin_dir/Jellyfin.Plugin.Oriel.dll" ] || fail "plugin assembly missing from publish output"
 [ -f "$plugin_dir/meta.json" ] || fail "meta.json missing from publish output"
