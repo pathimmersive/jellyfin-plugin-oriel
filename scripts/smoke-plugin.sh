@@ -368,7 +368,9 @@ check_takeover_in_browser() {
 # Opens the reader signed out, signs in on the jellyfin-web login page it is
 # sent to, and expects the book's detail page or the book in Oriel ($2).
 check_login_return() {
-    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW"     ORIEL_EXPECT_TEXT="$BOOK_TEXT"         node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW" \
+    ORIEL_EXPECT_TEXT="$BOOK_TEXT" \
+        node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
 }
 
 # Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
