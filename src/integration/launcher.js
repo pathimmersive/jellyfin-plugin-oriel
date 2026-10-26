@@ -58,6 +58,80 @@
         return Promise.resolve(OrielBookPlayer);
     };
 
+    // Finishing a sign-in that started in the reader. The reader leaves a marker
+    // with the book's id before sending a signed-out user to the login page, which
+    // returns to that book's detail page after sign-in; from there, open the book
+    // in Oriel again. The reader's src/session/return.ts uses the same key, age
+    // limit and id format.
+    var RETURN_KEY = 'oriel_return';
+    var RETURN_MAX_AGE_MS = 10 * 60 * 1000;
+    var RETURN_CHECK_MS = 300;
+    var ITEM_ID = /^[0-9a-f]{32}$/i;
+
+    // The stored marker, {} when one is stored but unreadable, or null.
+    function readReturnMarker() {
+        var stored;
+        try {
+            stored = window.localStorage.getItem(RETURN_KEY);
+        } catch (e) {
+            return null;
+        }
+        if (!stored) return null;
+        try {
+            return JSON.parse(stored) || {};
+        } catch (e) {
+            return {};
+        }
+    }
+
+    function clearReturnMarker() {
+        try {
+            window.localStorage.removeItem(RETURN_KEY);
+        } catch (e) { /* storage unavailable: nothing to clear */ }
+    }
+
+    // The item id of the jellyfin-web detail page being shown, or null.
+    function detailsItemId() {
+        var hash = window.location.hash || '';
+        if (hash.indexOf('#/details?') !== 0) return null;
+        var params = hash.slice('#/details?'.length).split('&');
+        for (var i = 0; i < params.length; i++) {
+            if (params[i].indexOf('id=') === 0) return decodeURIComponent(params[i].slice(3));
+        }
+        return null;
+    }
+
+    function watchReturn() {
+        var marker = readReturnMarker();
+        if (!marker) return;
+        if (typeof marker.id !== 'string' || !ITEM_ID.test(marker.id) || typeof marker.at !== 'number') {
+            clearReturnMarker();
+            return;
+        }
+        var timer = null;
+        function stop() {
+            if (timer !== null) window.clearInterval(timer);
+            timer = null;
+            window.removeEventListener('hashchange', check);
+        }
+        function check() {
+            var age = Date.now() - marker.at;
+            if (age < 0 || age > RETURN_MAX_AGE_MS) {
+                clearReturnMarker();
+                stop();
+            } else if ((detailsItemId() || '').toLowerCase() === marker.id.toLowerCase()) {
+                clearReturnMarker();
+                stop();
+                window.location.replace(orielUrl(marker.id));
+            }
+        }
+        window.addEventListener('hashchange', check);
+        timer = window.setInterval(check, RETURN_CHECK_MS);
+        check();
+    }
+
+    watchReturn();
+
     // If jellyfin-web never asks for the player, its plugin loading has changed;
     // say so once and leave the stock players alone.
     window.addEventListener('load', function () {

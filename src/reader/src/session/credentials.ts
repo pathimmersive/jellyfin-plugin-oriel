@@ -85,5 +85,15 @@ export const authorizationHeader = (session: Session, device: string, version: s
     return 'MediaBrowser ' + fields.map(([key, value]) => `${key}="${encodeURIComponent(value)}"`).join(', ')
 }
 
-/** The jellyfin-web login page for a reader page path, under any BaseUrl. */
-export const loginUrl = (pathname: string): string => `${serverBasePath(pathname)}/web/#/login`
+/**
+ * The jellyfin-web login page for a reader page path, under any BaseUrl. With a
+ * book, it asks jellyfin-web to open that book's detail page after sign-in;
+ * jellyfin-web only returns to its own pages, not to the reader.
+ */
+export const loginUrl = (pathname: string, itemId?: string | null, serverId?: string | null): string => {
+    const login = `${serverBasePath(pathname)}/web/#/login`
+    if (!itemId) return login
+    const details = `/details?id=${encodeURIComponent(itemId)}${serverId ? `&serverId=${encodeURIComponent(serverId)}` : ''}`
+    const server = serverId ? `serverid=${encodeURIComponent(serverId)}&` : ''
+    return `${login}?${server}url=${encodeURIComponent(details)}`
+}

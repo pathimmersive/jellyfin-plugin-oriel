@@ -1,10 +1,11 @@
 import './reader.css'
-import { BookLoadError, downloadBook } from './api/client'
+import { BookLoadError, downloadBook, publicServerId } from './api/client'
 import { serverBasePath } from './base'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
+import { saveReturnMarker } from './session/return'
 
 declare const __ORIEL_VERSION__: string
 
@@ -18,13 +19,15 @@ const show = (state: string, message = ''): void => {
 }
 
 const start = async (): Promise<void> => {
+    const itemId = new URLSearchParams(location.search).get('id')
     const session = readSession(localStorage, location.origin)
     if (!session) {
-        location.replace(loginUrl(location.pathname))
+        // Sign in on the jellyfin-web login page, then come back to this book.
+        saveReturnMarker(localStorage, itemId)
+        location.replace(loginUrl(location.pathname, itemId, await publicServerId(serverBasePath(location.pathname))))
         return
     }
 
-    const itemId = new URLSearchParams(location.search).get('id')
     if (!itemId) {
         show('error', 'No book was chosen. Open a book from your Jellyfin library.')
         return

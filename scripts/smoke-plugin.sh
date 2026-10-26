@@ -365,6 +365,12 @@ check_takeover_in_browser() {
         node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader"
 }
 
+# Opens the reader signed out, signs in on the jellyfin-web login page it is
+# sent to, and expects the book's detail page or the book in Oriel ($2).
+check_login_return() {
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW"     ORIEL_EXPECT_TEXT="$BOOK_TEXT"         node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
+}
+
 # Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
 set_progress() { write_user_data "{\"PlaybackPositionTicks\":$2}" "$1"; }
 
@@ -416,8 +422,10 @@ set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" builtin Resume
 set_progress "$base" 0
 check_takeover_in_browser "$base" builtin Play
+check_login_return "$base" details
 set_integration "$base" true
 check_web_patched "$base"
+check_login_return "$base" oriel
 check_takeover_in_browser "$base" oriel Play
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume
@@ -436,6 +444,7 @@ wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
 check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
+check_login_return "http://127.0.0.1:$port/jf" oriel
 set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume
 set_progress "http://127.0.0.1:$port/jf" 0
