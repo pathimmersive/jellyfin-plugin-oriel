@@ -36,3 +36,26 @@ export const downloadBook = async (
     const blob = await response.blob()
     return new File([blob], `${itemId}.epub`, { type: blob.type })
 }
+
+/**
+ * The server's id from the anonymous /System/Info/Public, or null when it cannot
+ * be read in time. Only used to address the jellyfin-web login page.
+ */
+export const publicServerId = async (
+    basePath: string,
+    fetchImpl: typeof fetch = fetch,
+    timeoutMs = 3000,
+): Promise<string | null> => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), timeoutMs)
+    try {
+        const response = await fetchImpl(`${basePath}/System/Info/Public`, { signal: controller.signal })
+        if (!response.ok) return null
+        const info = await response.json() as { Id?: unknown }
+        return typeof info.Id === 'string' && info.Id ? info.Id : null
+    } catch {
+        return null
+    } finally {
+        clearTimeout(timer)
+    }
+}

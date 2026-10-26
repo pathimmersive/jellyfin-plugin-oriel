@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { authorizationHeader, deviceId, loginUrl, readSession } from '../src/session/credentials'
+import { RETURN_KEY, saveReturnMarker } from '../src/session/return'
+
+const ITEM = '3d180653ee958ef40e0ea24db3142dea'
 
 const memoryStorage = (entries: Record<string, string> = {}) => {
     const map = new Map(Object.entries(entries))
@@ -88,5 +91,41 @@ describe('loginUrl', () => {
     it('keeps a configured BaseUrl', () => {
         expect(loginUrl('/jf/Oriel/')).toBe('/jf/web/#/login')
         expect(loginUrl('/media/jellyfin/oriel/')).toBe('/media/jellyfin/web/#/login')
+    })
+
+    it('asks jellyfin-web to return to the book detail page after sign-in', () => {
+        const url = loginUrl('/jf/Oriel/', ITEM, 'server1')
+        expect(url).toBe(`/jf/web/#/login?serverid=server1&url=${encodeURIComponent(`/details?id=${ITEM}&serverId=server1`)}`)
+        const params = new URLSearchParams(url.split('?')[1])
+        expect(decodeURIComponent(params.get('url')!)).toBe(`/details?id=${ITEM}&serverId=server1`)
+    })
+
+    it('returns to the detail page without a server id when it is not known', () => {
+        expect(loginUrl('/Oriel/', ITEM, null)).toBe(`/web/#/login?url=${encodeURIComponent(`/details?id=${ITEM}`)}`)
+    })
+})
+
+describe('saveReturnMarker', () => {
+    const storage = () => {
+        const items = new Map<string, string>()
+        return { items, setItem: (key: string, value: string) => { items.set(key, value) } }
+    }
+
+    it('stores only the book id and the time', () => {
+        const s = storage()
+        expect(saveReturnMarker(s, ITEM, 1000)).toBe(true)
+        expect(JSON.parse(s.items.get(RETURN_KEY)!)).toEqual({ id: ITEM, at: 1000 })
+    })
+
+    it('stores nothing for a missing or malformed id', () => {
+        const s = storage()
+        expect(saveReturnMarker(s, null)).toBe(false)
+        expect(saveReturnMarker(s, '../../evil')).toBe(false)
+        expect(saveReturnMarker(s, 'https://example.com/')).toBe(false)
+        expect(s.items.size).toBe(0)
+    })
+
+    it('carries on when storage refuses the write', () => {
+        expect(saveReturnMarker({ setItem: () => { throw new Error('quota') } }, ITEM)).toBe(false)
     })
 })

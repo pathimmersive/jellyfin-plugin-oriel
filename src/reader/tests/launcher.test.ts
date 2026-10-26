@@ -88,3 +88,86 @@ describe('launcher', () => {
         expect(warn).not.toHaveBeenCalled()
     })
 })
+
+describe('return after sign-in', () => {
+    const ITEM = '3d180653ee958ef40e0ea24db3142dea'
+    const NOW = 1_800_000_000_000
+
+    // A jellyfin-web page with storage, a hash route and an interval timer.
+    const page = (pathname: string, hash: string, stored: string | null) => {
+        const items = new Map<string, string>()
+        if (stored !== null) items.set('oriel_return', stored)
+        const replace = vi.fn()
+        const intervals: (() => void)[] = []
+        const listeners: Record<string, () => void> = {}
+        const window: Record<string, unknown> = {
+            location: { pathname, hash, assign: vi.fn(), replace },
+            localStorage: {
+                getItem: (key: string) => items.get(key) ?? null,
+                removeItem: (key: string) => { items.delete(key) },
+            },
+            addEventListener: (type: string, listener: () => void) => { listeners[type] = listener },
+            removeEventListener: (type: string) => { delete listeners[type] },
+            setInterval: (callback: () => void) => { intervals.push(callback); return intervals.length },
+            clearInterval: () => { intervals.length = 0 },
+        }
+        runInNewContext(source, {
+            window,
+            console: { warn: vi.fn() },
+            setTimeout: () => {},
+            Promise,
+            Date: { now: () => NOW },
+            JSON,
+            decodeURIComponent,
+        })
+        const navigateTo = (newHash: string) => {
+            (window.location as { hash: string }).hash = newHash
+            listeners.hashchange?.()
+        }
+        const tick = () => intervals.forEach(callback => callback())
+        return { items, replace, intervals, navigateTo, tick }
+    }
+    const marker = (id: string, at: number) => JSON.stringify({ id, at })
+
+    it('does nothing without a marker', () => {
+        const p = page('/web/', '#/home', null)
+        expect(p.intervals).toHaveLength(0)
+        expect(p.replace).not.toHaveBeenCalled()
+    })
+
+    it('opens the book in Oriel once its detail page shows after sign-in', () => {
+        const p = page('/web/', '#/login?url=%2Fdetails%3Fid%3D' + ITEM, marker(ITEM, NOW - 1000))
+        p.tick()
+        expect(p.replace).not.toHaveBeenCalled()
+        p.navigateTo(`#/details?id=${ITEM}&serverId=abc`)
+        expect(p.replace).toHaveBeenCalledWith(`/Oriel/?id=${ITEM}`)
+        expect(p.items.has('oriel_return')).toBe(false)
+        expect(p.intervals).toHaveLength(0)
+    })
+
+    it('keeps the BaseUrl', () => {
+        const p = page('/jf/web/', `#/details?id=${ITEM}`, marker(ITEM, NOW))
+        expect(p.replace).toHaveBeenCalledWith(`/jf/Oriel/?id=${ITEM}`)
+    })
+
+    it('stays on the detail page of another book', () => {
+        const p = page('/web/', '#/details?id=ffffffffffffffffffffffffffffffff', marker(ITEM, NOW))
+        p.tick()
+        expect(p.replace).not.toHaveBeenCalled()
+        expect(p.items.has('oriel_return')).toBe(true)
+    })
+
+    it('drops a marker older than ten minutes without navigating', () => {
+        const p = page('/web/', `#/details?id=${ITEM}`, marker(ITEM, NOW - 11 * 60 * 1000))
+        expect(p.replace).not.toHaveBeenCalled()
+        expect(p.items.has('oriel_return')).toBe(false)
+    })
+
+    it('drops a marker whose id is not an item id without navigating', () => {
+        for (const bad of [marker('https://example.com/', NOW), marker('../x', NOW), '{"id":42,"at":0}', 'not json']) {
+            const p = page('/web/', '#/details?id=https://example.com/', bad)
+            expect(p.replace).not.toHaveBeenCalled()
+            expect(p.items.has('oriel_return')).toBe(false)
+        }
+    })
+})
