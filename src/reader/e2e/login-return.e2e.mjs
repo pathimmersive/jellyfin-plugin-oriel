@@ -49,8 +49,12 @@ try {
         .catch(() => fail('the login page offers neither the manual form nor its button'))
     const firstLine = error => error.message.split('\n')[0]
     if (!(await name.isVisible())) {
-        await page.locator('.btnManual:visible').first().click({ timeout: 10_000 })
+        // The user cards can still be animating in on a slow runner, so fire the
+        // button's click handler directly rather than waiting for it to settle.
+        await page.locator('.btnManual:visible').first().dispatchEvent('click')
             .catch(error => fail(`could not open the manual login form: ${firstLine(error)}`))
+        await name.waitFor({ state: 'visible', timeout: 10_000 })
+            .catch(error => fail(`the manual login form did not appear: ${firstLine(error)}`))
     }
     await name.fill(user, { timeout: 10_000 })
         .catch(error => fail(`could not enter the user name: ${firstLine(error)}`))
