@@ -25,6 +25,7 @@ jobs:
       # Building the plugin runs npm ci and the reader build, then embeds it.
       - run: dotnet test
       - run: npm --prefix src/reader test
+      - run: bash scripts/check-community-files.sh
 
   smoke:
     runs-on: ubuntu-24.04
