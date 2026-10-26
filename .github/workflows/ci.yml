@@ -12,6 +12,7 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -29,6 +30,7 @@ jobs:
 
   smoke:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -41,7 +43,21 @@ jobs:
           cache-dependency-path: src/reader/package-lock.json
       - run: npm ci
         working-directory: src/reader
-      # The smoke script installs WebKit itself; the runner also needs its system libraries.
-      - run: npx playwright install --with-deps webkit
+      # The smoke script installs WebKit itself; the runner also needs its system
+      # libraries. The runner's package mirror sometimes slows to a crawl, so each
+      # attempt gets five minutes, and an interrupted apt is cleaned up before the
+      # next try (apt keeps what it already downloaded).
+      - name: Install WebKit's system libraries
         working-directory: src/reader
+        run: |
+          for attempt in 1 2 3; do
+            if timeout --kill-after=15 300 npx playwright install --with-deps webkit; then
+              exit 0
+            fi
+            echo "::warning::WebKit dependency install attempt $attempt failed or took over 5 minutes"
+            sudo pkill -x apt-get || true
+            sudo pkill -x dpkg || true
+            sudo dpkg --configure -a || true
+          done
+          exit 1
       - run: bash scripts/smoke-plugin.sh
