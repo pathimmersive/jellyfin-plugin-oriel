@@ -4,7 +4,8 @@
 # MD5 is the one in its publisher's plugin repository manifest.
 
 FT_VERSION="3.0.2.0"
-FT_URL="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases/download/$FT_VERSION/Release-12.2.0.zip"
+FT_SERVER_VERSION="12.2.0"
+FT_URL="https://github.com/IAmParadox27/jellyfin-plugin-file-transformation/releases/download/$FT_VERSION/Release-$FT_SERVER_VERSION.zip"
 FT_MD5="76eae3b09a42dba7992820fa8f6a4584"
 
 # Unpacks the release into the folder given, downloading it once into a cache.

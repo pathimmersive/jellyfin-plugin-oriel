@@ -275,6 +275,73 @@ ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_T
 ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
     node "$reader/e2e/progress.e2e.mjs" || fail "jellyfin-web with saved progress at $base"
 
+# --- plugin data in the built-in backup ------------------------------------
+
+# A plugin's data folder is its assembly name under the plugins folder. A
+# marker file there goes through a backup with every option on, is deleted,
+# and the backup is restored. The server name, which the backup keeps in
+# system.xml, is the control that shows the restore ran. Jellyfin 12.0 and
+# 12.2 leave the plugins folder out of the backup, so the marker is neither in
+# the archive nor restored; ORIEL_EXPECT_BACKUP_KEEPS_PLUGIN_DATA=true expects
+# the opposite.
+expect_kept="${ORIEL_EXPECT_BACKUP_KEEPS_PLUGIN_DATA:-false}"
+data_dir="/config/plugins/Jellyfin.Plugin.Oriel"
+marker="oriel-backup-marker.txt"
+marker_text="oriel backup marker $RANDOM$RANDOM"
+
+set_server_name() {
+    code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration")"
+    [ "$code" = "200" ] || fail "GET /System/Configuration returned $code"
+    sed -E "s/\"ServerName\":\"[^\"]*\"/\"ServerName\":\"$1\"/" "$work/body" > "$work/system.json"
+    grep -q "\"ServerName\":\"$1\"" "$work/system.json" || fail "could not set ServerName in /System/Configuration"
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        --data-binary "@$work/system.json" "$base/System/Configuration")"
+    [ "$code" = "204" ] || fail "POST /System/Configuration returned $code"
+}
+server_name() { curl -sf -H "Authorization: $token_header" "$base/System/Configuration" | json_str ServerName; }
+read_marker() { MSYS_NO_PATHCONV=1 docker exec "$container" cat "$data_dir/$marker" 2>/dev/null || true; }
+
+MSYS_NO_PATHCONV=1 docker exec "$container" sh -c "mkdir -p '$data_dir' && printf '%s' '$marker_text' > '$data_dir/$marker'" \
+    || fail "write the marker to $data_dir"
+set_server_name oriel-before-backup
+
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"Metadata":true,"Trickplay":true,"Subtitles":true,"Database":true}' "$base/Backup/Create")"
+[ "$code" = "200" ] || fail "POST /Backup/Create returned $code: $(cat "$work/body")"
+archive="$(json_str Path < "$work/body")"
+[ -n "$archive" ] || fail "no archive path in the /Backup/Create response: $(cat "$work/body")"
+MSYS_NO_PATHCONV=1 docker cp "$container:$archive" "$(hostpath "$work/backup.zip")" >/dev/null || fail "copy $archive out of the server"
+unzip -Z1 "$work/backup.zip" > "$work/backup.list" || fail "list $archive"
+grep -q '^Config/system.xml$' "$work/backup.list" || fail "the backup holds no Config/system.xml, so the control cannot work"
+echo "INFO: $IMAGE backup holds $(wc -l < "$work/backup.list" | tr -d ' ') files, under:" \
+    $(cut -d/ -f1-2 "$work/backup.list" | sort -u | tr '\n' ' ')
+in_archive=false
+grep -q "$marker\$" "$work/backup.list" && in_archive=true
+config_in_archive=false
+grep -q 'Jellyfin.Plugin.Oriel.xml$' "$work/backup.list" && config_in_archive=true
+[ "$in_archive" = "$expect_kept" ] \
+    || fail "the plugin data marker in the backup archive: $in_archive, expected $expect_kept"
+pass "a backup with every option on: plugin data marker in the archive=$in_archive, plugin settings (Jellyfin.Plugin.Oriel.xml) in the archive=$config_in_archive"
+
+MSYS_NO_PATHCONV=1 docker exec "$container" rm -f "$data_dir/$marker" || fail "delete the marker"
+set_server_name oriel-after-backup
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d "{\"ArchiveFileName\":\"$(basename "$archive")\"}" "$base/Backup/Restore")"
+[ "$code" = "204" ] || fail "POST /Backup/Restore returned $code: $(cat "$work/body")"
+# The server restarts to restore; wait until it is down, then up again.
+for _ in $(seq 1 60); do
+    curl -sf "$base/System/Info/Public" >/dev/null 2>&1 || break
+    sleep 1
+done
+wait_ready "$base"
+[ "$(server_name)" = "oriel-before-backup" ] \
+    || fail "after the restore the server name is '$(server_name)', expected oriel-before-backup; the restore did not run"
+restored=false
+[ "$(read_marker)" = "$marker_text" ] && restored=true
+[ "$restored" = "$expect_kept" ] \
+    || fail "the plugin data marker after the restore: $restored, expected $expect_kept"
+pass "after the restore the server name is back (the restore ran); plugin data marker restored=$restored"
+
 # --- jellyfin-web integration ----------------------------------------------
 
 # Read the whole log first: grep -q stops early, and under pipefail the cut-off
@@ -283,6 +350,13 @@ docker logs "$container" > "$work/server.log" 2>&1
 grep -q 'File Transformation 3.x is not installed' "$work/server.log" \
     || fail "without File Transformation the plugin did not log that the integration is unavailable"
 pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
+
+# The pinned File Transformation release is built for one server version.
+if [ "$JELLYFIN_VERSION" != "$FT_SERVER_VERSION" ]; then
+    echo "SKIP: the jellyfin-web integration checks need Jellyfin $FT_SERVER_VERSION, the version File Transformation $FT_VERSION is built for; $IMAGE runs $JELLYFIN_VERSION"
+    echo "smoke-plugin: all checks passed"
+    exit 0
+fi
 
 # Presses Play or Resume ($3) and expects the oriel or builtin reader ($2).
 check_takeover_in_browser() {
