@@ -167,6 +167,13 @@ check_reader_in_browser() {
         node "$reader/e2e/reader.e2e.mjs" || fail "reader in WebKit at $1"
 }
 
+# One-finger drags in the reader on an iPhone-sized WebKit page: they leave the
+# page still while text is selected and turn it when nothing is.
+check_selection_in_browser() {
+    ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        node "$reader/e2e/selection.e2e.mjs" || fail "selection drag in WebKit at $1"
+}
+
 # A plugin is loaded and Active.
 check_plugin_active() {
     local prefix="$1" name="$2"
@@ -209,6 +216,7 @@ check_reader() {
 
 check_reader "$base"
 check_reader_in_browser "$base"
+check_selection_in_browser "$base"
 
 code="$(get_status "$base/Oriel/Me")"
 [ "$code" = "401" ] || fail "GET /Oriel/Me without a token returned $code, expected 401"
@@ -368,7 +376,9 @@ check_takeover_in_browser() {
 # Opens the reader signed out, signs in on the jellyfin-web login page it is
 # sent to, and expects the book's detail page or the book in Oriel ($2).
 check_login_return() {
-    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW"     ORIEL_EXPECT_TEXT="$BOOK_TEXT"         node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW" \
+    ORIEL_EXPECT_TEXT="$BOOK_TEXT" \
+        node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
 }
 
 # Saves or clears the test EPUB's position, so its detail page offers Resume or Play.

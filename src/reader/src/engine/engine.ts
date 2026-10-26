@@ -1,5 +1,6 @@
 // The only module that touches foliate-js.
 import '../../vendor/foliate-js/view.js'
+import { guardSelectionDrag } from './selection'
 
 interface FoliateView extends HTMLElement {
     open(book: Blob): Promise<void>
@@ -14,6 +15,7 @@ interface FoliateView extends HTMLElement {
  */
 export const openBook = async (container: HTMLElement, file: File, onView?: (view: EventTarget) => void): Promise<void> => {
     const view = document.createElement('foliate-view') as FoliateView
+    view.addEventListener('load', event => guardSelectionDrag((event as CustomEvent<{ doc: Document }>).detail.doc))
     onView?.(view)
     container.replaceChildren(view)
     await view.open(file)
