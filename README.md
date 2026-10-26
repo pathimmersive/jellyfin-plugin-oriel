@@ -11,7 +11,7 @@ Early development; there is no release yet. What works today:
 - A reader page at `/Oriel/?id=<itemId>` that renders EPUB books from your library with [foliate-js](https://github.com/johnfactotum/foliate-js).
 - With the optional jellyfin-web integration, which needs the [File Transformation](https://github.com/IAmParadox27/jellyfin-plugin-file-transformation) plugin, Play and Resume on an EPUB open Oriel instead of the built-in reader.
 
-[MANIFEST.md](MANIFEST.md) describes what Oriel is meant to become, and `docs/research` records what has been tested so far.
+Oriel has been tried in Safari and the Jellyfin app on iOS, and in the Jellyfin app on Android. Exact reading positions, reader settings and annotations are planned but not built yet.
 
 ## Requirements
 
