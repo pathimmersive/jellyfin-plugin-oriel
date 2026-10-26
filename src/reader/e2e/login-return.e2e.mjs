@@ -44,18 +44,21 @@ try {
         .catch(() => fail(`the signed-out reader did not go to ${webPath}#/login (at ${page.url()})`))
 
     // The login page shows user cards or the manual form; use the manual form.
+    // While it loads, the page can switch between the two and re-render its
+    // buttons, so keep pressing whichever Manual Login button is showing until
+    // the manual form is.
     const name = page.locator('#txtManualName')
-    await page.locator('#txtManualName:visible, .btnManual:visible').first().waitFor({ timeout: 30_000 })
-        .catch(() => fail('the login page offers neither the manual form nor its button'))
-    const firstLine = error => error.message.split('\n')[0]
-    if (!(await name.isVisible())) {
-        // The user cards can still be animating in on a slow runner, so fire the
-        // button's click handler directly rather than waiting for it to settle.
-        await page.locator('.btnManual:visible').first().dispatchEvent('click')
-            .catch(error => fail(`could not open the manual login form: ${firstLine(error)}`))
-        await name.waitFor({ state: 'visible', timeout: 10_000 })
-            .catch(error => fail(`the manual login form did not appear: ${firstLine(error)}`))
+    const deadline = Date.now() + 30_000
+    while (!(await name.isVisible())) {
+        if (Date.now() > deadline) fail('the manual login form never appeared on the login page')
+        await page.evaluate(() => {
+            const button = [...document.querySelectorAll('.btnManual')]
+                .find(element => !element.classList.contains('hide') && element.offsetParent !== null)
+            button?.click()
+        })
+        await page.waitForTimeout(500)
     }
+    const firstLine = error => error.message.split('\n')[0]
     await name.fill(user, { timeout: 10_000 })
         .catch(error => fail(`could not enter the user name: ${firstLine(error)}`))
     await page.locator('#txtManualPassword').fill(password, { timeout: 10_000 })
