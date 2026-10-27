@@ -77,15 +77,19 @@ public class PositionsController : ControllerBase
     /// </summary>
     /// <param name="itemId">The book.</param>
     /// <param name="request">The position.</param>
-    /// <returns>204 when saved; 400 for a malformed position; 404 when the book is not visible to the caller.</returns>
+    /// <returns>
+    /// The stored position with the server's time, which the reader copies to Jellyfin's own record;
+    /// 400 for a malformed position; 404 when the book is not visible to the caller.
+    /// </returns>
     [HttpPut("{itemId:guid}")]
     [Consumes(MediaTypeNames.Application.Json)]
+    [Produces(MediaTypeNames.Application.Json)]
     [RequestSizeLimit(16 * 1024)]
-    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> PutPosition([FromRoute] Guid itemId, [FromBody] PositionRequest? request)
+    public async Task<ActionResult<PositionResponse>> PutPosition([FromRoute] Guid itemId, [FromBody] PositionRequest? request)
     {
         var userId = await CallerAsync().ConfigureAwait(false);
         if (userId is null)
@@ -105,8 +109,9 @@ public class PositionsController : ControllerBase
             return NotFound();
         }
 
-        _store.Save(userId.Value, itemId, new StoredPosition(cfi, fraction, _time.GetUtcNow()));
-        return NoContent();
+        var position = new StoredPosition(cfi, fraction, _time.GetUtcNow());
+        _store.Save(userId.Value, itemId, position);
+        return new PositionResponse(position.Cfi, position.Fraction, position.SavedAt);
     }
 
     private async Task<Guid?> CallerAsync()

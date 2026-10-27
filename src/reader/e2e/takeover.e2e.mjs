@@ -102,6 +102,7 @@ try {
         console.log(`PASS: ${button} on the test EPUB at ${base}/web/ opens the ${expected === 'oriel' ? `Oriel reader at ${orielUrl}${at}` : 'built-in book player'}`)
     }
 } finally {
-    await browser.close()
+    // WebKit can hang while closing; the result is already known, so stop waiting.
+    await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

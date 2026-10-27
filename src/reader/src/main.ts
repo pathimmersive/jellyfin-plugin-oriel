@@ -1,10 +1,10 @@
 import './reader.css'
-import { BookLoadError, downloadBook, publicServerId, readPositionTicks, writePositionTicks } from './api/client'
+import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
-import { fractionFromTicks, positionWriter } from './position/position'
+import { chooseStart, positionWriter, saveBoth } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 
@@ -41,23 +41,28 @@ const start = async (): Promise<void> => {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const basePath = serverBasePath(location.pathname)
         const started = performance.now()
-        const [file, savedTicks] = await Promise.all([
+        const [file, stored, jellyfin] = await Promise.all([
             downloadBook(basePath, itemId, authorization),
-            readPositionTicks(basePath, itemId, session.userId, authorization),
+            readStoredPosition(basePath, itemId, authorization),
+            readJellyfinPosition(basePath, itemId, session.userId, authorization),
         ])
         const downloaded = performance.now()
         overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
-        const opened = await openBook(book, file, view => overlay?.timeTurns(view), fractionFromTicks(savedTicks))
+        const start = chooseStart(stored, jellyfin)
+        const opened = await openBook(book, file, view => overlay?.timeTurns(view), start)
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
 
-        // Keep Jellyfin's position in step with the reader, so Resume, Continue
-        // Reading and the built-in reader pick up where reading stopped here.
+        // Save the exact position to Oriel's store and the approximate one to
+        // Jellyfin, so Resume, Continue Reading and the built-in reader pick up
+        // where reading stopped here.
         const writer = positionWriter(
-            (ticks, keepalive) => writePositionTicks(basePath, itemId, session.userId, authorization, ticks, keepalive),
-            savedTicks)
-        opened.onMoved(fraction => writer.moved(fraction))
+            (position, keepalive) => saveBoth(position, keepalive,
+                (cfi, fraction, keep) => writeStoredPosition(basePath, itemId, authorization, cfi, fraction, keep),
+                (ticks, lastPlayed, keep) => writeJellyfinPosition(basePath, itemId, session.userId, authorization, ticks, lastPlayed, keep)),
+            start && 'cfi' in start ? start.cfi : null)
+        opened.onMoved(position => writer.moved(position))
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') writer.flush()
         })

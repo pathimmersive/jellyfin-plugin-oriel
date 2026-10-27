@@ -250,9 +250,13 @@ resume_lists_book() {
     grep -q "\"Id\":\"$item_id\"" "$work/body"
 }
 
+# Writes Jellyfin user data as another app would after reading just now: the
+# body plus LastPlayedDate set to the current time, which is what makes it
+# newer than a position Oriel stored earlier.
 write_user_data() {
+    local body="${1%\}},\"LastPlayedDate\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}"
     code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
-        -d "$1" "${2:-$base}/UserItems/$item_id/UserData?userId=$user_id")"
+        -d "$body" "${2:-$base}/UserItems/$item_id/UserData?userId=$user_id")"
     [ "$code" = "200" ] || fail "POST /UserItems/$item_id/UserData $1 returned $code"
 }
 
@@ -324,16 +328,16 @@ put_position() {
     get_status -X PUT -H 'Content-Type: application/json' -H "Authorization: $1" -d "$2" "$base/Oriel/Positions/${3:-$item_id}"
 }
 
-code="$(position_status -H "Authorization: $token_header")"
-[ "$code" = "404" ] || fail "GET /Oriel/Positions/$item_id before anything was saved returned $code, expected 404"
+# The reader checks above already stored positions for this user; a user with
+# nothing stored is checked below.
 code="$(put_position "$token_header" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":$POSITION_FRACTION}")"
-[ "$code" = "204" ] || fail "PUT /Oriel/Positions/$item_id returned $code: $(cat "$work/body")"
+[ "$code" = "200" ] && [ -n "$(json_str savedAt < "$work/body")" ] || fail "PUT /Oriel/Positions/$item_id returned $code, expected 200 with the saved position: $(cat "$work/body")"
 code="$(position_status -H "Authorization: $token_header")"
 [ "$code" = "200" ] || fail "GET /Oriel/Positions/$item_id after saving returned $code"
 [ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] || fail "the stored position is not the saved CFI: $(cat "$work/body")"
 [ "$(json_val fraction < "$work/body")" = "$POSITION_FRACTION" ] || fail "the stored fraction is not $POSITION_FRACTION: $(cat "$work/body")"
 [ -n "$(json_str savedAt < "$work/body")" ] || fail "the stored position has no savedAt time: $(cat "$work/body")"
-pass "PUT then GET /Oriel/Positions/{id} stores and returns the exact position with its time; nothing stored is 404"
+pass "PUT then GET /Oriel/Positions/{id} stores and returns the exact position with its time"
 
 code="$(put_position "$token_header" '{"cfi":"","fraction":0.5}')"
 [ "$code" = "400" ] || fail "PUT with an empty CFI returned $code, expected 400"
@@ -351,12 +355,12 @@ pass "malformed positions are rejected with 400 and change nothing; without a to
 
 read -r reader_id reader_header <<< "$(make_user oriel-reader "reader-$RANDOM$RANDOM")"
 code="$(position_status -H "Authorization: $reader_header")"
-[ "$code" = "404" ] || fail "a second user reading the first user's book position got $code, expected 404 (their own, none saved)"
+[ "$code" = "404" ] || fail "a second user reading the first user's book position got $code, expected 404 (they have none stored)"
 code="$(put_position "$reader_header" "{\"cfi\":\"epubcfi(/6/4!/4/2/1:0)\",\"fraction\":0.1}")"
-[ "$code" = "204" ] || fail "the second user saving their own position returned $code"
+[ "$code" = "200" ] || fail "the second user saving their own position returned $code"
 code="$(position_status -H "Authorization: $token_header")"
 [ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] || fail "the second user's save changed the first user's position: $(cat "$work/body")"
-pass "each user reads and writes only their own position"
+pass "a user with nothing stored gets 404, and each user reads and writes only their own position"
 
 read -r restricted_id restricted_header <<< "$(make_user oriel-restricted "restricted-$RANDOM$RANDOM")"
 code="$(get_status -H "Authorization: $token_header" "$base/Users/$restricted_id")"
@@ -528,6 +532,12 @@ code="$(position_status -H "Authorization: $token_header")"
 [ "$code" = "200" ] && [ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] \
     || fail "after a backup restore and a server restart the stored position is gone ($code: $(cat "$work/body"))"
 pass "the stored position survives a server restart"
+
+# The reader stores the exact position, reopens on the same page, and lets a
+# Jellyfin position saved later win.
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+ORIEL_ITEM_ID="$item_id" ORIEL_LATER_TEXT="Oriel smoke chapter two starts here." \
+    node "$reader/e2e/exact.e2e.mjs" || fail "the reader did not keep or choose the exact position at $base"
 
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"

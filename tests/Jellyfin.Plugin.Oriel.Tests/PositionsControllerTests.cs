@@ -38,11 +38,12 @@ public sealed class PositionsControllerTests : IDisposable
     }
 
     [Fact]
-    public async Task SavesThenReturnsThePositionStampedWithTheServerTime()
+    public async Task SavesAndReturnsThePositionStampedWithTheServerTime()
     {
         var controller = Controller(Reader);
 
-        Assert.IsType<NoContentResult>(await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6)));
+        var saved = (await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6))).Value;
+        Assert.Equal(new PositionsController.PositionResponse("epubcfi(/6/8!/4/2/1:0)", 0.6, Now), saved);
         var position = (await controller.GetPosition(Book)).Value;
 
         Assert.Equal(new PositionsController.PositionResponse("epubcfi(/6/8!/4/2/1:0)", 0.6, Now), position);
@@ -61,7 +62,7 @@ public sealed class PositionsControllerTests : IDisposable
         var controller = Controller(Reader);
 
         Assert.IsType<NotFoundResult>((await controller.GetPosition(HiddenBook)).Result);
-        Assert.IsType<NotFoundResult>(await controller.PutPosition(HiddenBook, new("epubcfi(/6/2!/4/2/1:0)", 0.1)));
+        Assert.IsType<NotFoundResult>((await controller.PutPosition(HiddenBook, new("epubcfi(/6/2!/4/2/1:0)", 0.1))).Result);
         Assert.Equal("epubcfi(/6/8!/4/2/1:0)", _store.Get(Reader, HiddenBook)!.Cfi);
     }
 
@@ -71,7 +72,7 @@ public sealed class PositionsControllerTests : IDisposable
         var controller = Controller(Guid.Empty);
 
         Assert.IsType<UnauthorizedResult>((await controller.GetPosition(Book)).Result);
-        Assert.IsType<UnauthorizedResult>(await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6)));
+        Assert.IsType<UnauthorizedResult>((await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6))).Result);
     }
 
     public static TheoryData<string?, double?> MalformedPositions => new()
@@ -89,7 +90,7 @@ public sealed class PositionsControllerTests : IDisposable
     [MemberData(nameof(MalformedPositions))]
     public async Task RejectsAMalformedPositionAndStoresNothing(string? cfi, double? fraction)
     {
-        Assert.IsType<BadRequestResult>(await Controller(Reader).PutPosition(Book, new(cfi, fraction)));
+        Assert.IsType<BadRequestResult>((await Controller(Reader).PutPosition(Book, new(cfi, fraction))).Result);
         Assert.Null(_store.Get(Reader, Book));
     }
 
@@ -98,8 +99,8 @@ public sealed class PositionsControllerTests : IDisposable
     {
         var controller = Controller(Reader);
 
-        Assert.IsType<NoContentResult>(await controller.PutPosition(Book, new(new string('a', PositionsController.MaxCfiLength), 0)));
-        Assert.IsType<NoContentResult>(await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 1)));
+        Assert.NotNull((await controller.PutPosition(Book, new(new string('a', PositionsController.MaxCfiLength), 0))).Value);
+        Assert.NotNull((await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 1))).Value);
     }
 
     private PositionsController Controller(Guid caller) =>
