@@ -14,6 +14,12 @@ interface FoliateView extends HTMLElement {
 
 export interface OpenBook {
     /**
+     * The CFI the book opened at, once it settled there. The paginator can
+     * report reaching it a moment later as a 'navigation' move, so a save of
+     * this same position is not a move by the reader.
+     */
+    openedAt: string | null
+    /**
      * Calls `onMoved` with the position now shown (its CFI and the fraction of
      * the book) whenever the reader moves: a page turn, a swipe or a link.
      * Re-placing the same position (on opening or on a resize) and selecting
@@ -52,6 +58,7 @@ export const openBook = async (
     if (start && 'cfi' in start) await view.goTo(start.cfi)
     else if (start) await view.goToFraction(start.fraction)
     return {
+        openedAt: view.lastLocation?.cfi ?? null,
         onMoved(onMoved) {
             // The view handles the renderer's relocate first and updates
             // lastLocation with the CFI and the fraction of the whole book.
