@@ -262,10 +262,13 @@ code="$(get_status -H "Authorization: $token_header" "$base/Items/$item_id?userI
 [ "$code" = "200" ] || fail "GET /Items/$item_id returned $code"
 runtime="$(json_val RunTimeTicks < "$work/body")"
 [ "$runtime" = "$BOOK_RUNTIME_TICKS" ] || fail "the test EPUB has RunTimeTicks='$runtime', expected $BOOK_RUNTIME_TICKS"
+# The reader checks above turned pages in Oriel, which saves the position, so
+# start from no saved position.
+write_user_data '{"PlaybackPositionTicks":0}'
 for query in mediaTypes=Book includeItemTypes=Book; do
-    ! resume_lists_book "$query" || fail "/UserItems/Resume?$query lists the test EPUB before any progress is written"
+    ! resume_lists_book "$query" || fail "/UserItems/Resume?$query lists the test EPUB with no position saved"
 done
-pass "the library scan gives the test EPUB RunTimeTicks=$BOOK_RUNTIME_TICKS and /UserItems/Resume does not list it before any progress is written"
+pass "the library scan gives the test EPUB RunTimeTicks=$BOOK_RUNTIME_TICKS and /UserItems/Resume does not list it with no position saved"
 
 write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
 show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS"
@@ -282,6 +285,15 @@ show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS and PlayedPercentage=60"
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
 ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
     node "$reader/e2e/progress.e2e.mjs" || fail "jellyfin-web with saved progress at $base"
+
+# Oriel opens at the saved position and writes it back as pages turn. The
+# built-in player may have saved its own position, so save 0.6 again first,
+# and again afterwards for the checks that follow.
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+ORIEL_ITEM_ID="$item_id" ORIEL_SAVED_TICKS="$PROGRESS_TICKS" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
+    node "$reader/e2e/position.e2e.mjs" || fail "Oriel did not open at or save the reading position at $base"
+write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
 
 # --- plugin data in the built-in backup ------------------------------------
 
@@ -366,10 +378,11 @@ if [ "$JELLYFIN_VERSION" != "$FT_SERVER_VERSION" ]; then
     exit 0
 fi
 
-# Presses Play or Resume ($3) and expects the oriel or builtin reader ($2).
+# Presses Play or Resume ($3) and expects the oriel or builtin reader ($2),
+# and, for Oriel, the line $4 on screen when given.
 check_takeover_in_browser() {
     ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_BUTTON="$3" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
-    ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+    ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="${4:-}" \
         node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader"
 }
 
@@ -438,7 +451,7 @@ check_web_patched "$base"
 check_login_return "$base" oriel
 check_takeover_in_browser "$base" oriel Play
 set_progress "$base" "$PROGRESS_TICKS"
-check_takeover_in_browser "$base" oriel Resume
+check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
@@ -452,11 +465,13 @@ docker restart "$container" >/dev/null || fail "docker restart"
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 wait_ready "http://127.0.0.1:$port/jf"
 check_reader "http://127.0.0.1:$port/jf"
+# The reader opens at the saved position, and this check expects the first chapter.
+set_progress "http://127.0.0.1:$port/jf" 0
 check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
 check_login_return "http://127.0.0.1:$port/jf" oriel
 set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
-check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume
+check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume "$PROGRESS_TEXT"
 set_progress "http://127.0.0.1:$port/jf" 0
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
 

@@ -1,9 +1,10 @@
 import './reader.css'
-import { BookLoadError, downloadBook, publicServerId } from './api/client'
+import { BookLoadError, downloadBook, publicServerId, readPositionTicks, writePositionTicks } from './api/client'
 import { serverBasePath } from './base'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
+import { fractionFromTicks, positionWriter } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 
@@ -38,14 +39,29 @@ const start = async (): Promise<void> => {
     let stage = 'downloaded'
     try {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
+        const basePath = serverBasePath(location.pathname)
         const started = performance.now()
-        const file = await downloadBook(serverBasePath(location.pathname), itemId, authorization)
+        const [file, savedTicks] = await Promise.all([
+            downloadBook(basePath, itemId, authorization),
+            readPositionTicks(basePath, itemId, session.userId, authorization),
+        ])
         const downloaded = performance.now()
         overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
-        await openBook(book, file, view => overlay?.timeTurns(view))
+        const opened = await openBook(book, file, view => overlay?.timeTurns(view), fractionFromTicks(savedTicks))
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
+
+        // Keep Jellyfin's position in step with the reader, so Resume, Continue
+        // Reading and the built-in reader pick up where reading stopped here.
+        const writer = positionWriter(
+            (ticks, keepalive) => writePositionTicks(basePath, itemId, session.userId, authorization, ticks, keepalive),
+            savedTicks)
+        opened.onMoved(fraction => writer.moved(fraction))
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') writer.flush()
+        })
+        window.addEventListener('pagehide', () => writer.flush())
     } catch (error) {
         console.error(error)
         // Name the failing step and the browser's own error, so a failure on a

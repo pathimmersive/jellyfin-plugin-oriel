@@ -72,17 +72,34 @@ try {
     await play.click()
 
     const result = await opened(page)
+    let missingText = ''
     if (result === 'oriel') {
         await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
+        // With ORIEL_EXPECT_TEXT, Oriel must also show that line, such as the
+        // first line of the chapter a saved position falls in.
+        const expectText = process.env.ORIEL_EXPECT_TEXT
+        if (expectText) {
+            let text = ''
+            for (let i = 0; i < 20 && !text.includes(expectText); i++) {
+                await page.waitForTimeout(500)
+                text = (await Promise.all(page.frames().map(frame =>
+                    frame.evaluate(() => document.body?.innerText ?? '').catch(() => '')))).join('\n')
+            }
+            if (!text.includes(expectText)) missingText = expectText
+        }
     }
-    if (result !== expected) {
+    if (missingText) {
+        console.error(`FAIL: ${button} opened Oriel, but not showing '${missingText}' (at ${page.url()})`)
+        failed = true
+    } else if (result !== expected) {
         console.error(`FAIL: ${button} on ${itemId} opened ${result === 'nothing' ? 'no reader' : `the ${result} reader`}, expected ${expected} (at ${page.url()})`)
         failed = true
     } else if (warnings.length) {
         console.error(`FAIL: the launcher warned: ${warnings.join(' | ')}`)
         failed = true
     } else {
-        console.log(`PASS: ${button} on the test EPUB at ${base}/web/ opens the ${expected === 'oriel' ? `Oriel reader at ${orielUrl}` : 'built-in book player'}`)
+        const at = process.env.ORIEL_EXPECT_TEXT && expected === 'oriel' ? ` showing '${process.env.ORIEL_EXPECT_TEXT}'` : ''
+        console.log(`PASS: ${button} on the test EPUB at ${base}/web/ opens the ${expected === 'oriel' ? `Oriel reader at ${orielUrl}${at}` : 'built-in book player'}`)
     }
 } finally {
     await browser.close()
