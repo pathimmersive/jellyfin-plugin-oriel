@@ -127,10 +127,29 @@ public class PositionStore
             return null;
         }
 
-        return new StoredPosition(
-            reader.GetString(0),
-            reader.GetDouble(1),
-            DateTimeOffset.Parse(reader.GetString(2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+        return Position(reader, 0);
+    }
+
+    /// <summary>
+    /// Gets all of a user's positions.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>Each book the user has a position in, with that position.</returns>
+    public IReadOnlyList<KeyValuePair<Guid, StoredPosition>> ListForUser(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT item_id, cfi, fraction, saved_at FROM positions WHERE user_id = $user ORDER BY item_id";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        var positions = new List<KeyValuePair<Guid, StoredPosition>>();
+        while (reader.Read())
+        {
+            positions.Add(new(Guid.ParseExact(reader.GetString(0), "N"), Position(reader, 1)));
+        }
+
+        return positions;
     }
 
     /// <summary>
@@ -160,6 +179,12 @@ public class PositionStore
     }
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);
+
+    // The cfi, fraction and saved_at columns, starting at `first`.
+    private static StoredPosition Position(SqliteDataReader reader, int first) => new(
+        reader.GetString(first),
+        reader.GetDouble(first + 1),
+        DateTimeOffset.Parse(reader.GetString(first + 2), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
 
     private static void Execute(SqliteConnection connection, string sql, SqliteTransaction? transaction = null)
     {
