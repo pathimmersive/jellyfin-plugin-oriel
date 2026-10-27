@@ -300,6 +300,85 @@ ORIEL_ITEM_ID="$item_id" ORIEL_SAVED_TICKS="$PROGRESS_TICKS" ORIEL_EXPECT_TEXT="
     node "$reader/e2e/position.e2e.mjs" || fail "Oriel did not open at or save the reading position at $base"
 write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS}"
 
+# --- exact positions in the plugin's store -----------------------------------
+
+POSITION_CFI="epubcfi(/6/8!/4/2/1:0)"
+POSITION_FRACTION="0.6"
+
+# Creates a user with a password and returns "<user id> <token header>".
+make_user() {
+    local name="$1" password="$2" id auth user_token
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        -d "{\"Name\":\"$name\",\"Password\":\"$password\"}" "$base/Users/New")"
+    [ "$code" = "200" ] || fail "creating user $name returned $code"
+    id="$(json_str Id < "$work/body")"
+    auth="$(post_json "$base/Users/AuthenticateByName" -d "{\"Username\":\"$name\",\"Pw\":\"$password\"}")" \
+        || fail "authenticate as $name"
+    user_token="$(echo "$auth" | json_str AccessToken)"
+    [ -n "$id" ] && [ -n "$user_token" ] || fail "no id or token for user $name"
+    echo "$id $CLIENT_HEADER, Token=\"$user_token\""
+}
+
+position_status() { get_status "$@" "$base/Oriel/Positions/$item_id"; }
+put_position() {
+    get_status -X PUT -H 'Content-Type: application/json' -H "Authorization: $1" -d "$2" "$base/Oriel/Positions/${3:-$item_id}"
+}
+
+code="$(position_status -H "Authorization: $token_header")"
+[ "$code" = "404" ] || fail "GET /Oriel/Positions/$item_id before anything was saved returned $code, expected 404"
+code="$(put_position "$token_header" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":$POSITION_FRACTION}")"
+[ "$code" = "204" ] || fail "PUT /Oriel/Positions/$item_id returned $code: $(cat "$work/body")"
+code="$(position_status -H "Authorization: $token_header")"
+[ "$code" = "200" ] || fail "GET /Oriel/Positions/$item_id after saving returned $code"
+[ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] || fail "the stored position is not the saved CFI: $(cat "$work/body")"
+[ "$(json_val fraction < "$work/body")" = "$POSITION_FRACTION" ] || fail "the stored fraction is not $POSITION_FRACTION: $(cat "$work/body")"
+[ -n "$(json_str savedAt < "$work/body")" ] || fail "the stored position has no savedAt time: $(cat "$work/body")"
+pass "PUT then GET /Oriel/Positions/{id} stores and returns the exact position with its time; nothing stored is 404"
+
+code="$(put_position "$token_header" '{"cfi":"","fraction":0.5}')"
+[ "$code" = "400" ] || fail "PUT with an empty CFI returned $code, expected 400"
+code="$(put_position "$token_header" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":1.5}")"
+[ "$code" = "400" ] || fail "PUT with fraction 1.5 returned $code, expected 400"
+code="$(put_position "$token_header" "{\"cfi\":\"$(head -c 5000 /dev/zero | tr '\0' 'a')\",\"fraction\":0.5}")"
+[ "$code" = "400" ] || fail "PUT with a 5000-character CFI returned $code, expected 400"
+code="$(position_status)"
+[ "$code" = "401" ] || fail "GET /Oriel/Positions/$item_id without a token returned $code, expected 401"
+code="$(put_position "$CLIENT_HEADER" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":0.5}")"
+[ "$code" = "401" ] || fail "PUT /Oriel/Positions/$item_id without a token returned $code, expected 401"
+code="$(position_status -H "Authorization: $token_header")"
+[ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] || fail "a rejected PUT changed the stored position: $(cat "$work/body")"
+pass "malformed positions are rejected with 400 and change nothing; without a token both calls are 401"
+
+read -r reader_id reader_header <<< "$(make_user oriel-reader "reader-$RANDOM$RANDOM")"
+code="$(position_status -H "Authorization: $reader_header")"
+[ "$code" = "404" ] || fail "a second user reading the first user's book position got $code, expected 404 (their own, none saved)"
+code="$(put_position "$reader_header" "{\"cfi\":\"epubcfi(/6/4!/4/2/1:0)\",\"fraction\":0.1}")"
+[ "$code" = "204" ] || fail "the second user saving their own position returned $code"
+code="$(position_status -H "Authorization: $token_header")"
+[ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] || fail "the second user's save changed the first user's position: $(cat "$work/body")"
+pass "each user reads and writes only their own position"
+
+read -r restricted_id restricted_header <<< "$(make_user oriel-restricted "restricted-$RANDOM$RANDOM")"
+code="$(get_status -H "Authorization: $token_header" "$base/Users/$restricted_id")"
+[ "$code" = "200" ] || fail "GET /Users/$restricted_id returned $code"
+python3 - "$work/body" > "$work/policy.json" 2>/dev/null <<'PY' || node -e 'const p=require(process.argv[1]).Policy;p.EnableAllFolders=false;p.EnabledFolders=[];process.stdout.write(JSON.stringify(p))' "$(hostpath "$work/body")" > "$work/policy.json"
+import json, sys
+policy = json.load(open(sys.argv[1]))["Policy"]
+policy["EnableAllFolders"] = False
+policy["EnabledFolders"] = []
+print(json.dumps(policy))
+PY
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    --data-binary "@$work/policy.json" "$base/Users/$restricted_id/Policy")"
+[ "$code" = "204" ] || fail "restricting user oriel-restricted returned $code"
+code="$(position_status -H "Authorization: $restricted_header")"
+[ "$code" = "404" ] || fail "a user without access to the books library read a position for its book: $code, expected 404"
+code="$(put_position "$restricted_header" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":0.5}")"
+[ "$code" = "404" ] || fail "a user without access to the books library saved a position for its book: $code, expected 404"
+code="$(put_position "$token_header" "{\"cfi\":\"$POSITION_CFI\",\"fraction\":0.5}" 00000000000040008000000000000000)"
+[ "$code" = "404" ] || fail "saving a position for an id that is not an item returned $code, expected 404"
+pass "positions for a book the user cannot see, or for an id that is not an item, are 404"
+
 # --- plugin data in the built-in backup ------------------------------------
 
 # A plugin's data folder is its assembly name under the plugins folder. A
@@ -444,6 +523,11 @@ port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 base="http://127.0.0.1:$port"
 wait_ready "$base"
 check_plugin_active "$base" "File Transformation"
+
+code="$(position_status -H "Authorization: $token_header")"
+[ "$code" = "200" ] && [ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] \
+    || fail "after a backup restore and a server restart the stored position is gone ($code: $(cat "$work/body"))"
+pass "the stored position survives a server restart"
 
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"
