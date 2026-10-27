@@ -5,6 +5,7 @@ import { guardSelectionDrag } from './selection'
 interface FoliateView extends HTMLElement {
     open(book: Blob): Promise<void>
     init(options: { lastLocation?: unknown, showTextStart?: boolean }): Promise<void>
+    goToFraction(fraction: number): Promise<void>
     renderer: HTMLElement
     lastLocation?: { fraction?: number }
 }
@@ -39,9 +40,12 @@ export const openBook = async (
     container.replaceChildren(view)
     await view.open(file)
     view.renderer.setAttribute('flow', 'paginated')
-    await view.init(startFraction === null
-        ? { showTextStart: true }
-        : { lastLocation: { fraction: startFraction } })
+    // The paginator can place a fraction only once it knows the page count, which
+    // the first render works out; placed any earlier, the view stays on its blank
+    // lead page. So open at the text start, then move to the saved fraction. The
+    // move is a re-placement ('anchor'), not a move the reader writes back.
+    await view.init({ showTextStart: true })
+    if (startFraction !== null) await view.goToFraction(startFraction)
     return {
         onMoved(onMoved) {
             // The view handles the renderer's relocate first and updates

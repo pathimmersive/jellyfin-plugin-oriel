@@ -51,16 +51,24 @@ try {
     await context.addInitScript(value => { localStorage.setItem('jellyfin_credentials', value) }, credentials)
     const page = await context.newPage()
 
-    await page.goto(`${base}/Oriel/?id=${itemId}`)
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-        .catch(() => fail('the reader did not render the book'))
-    let text = ''
-    for (let i = 0; i < 20 && !text.includes(expectText); i++) {
-        await page.waitForTimeout(500)
-        text = await frameText(page)
+    // Placing the saved position depends on the page layout being ready, so open
+    // the book several times; each time it must show a text page, never the
+    // blank lead page (page 0), at the saved chapter.
+    const OPENS = 5
+    for (let open = 1; open <= OPENS; open++) {
+        await page.goto(`${base}/Oriel/?id=${itemId}`)
+        await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
+            .catch(() => fail('the reader did not render the book'))
+        let text = ''
+        for (let i = 0; i < 20 && !text.includes(expectText); i++) {
+            await page.waitForTimeout(500)
+            text = await frameText(page)
+        }
+        const shown = await page.evaluate(() => document.querySelector('foliate-view').renderer.page)
+        if (shown === 0) fail(`open ${open} of ${OPENS} showed the blank lead page instead of the saved position`)
+        if (!text.includes(expectText)) fail(`open ${open} of ${OPENS} did not show the saved position: '${expectText}' is not shown`)
     }
-    if (!text.includes(expectText)) fail(`the reader did not open at the saved position: '${expectText}' is not shown`)
-    pass(`a direct link at ${base} opens the book at its saved position, showing '${expectText}'`)
+    pass(`a direct link at ${base} opens the book at its saved position, showing '${expectText}', ${OPENS} times out of ${OPENS}`)
 
     await page.waitForTimeout(WRITE_WAIT_MS)
     const afterOpen = await savedPosition()
