@@ -216,6 +216,11 @@ check_reader() {
 
 check_reader "$base"
 check_reader_in_browser "$base"
+# The reader check above turned pages, which saves the position; the selection
+# check expects the book to open at its start.
+curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
+    || fail "could not clear the saved position before the selection check"
 check_selection_in_browser "$base"
 
 code="$(get_status "$base/Oriel/Me")"
