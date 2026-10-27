@@ -61,7 +61,7 @@ const start = async (): Promise<void> => {
             (position, keepalive) => saveBoth(position, keepalive,
                 (cfi, fraction, keep) => writeStoredPosition(basePath, itemId, authorization, cfi, fraction, keep),
                 (ticks, lastPlayed, keep) => writeJellyfinPosition(basePath, itemId, session.userId, authorization, ticks, lastPlayed, keep)),
-            start && 'cfi' in start ? start.cfi : null)
+            opened.openedAt)
         opened.onMoved(position => writer.moved(position))
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') writer.flush()
