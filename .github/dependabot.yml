@@ -1,0 +1,14 @@
+version: 2
+updates:
+  # Proposes a pull request when an action used by the workflows has a new
+  # release, updating its pinned commit and version comment.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci
+    groups:
+      actions:
+        patterns:
+          - "*"
