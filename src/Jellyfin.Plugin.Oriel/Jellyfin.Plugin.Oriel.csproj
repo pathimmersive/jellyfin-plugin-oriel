@@ -14,6 +14,9 @@
   <ItemGroup>
     <!-- The host provides these at runtime; ExcludeAssets keeps them out of the plugin folder. -->
     <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
+    <!-- SQLite for the plugin's own store, at the versions the Jellyfin 12.2 server ships and loads. -->
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="10.0.11" ExcludeAssets="runtime" />
+    <PackageReference Include="SQLitePCLRaw.core" Version="2.1.12" ExcludeAssets="runtime" />
   </ItemGroup>
 
   <!-- The reader web app in ../reader is built with npm and its dist/ output embedded. -->
