@@ -31,6 +31,8 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IItemAccess, LibraryItemAccess>();
         serviceCollection.AddSingleton(services => new PositionStore(Path.Combine(DataFolder(services), DatabaseFileName)));
         serviceCollection.AddHostedService<PositionStoreStartup>();
+        serviceCollection.AddSingleton<IBookCatalog, LibraryBookCatalog>();
+        serviceCollection.AddSingleton<ReadingData>();
     }
 
     // The plugin's data folder: the one Jellyfin gave the plugin, or the same

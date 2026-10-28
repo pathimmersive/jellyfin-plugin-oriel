@@ -539,6 +539,12 @@ ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_T
 ORIEL_ITEM_ID="$item_id" ORIEL_LATER_TEXT="Oriel smoke chapter two starts here." \
     node "$reader/e2e/exact.e2e.mjs" || fail "the reader did not keep or choose the exact position at $base"
 
+# Exporting and importing reading data: own data only, newer wins, matching by
+# title for an unknown id, unmatched books reported, bad files rejected.
+ORIEL_BASE="$base" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+ORIEL_OTHER_TOKEN="$(sed -E 's/.*Token="([^"]*)".*/\1/' <<< "$reader_header")" ORIEL_OTHER_CFI="epubcfi(/6/4!/4/2/1:0)" \
+    node "$reader/e2e/reading-data.e2e.mjs" || fail "exporting or importing reading data at $base"
+
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" builtin Resume
