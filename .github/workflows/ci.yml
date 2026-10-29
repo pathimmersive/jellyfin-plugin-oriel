@@ -44,11 +44,11 @@ jobs:
           cache-dependency-path: src/reader/package-lock.json
       - run: npm ci
         working-directory: src/reader
-      # The smoke script installs WebKit itself; the runner also needs its system
-      # libraries. The runner's package mirror sometimes slows to a crawl, so the
-      # script gives each of three attempts five minutes and puts a different
-      # apt mirror first on each.
-      - name: Install WebKit's system libraries
+      # The smoke script installs WebKit and Chromium itself; the runner also
+      # needs their system libraries. The runner's package mirror sometimes slows
+      # to a crawl, so the script gives each of three attempts five minutes and
+      # puts a different apt mirror first on each.
+      - name: Install WebKit's and Chromium's system libraries
         working-directory: src/reader
-        run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps webkit
+        run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps webkit chromium
       - run: bash scripts/smoke-plugin.sh

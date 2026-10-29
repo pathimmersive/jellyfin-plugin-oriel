@@ -1,6 +1,7 @@
 // The only module that touches foliate-js.
 import '../../vendor/foliate-js/view.js'
 import type { Moved, StartAt } from '../position/position'
+import { attachPageInput, type Turn, wheelGesture } from './input'
 import { guardSelectionDrag } from './selection'
 
 interface FoliateView extends HTMLElement {
@@ -8,6 +9,10 @@ interface FoliateView extends HTMLElement {
     init(options: { lastLocation?: unknown, showTextStart?: boolean }): Promise<void>
     goTo(target: string): Promise<unknown>
     goToFraction(fraction: number): Promise<void>
+    next(): Promise<void>
+    prev(): Promise<void>
+    goLeft(): Promise<void>
+    goRight(): Promise<void>
     renderer: HTMLElement
     lastLocation?: { fraction?: number, cfi?: string }
 }
@@ -45,7 +50,25 @@ export const openBook = async (
     start: StartAt = null,
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
-    view.addEventListener('load', event => guardSelectionDrag((event as CustomEvent<{ doc: Document }>).detail.doc))
+    // Keys, edge clicks and the wheel turn pages on a desktop. Events inside
+    // the book land in each section's own document and do not reach this
+    // page, so every section document gets the same listeners as this page,
+    // sharing one wheel gesture.
+    const turn = (turn: Turn): void => {
+        void { next: () => view.next(), prev: () => view.prev(), left: () => view.goLeft(), right: () => view.goRight() }[turn]()
+    }
+    const gesture = wheelGesture()
+    const page = (): DOMRect => container.getBoundingClientRect()
+    attachPageInput(document, () => ({ left: page().left, width: page().width }), gesture, turn)
+    view.addEventListener('load', event => {
+        const doc = (event as CustomEvent<{ doc: Document }>).detail.doc
+        guardSelectionDrag(doc)
+        attachPageInput(doc, () => {
+            // A click's position in the section's frame, measured from the page.
+            const frame = doc.defaultView?.frameElement?.getBoundingClientRect()
+            return frame ? { left: page().left - frame.left, width: page().width } : null
+        }, gesture, turn)
+    })
     onView?.(view)
     container.replaceChildren(view)
     await view.open(file)
