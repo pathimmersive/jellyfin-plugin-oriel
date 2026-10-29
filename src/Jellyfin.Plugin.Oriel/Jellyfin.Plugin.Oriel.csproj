@@ -25,7 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ReaderSource Include="$(ReaderDir)src\**;$(ReaderDir)vendor\**;$(ReaderDir)index.html;$(ReaderDir)vite.config.ts;$(ReaderDir)tsconfig.json;$(ReaderDir)package-lock.json" />
+    <ReaderSource Include="$(ReaderDir)src\**;$(ReaderDir)vendor\**;$(ReaderDir)index.html;$(ReaderDir)data.html;$(ReaderDir)vite.config.ts;$(ReaderDir)tsconfig.json;$(ReaderDir)package-lock.json" />
   </ItemGroup>
 
   <Target Name="RestoreReader" Inputs="$(ReaderDir)package.json;$(ReaderDir)package-lock.json" Outputs="$(ReaderDir)node_modules\.package-lock.json">

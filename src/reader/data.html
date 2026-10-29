@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Your reading data - Oriel</title>
+  <script type="module" src="./src/data/main.ts"></script>
+</head>
+<body class="data-page">
+  <header>
+    <div class="bar">
+      <a id="back" href="../web/" aria-label="Back to the book"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg></a>
+      <h1>Your reading data</h1>
+    </div>
+  </header>
+
+  <main>
+    <section aria-labelledby="export-h">
+      <h2 id="export-h">Export</h2>
+      <p>Download everything Oriel keeps for you as one file, including your place in each book. Keep it somewhere safe: Jellyfin’s own backup does not include it.</p>
+      <a id="download" class="button primary" href="#"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download reading data</a>
+      <p id="download-error" class="error" role="alert" hidden></p>
+    </section>
+
+    <div class="rule"></div>
+
+    <section aria-labelledby="import-h">
+      <h2 id="import-h">Import</h2>
+      <p>Load a file you exported, on this server or another one. Where you have read further on this server, your place here is kept.</p>
+      <div class="choose">
+        <label class="button secondary"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>Choose a file<input id="file" type="file" accept=".json,application/json"></label>
+        <span id="file-name">No file chosen</span>
+      </div>
+      <button id="import" type="button" class="button primary" disabled>Import</button>
+
+      <div id="result" class="result" role="status" hidden>
+        <h3>Import finished</h3>
+        <ul class="lines">
+          <li id="imported" hidden><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="#00a4dc"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span class="strong"></span></li>
+          <li id="kept" hidden><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="rgba(255,255,255,.7)"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span></span></li>
+        </ul>
+        <div id="unmatched" hidden>
+          <div class="rule"></div>
+          <p id="unmatched-lead" class="strong"></p>
+          <ul id="unmatched-books" class="books"></ul>
+          <p class="advice">Add these books to Jellyfin, then import the same file again to bring their places back.</p>
+        </div>
+      </div>
+
+      <div id="bad-file" class="alert" role="alert" hidden>
+        <svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="#ff8a80"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+        <div>
+          <span class="strong">That file is not Oriel reading data, so nothing was imported.</span>
+          <span>Choose a file you downloaded with Export. Your places on this server have not changed.</span>
+        </div>
+      </div>
+      <p id="import-error" class="error" role="alert" hidden></p>
+    </section>
+  </main>
+</body>
+</html>

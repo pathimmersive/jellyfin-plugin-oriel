@@ -1,10 +1,13 @@
-// Checks where a signed-out reader ends up after signing in, in Playwright
-// WebKit: it opens /Oriel/?id=<book> with no jellyfin-web session, signs in on
-// the jellyfin-web login page it is sent to, and expects either the book's
-// detail page (ORIEL_EXPECT=details) or the book in Oriel (ORIEL_EXPECT=oriel).
+// Checks where a signed-out visitor ends up after signing in, in Playwright
+// WebKit: it opens the reader at /Oriel/?id=<book> (ORIEL_START=book, the
+// default) or the reading data page at /Oriel/data.html?id=<book>
+// (ORIEL_START=data) with no jellyfin-web session, signs in on the jellyfin-web
+// login page it is sent to, and expects the book's detail page
+// (ORIEL_EXPECT=details), the book in Oriel (ORIEL_EXPECT=oriel), the Jellyfin
+// home page (ORIEL_EXPECT=home) or the reading data page (ORIEL_EXPECT=data).
 // Configured by environment: ORIEL_BASE (server URL including any BaseUrl),
-// ORIEL_ITEM_ID, ORIEL_USER, ORIEL_PASSWORD, ORIEL_EXPECT and
-// ORIEL_EXPECT_TEXT, a line of the book's first chapter.
+// ORIEL_ITEM_ID, ORIEL_USER, ORIEL_PASSWORD, ORIEL_EXPECT, ORIEL_START and, for
+// ORIEL_EXPECT=oriel, ORIEL_EXPECT_TEXT, a line of the book's first chapter.
 // Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
 
@@ -22,7 +25,8 @@ const itemId = env('ORIEL_ITEM_ID')
 const user = env('ORIEL_USER')
 const password = env('ORIEL_PASSWORD')
 const expect = env('ORIEL_EXPECT')
-const expectText = env('ORIEL_EXPECT_TEXT')
+const expectText = expect === 'oriel' ? env('ORIEL_EXPECT_TEXT') : ''
+const start = process.env.ORIEL_START ?? 'book'
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${message}`)
@@ -39,9 +43,9 @@ try {
     const page = await (await browser.newContext()).newPage()
     const webPath = `${new URL(base).pathname.replace(/\/$/, '')}/web/`
 
-    await page.goto(`${base}/Oriel/?id=${itemId}`)
+    await page.goto(start === 'data' ? `${base}/Oriel/data.html?id=${itemId}` : `${base}/Oriel/?id=${itemId}`)
     await page.waitForURL(url => url.pathname === webPath && url.hash.startsWith('#/login'), { timeout: 15_000 })
-        .catch(() => fail(`the signed-out reader did not go to ${webPath}#/login (at ${page.url()})`))
+        .catch(() => fail(`the signed-out ${start} page did not go to ${webPath}#/login (at ${page.url()})`))
 
     // The login page shows user cards or the manual form; use the manual form.
     // While it loads, the page can switch between the two and re-render its
@@ -70,6 +74,20 @@ try {
             new URLSearchParams(url.hash.split('?')[1] ?? '').get('id') === itemId, { timeout: 30_000 })
             .catch(() => fail(`signing in did not open the book's detail page (at ${page.url()})`))
         pass(`signing in from the signed-out reader at ${base} opens the book's detail page`)
+    } else if (expect === 'home') {
+        await page.waitForURL(url => url.pathname === webPath && url.hash.startsWith('#/home'), { timeout: 30_000 })
+            .catch(() => fail(`signing in did not reach the Jellyfin home page (at ${page.url()})`))
+        // Long enough for anything that would move on from home to have done so.
+        await page.waitForTimeout(2000)
+        if (!new URL(page.url()).hash.startsWith('#/home')) fail(`after signing in the page moved on to ${page.url()}`)
+        pass(`signing in from the signed-out ${start} page at ${base} stays on the Jellyfin home page`)
+    } else if (expect === 'data') {
+        await page.waitForURL(url => url.pathname.toLowerCase().endsWith('/oriel/data.html') && url.searchParams.get('id') === itemId,
+            { timeout: 30_000 })
+            .catch(() => fail(`signing in did not return to the reading data page (at ${page.url()})`))
+        await page.getByRole('heading', { level: 1, name: 'Your reading data' }).waitFor({ timeout: 15_000 })
+            .catch(() => fail('the reading data page opened after signing in but did not show its heading'))
+        pass(`signing in from the signed-out reading data page at ${base} returns to it`)
     } else {
         await page.waitForURL(url => url.pathname.toLowerCase().endsWith('/oriel/') && url.searchParams.get('id') === itemId,
             { timeout: 30_000 })

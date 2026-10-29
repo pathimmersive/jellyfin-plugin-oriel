@@ -170,4 +170,34 @@ describe('return after sign-in', () => {
             expect(p.items.has('oriel_return')).toBe(false)
         }
     })
+
+    const dataMarker = (id: string | undefined, at: number) => JSON.stringify({ page: 'data', id, at })
+
+    it('opens the reading data page for its book once sign-in reaches the home page', () => {
+        const p = page('/web/', '#/login', dataMarker(ITEM, NOW - 1000))
+        p.tick()
+        expect(p.replace).not.toHaveBeenCalled()
+        p.navigateTo('#/home')
+        expect(p.replace).toHaveBeenCalledWith(`/Oriel/data.html?id=${ITEM}`)
+        expect(p.items.has('oriel_return')).toBe(false)
+    })
+
+    it('opens the reading data page without a book, under the BaseUrl', () => {
+        const p = page('/jf/web/', '#/home', dataMarker(undefined, NOW))
+        expect(p.replace).toHaveBeenCalledWith('/jf/Oriel/data.html')
+    })
+
+    it('does not open the reading data page from a book detail page', () => {
+        const p = page('/web/', `#/details?id=${ITEM}`, dataMarker(ITEM, NOW))
+        p.tick()
+        expect(p.replace).not.toHaveBeenCalled()
+    })
+
+    it('drops a reading data marker with a bad id or an unknown page', () => {
+        for (const bad of [dataMarker('../x', NOW), JSON.stringify({ page: 'elsewhere', id: ITEM, at: NOW })]) {
+            const p = page('/web/', '#/home', bad)
+            expect(p.replace).not.toHaveBeenCalled()
+            expect(p.items.has('oriel_return')).toBe(false)
+        }
+    })
 })

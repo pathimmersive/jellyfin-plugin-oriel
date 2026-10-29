@@ -1,0 +1,253 @@
+/* The Your reading data page, after the Oriel reader canvas (DataPage). */
+.data-page {
+    margin: 0;
+    min-height: 100vh;
+    background: #101010;
+    color: rgba(255, 255, 255, .7);
+    font-family: 'Noto Sans', system-ui, sans-serif;
+}
+
+.data-page [hidden] {
+    display: none !important;
+}
+
+.data-page header {
+    padding-top: env(safe-area-inset-top, 0px);
+    background: #202020;
+}
+
+.data-page .bar {
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+}
+
+.data-page #back {
+    width: 48px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: rgba(255, 255, 255, .7);
+}
+
+.data-page h1 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, .87);
+}
+
+.data-page main {
+    box-sizing: border-box;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px 20px 40px;
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+}
+
+.data-page section {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.data-page h2 {
+    margin: 0;
+    font-size: 22px;
+    font-weight: 400;
+    color: rgba(255, 255, 255, .87);
+}
+
+.data-page p {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.55;
+}
+
+.data-page .rule {
+    height: 1px;
+    background: rgba(255, 255, 255, .12);
+}
+
+.data-page .strong {
+    color: rgba(255, 255, 255, .87);
+}
+
+/* Buttons fill the column on a phone and sit at the left on wider screens. */
+.data-page .button {
+    box-sizing: border-box;
+    align-self: stretch;
+    min-height: 48px;
+    padding: 0 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    border: 0;
+    border-radius: 4px;
+    font: inherit;
+    font-size: 15px;
+    text-decoration: none;
+    cursor: pointer;
+}
+
+.data-page .button.primary {
+    background: #00a4dc;
+    color: rgba(0, 0, 0, .87);
+    font-weight: 600;
+}
+
+.data-page #import {
+    padding: 0 28px;
+}
+
+.data-page .button.primary:disabled {
+    background: #2c2c2c;
+    color: rgba(255, 255, 255, .5);
+    cursor: default;
+}
+
+.data-page .button.secondary {
+    position: relative;
+    padding: 0 18px;
+    background: #424242;
+    color: rgba(255, 255, 255, .87);
+}
+
+.data-page .button.secondary input {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+}
+
+.data-page .button.secondary:focus-within {
+    outline: 2px solid #00a4dc;
+    outline-offset: 2px;
+}
+
+@media (min-width: 600px) {
+    .data-page main {
+        padding-top: 40px;
+    }
+
+    .data-page .button {
+        align-self: flex-start;
+    }
+}
+
+.data-page .choose {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 12px;
+}
+
+.data-page .choose .button {
+    align-self: auto;
+}
+
+.data-page #file-name {
+    font-size: 14px;
+    overflow-wrap: anywhere;
+}
+
+.data-page .result {
+    margin-top: 8px;
+    padding: 18px;
+    border-radius: 4px;
+    background: #202020;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.data-page .result h3 {
+    margin: 0;
+    font-size: 17px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, .87);
+}
+
+.data-page .result ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.data-page .lines {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    font-size: 15px;
+    line-height: 1.45;
+}
+
+.data-page .lines li {
+    display: flex;
+    gap: 10px;
+}
+
+.data-page .lines svg {
+    flex: none;
+    margin-top: 1px;
+}
+
+.data-page #unmatched {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.data-page .books li {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+
+.data-page .books .title {
+    font-size: 15px;
+    color: rgba(255, 255, 255, .87);
+}
+
+.data-page .books .detail {
+    font-size: 13px;
+}
+
+.data-page .advice {
+    font-size: 14px;
+    line-height: 1.5;
+}
+
+.data-page .alert {
+    margin-top: 8px;
+    padding: 16px;
+    border-radius: 4px;
+    background: #3a1d1d;
+    border: 1px solid #c62828;
+    display: flex;
+    gap: 12px;
+}
+
+.data-page .alert svg {
+    flex: none;
+}
+
+.data-page .alert > div {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 15px;
+    line-height: 1.5;
+}
+
+.data-page .error {
+    color: #ff8a80;
+}
