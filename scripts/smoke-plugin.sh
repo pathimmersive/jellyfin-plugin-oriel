@@ -84,7 +84,7 @@ pass "publish output bundles no host assemblies"
 reader="$repo/src/reader"
 mkdir -p "$work/media/books"
 node "$reader/e2e/make-epub.mjs" "$work/media/books/oriel-smoke.epub" "$BOOK_TEXT" || fail "generate test EPUB"
-(cd "$reader" && npx playwright install webkit >/dev/null) || fail "install Playwright WebKit"
+(cd "$reader" && npx playwright install webkit chromium >/dev/null) || fail "install Playwright WebKit and Chromium"
 
 fetch_file_transformation "$work/ft" || fail "fetch File Transformation $FT_VERSION"
 
@@ -174,6 +174,16 @@ check_selection_in_browser() {
         node "$reader/e2e/selection.e2e.mjs" || fail "selection drag in WebKit at $1"
 }
 
+# Keys, edge clicks, the mouse wheel and a trackpad swipe turn pages on a
+# desktop-sized page, in WebKit and in Chromium.
+check_desktop_input_in_browser() {
+    local browser
+    for browser in webkit chromium; do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        ORIEL_BROWSER="$browser" node "$reader/e2e/desktop-input.e2e.mjs" || fail "desktop page turns in $browser at $1"
+    done
+}
+
 # A plugin is loaded and Active.
 check_plugin_active() {
     local prefix="$1" name="$2"
@@ -222,6 +232,7 @@ curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorizat
     -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
     || fail "could not clear the saved position before the selection check"
 check_selection_in_browser "$base"
+check_desktop_input_in_browser "$base"
 
 code="$(get_status "$base/Oriel/Me")"
 [ "$code" = "401" ] || fail "GET /Oriel/Me without a token returned $code, expected 401"
