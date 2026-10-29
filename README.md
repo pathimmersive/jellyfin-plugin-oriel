@@ -46,7 +46,9 @@ bash scripts/test-package.sh           # release packaging: the zip and the repo
 
 ## Releasing
 
-Pushing a tag `vX.Y.Z` on `main` runs the release workflow: it builds the plugin as version `X.Y.Z.0`, attaches `oriel_X.Y.Z.0.zip` to a GitHub release, and publishes `manifest.json` to GitHub Pages with every earlier version still listed. `scripts/package-plugin.py` does the packaging and can be run locally the same way.
+Releases are switched off until the repository variable `RELEASES_ENABLED` is set to `true` under **Settings → Secrets and variables → Actions → Variables**. While it is off, a pushed tag runs the release workflow, which fails at its first job with "Releases are switched off" and builds, releases and publishes nothing.
+
+Once releases are on, pushing a tag `vX.Y.Z` on `main` runs the release workflow: it builds the plugin as version `X.Y.Z.0`, attaches `oriel_X.Y.Z.0.zip` to a GitHub release, and publishes `manifest.json` to GitHub Pages with every earlier version still listed. `scripts/package-plugin.py` does the packaging and can be run locally the same way.
 
 ## Contributing and security
 

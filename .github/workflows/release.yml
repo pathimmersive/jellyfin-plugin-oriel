@@ -4,6 +4,10 @@ name: Release
 # GitHub Release, and publishes the plugin repository manifest on GitHub Pages,
 # keeping every earlier version listed. Jellyfin installs Oriel from
 # https://<owner>.github.io/<repository>/manifest.json.
+#
+# Releases are switched off until the repository variable RELEASES_ENABLED is
+# set to true. Until then the guard job fails and every other job waits on it,
+# so a pushed tag builds, releases and publishes nothing.
 
 on:
   push:
@@ -17,7 +21,22 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  guard:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Check releases are switched on
+        env:
+          RELEASES_ENABLED: ${{ vars.RELEASES_ENABLED }}
+        run: |
+          if [ "$RELEASES_ENABLED" != "true" ]; then
+            echo "::error::Releases are switched off. To switch them on, set the repository variable RELEASES_ENABLED to true under Settings, Secrets and variables, Actions, Variables, then push the tag again."
+            exit 1
+          fi
+
   package:
+    needs: guard
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     permissions:
