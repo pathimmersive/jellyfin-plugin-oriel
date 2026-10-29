@@ -45,20 +45,10 @@ jobs:
       - run: npm ci
         working-directory: src/reader
       # The smoke script installs WebKit and Chromium itself; the runner also
-      # needs their system libraries. The runner's package mirror sometimes slows to a crawl, so each
-      # attempt gets five minutes, and an interrupted apt is cleaned up before the
-      # next try (apt keeps what it already downloaded).
+      # needs their system libraries. The runner's package mirror sometimes slows
+      # to a crawl, so the script gives each of three attempts five minutes and
+      # puts a different apt mirror first on each.
       - name: Install WebKit's and Chromium's system libraries
         working-directory: src/reader
-        run: |
-          for attempt in 1 2 3; do
-            if timeout --kill-after=15 300 npx playwright install --with-deps webkit chromium; then
-              exit 0
-            fi
-            echo "::warning::Browser dependency install attempt $attempt failed or took over 5 minutes"
-            sudo pkill -x apt-get || true
-            sudo pkill -x dpkg || true
-            sudo dpkg --configure -a || true
-          done
-          exit 1
+        run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps webkit chromium
       - run: bash scripts/smoke-plugin.sh
