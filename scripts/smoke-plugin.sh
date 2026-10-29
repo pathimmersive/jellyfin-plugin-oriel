@@ -580,4 +580,49 @@ check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume "$PROGRESS_TE
 set_progress "http://127.0.0.1:$port/jf" 0
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
 
+# --- install from a plugin repository --------------------------------------
+
+# Packages a newer version, serves its manifest and zip from the server's own
+# web folder, and installs Oriel from that repository the way an admin would in
+# the dashboard. The server fetches them from itself, inside its container.
+prefix="http://127.0.0.1:$port/jf"
+repo_version="99.0.0"
+repo_inside="http://localhost:8096/jf/web/oriel-repo"
+py="$(command -v python3 || command -v python || true)"
+[ -n "$py" ] || fail "Python 3 is needed to package the plugin"
+"$py" "$repo/scripts/package-plugin.py" --version "$repo_version" --out "$work/repo/v$repo_version" \
+    --url-base "$repo_inside" --changelog "Smoke test release." --jellyfin-version "$JELLYFIN_VERSION" >/dev/null \
+    || fail "package Oriel $repo_version"
+mv "$work/repo/v$repo_version/manifest.json" "$work/repo/manifest.json"
+MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$work/repo")" "$container:/jellyfin/jellyfin-web/oriel-repo" >/dev/null \
+    || fail "copy the test repository into the server"
+code="$(get_status "$prefix/web/oriel-repo/manifest.json")"
+[ "$code" = "200" ] || fail "the server does not serve the test repository manifest ($code)"
+
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d "[{\"Name\":\"Oriel smoke\",\"Url\":\"$repo_inside/manifest.json\",\"Enabled\":true}]" "$prefix/Repositories")"
+[ "$code" = "204" ] || fail "POST /Repositories returned $code: $(cat "$work/body")"
+code="$(get_status -H "Authorization: $token_header" "$prefix/Packages")"
+[ "$code" = "200" ] || fail "GET /Packages returned $code"
+grep -q "\"name\":\"$PLUGIN_NAME\"" "$work/body" && grep -q "\"version\":\"$repo_version.0\"" "$work/body" \
+    || fail "the catalog does not list $PLUGIN_NAME $repo_version.0 from the repository: $(head -c 400 "$work/body")"
+pass "adding the repository lists $PLUGIN_NAME $repo_version.0 in the plugin catalog"
+
+repo_url_query="$("$py" -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo_inside/manifest.json")"
+code="$(get_status -X POST -H "Authorization: $token_header" \
+    "$prefix/Packages/Installed/$PLUGIN_NAME?assemblyGuid=$PLUGIN_ID&version=$repo_version.0&repositoryUrl=$repo_url_query")"
+[ "$code" = "204" ] || fail "installing $PLUGIN_NAME $repo_version.0 from the repository returned $code: $(cat "$work/body")"
+docker restart "$container" >/dev/null || fail "docker restart"
+port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
+prefix="http://127.0.0.1:$port/jf"
+wait_ready "$prefix"
+code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins")"
+[ "$code" = "200" ] || fail "GET /Plugins returned $code"
+entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$PLUGIN_NAME\"" | grep "\"Version\":\"$repo_version.0\"" || true)"
+[ -n "$entry" ] || fail "after installing from the repository, /Plugins does not list $PLUGIN_NAME $repo_version.0: $(cat "$work/body")"
+[ "$(echo "$entry" | json_str Status)" = "Active" ] || fail "$PLUGIN_NAME $repo_version.0 is not Active: $entry"
+code="$(get_status "$prefix/Oriel/")"
+[ "$code" = "200" ] || fail "after installing from the repository GET /Oriel/ returned $code"
+pass "$PLUGIN_NAME $repo_version.0 installs from the repository, is Active after a restart and serves the reader"
+
 echo "smoke-plugin: all checks passed"

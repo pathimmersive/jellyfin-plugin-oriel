@@ -1,0 +1,83 @@
+name: Release
+
+# Pushing a version tag (v1.2.3) on main builds the plugin, attaches the zip to a
+# GitHub Release, and publishes the plugin repository manifest on GitHub Pages,
+# keeping every earlier version listed. Jellyfin installs Oriel from
+# https://<owner>.github.io/<repository>/manifest.json.
+
+on:
+  push:
+    tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Check the tag is on main
+        run: |
+          git fetch --no-tags origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main \
+            || { echo "::error::$GITHUB_REF_NAME is not a commit on main"; exit 1; }
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          dotnet-version: 10.0.x
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: src/reader/package-lock.json
+      - run: dotnet test
+      - run: bash scripts/test-package.sh
+      # The manifest already on Pages holds the earlier versions. Only a missing
+      # manifest (the first release) starts a new one; any other failure stops
+      # the release rather than publishing a manifest that forgets versions.
+      - name: Fetch the published manifest
+        run: |
+          url="https://${GITHUB_REPOSITORY_OWNER}.github.io/${GITHUB_REPOSITORY#*/}/manifest.json"
+          code="$(curl -sL -o previous.json -w '%{http_code}' "$url")"
+          case "$code" in
+            200) echo "MANIFEST_ARGS=--manifest previous.json" >> "$GITHUB_ENV" ;;
+            404) echo "No manifest at $url yet; starting one." ;;
+            *) echo "::error::GET $url returned $code"; exit 1 ;;
+          esac
+      - name: Package
+        run: |
+          python3 scripts/package-plugin.py --version "$GITHUB_REF_NAME" --out dist \
+            --url-base "https://github.com/$GITHUB_REPOSITORY/releases/download" \
+            --changelog "https://github.com/$GITHUB_REPOSITORY/releases/tag/$GITHUB_REF_NAME" \
+            $MANIFEST_ARGS
+          mkdir site && cp dist/manifest.json site/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/oriel_*.zip --title "Oriel $GITHUB_REF_NAME" --generate-notes --verify-tag
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site
+
+  publish:
+    needs: package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}manifest.json
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
