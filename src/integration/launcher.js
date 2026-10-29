@@ -11,11 +11,19 @@
     var requested = false;
 
     // jellyfin-web lives at {base}/web/, Oriel at {base}/Oriel/.
-    function orielUrl(itemId) {
+    function orielBase() {
         var path = window.location.pathname;
         var web = path.toLowerCase().lastIndexOf('/web/');
-        var base = web >= 0 ? path.slice(0, web) : '';
-        return base + '/Oriel/?id=' + encodeURIComponent(itemId);
+        return (web >= 0 ? path.slice(0, web) : '') + '/Oriel/';
+    }
+
+    function orielUrl(itemId) {
+        return orielBase() + '?id=' + encodeURIComponent(itemId);
+    }
+
+    // The reading data page, for the book it was opened for when there was one.
+    function orielDataUrl(itemId) {
+        return orielBase() + 'data.html' + (itemId ? '?id=' + encodeURIComponent(itemId) : '');
     }
 
     function OrielBookPlayer() {
@@ -58,11 +66,13 @@
         return Promise.resolve(OrielBookPlayer);
     };
 
-    // Finishing a sign-in that started in the reader. The reader leaves a marker
-    // with the book's id before sending a signed-out user to the login page, which
+    // Finishing a sign-in that started in Oriel. The reader leaves a marker with
+    // the book's id before sending a signed-out user to the login page, which
     // returns to that book's detail page after sign-in; from there, open the book
-    // in Oriel again. The reader's src/session/return.ts uses the same key, age
-    // limit and id format.
+    // in Oriel again. The reading data page leaves a marker naming the page
+    // ({ page: 'data' }, with the book's id when it had one); sign-in ends on the
+    // home page, and from there the data page opens again. The reader's
+    // src/session/return.ts uses the same key, age limit and id format.
     var RETURN_KEY = 'oriel_return';
     var RETURN_MAX_AGE_MS = 10 * 60 * 1000;
     var RETURN_CHECK_MS = 300;
@@ -101,13 +111,28 @@
         return null;
     }
 
+    // Whether jellyfin-web is showing its home page.
+    function onHome() {
+        var hash = window.location.hash || '';
+        return hash === '#/home' || hash.indexOf('#/home?') === 0 || hash.indexOf('#/home.html') === 0;
+    }
+
+    function validMarker(marker) {
+        if (typeof marker.at !== 'number') return false;
+        if (marker.page === 'data') {
+            return marker.id === undefined || (typeof marker.id === 'string' && ITEM_ID.test(marker.id));
+        }
+        return marker.page === undefined && typeof marker.id === 'string' && ITEM_ID.test(marker.id);
+    }
+
     function watchReturn() {
         var marker = readReturnMarker();
         if (!marker) return;
-        if (typeof marker.id !== 'string' || !ITEM_ID.test(marker.id) || typeof marker.at !== 'number') {
+        if (!validMarker(marker)) {
             clearReturnMarker();
             return;
         }
+        var toData = marker.page === 'data';
         var timer = null;
         function stop() {
             if (timer !== null) window.clearInterval(timer);
@@ -119,10 +144,10 @@
             if (age < 0 || age > RETURN_MAX_AGE_MS) {
                 clearReturnMarker();
                 stop();
-            } else if ((detailsItemId() || '').toLowerCase() === marker.id.toLowerCase()) {
+            } else if (toData ? onHome() : (detailsItemId() || '').toLowerCase() === marker.id.toLowerCase()) {
                 clearReturnMarker();
                 stop();
-                window.location.replace(orielUrl(marker.id));
+                window.location.replace(toData ? orielDataUrl(marker.id) : orielUrl(marker.id));
             }
         }
         window.addEventListener('hashchange', check);

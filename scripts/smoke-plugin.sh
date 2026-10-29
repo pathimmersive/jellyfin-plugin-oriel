@@ -488,9 +488,9 @@ check_takeover_in_browser() {
 # Opens the reader signed out, signs in on the jellyfin-web login page it is
 # sent to, and expects the book's detail page or the book in Oriel ($2).
 check_login_return() {
-    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW" \
+    ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_START="${3:-book}" ORIEL_ITEM_ID="$item_id" ORIEL_USER="$ADMIN_USER" ORIEL_PASSWORD="$ADMIN_PW" \
     ORIEL_EXPECT_TEXT="$BOOK_TEXT" \
-        node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out reader at $1 did not reach the $2 page"
+        node "$reader/e2e/login-return.e2e.mjs" || fail "signing in from the signed-out ${3:-book} page at $1 did not reach the $2 page"
 }
 
 # Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
@@ -556,15 +556,21 @@ ORIEL_BASE="$base" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
 ORIEL_OTHER_TOKEN="$(sed -E 's/.*Token="([^"]*)".*/\1/' <<< "$reader_header")" ORIEL_OTHER_CFI="epubcfi(/6/4!/4/2/1:0)" \
     node "$reader/e2e/reading-data.e2e.mjs" || fail "exporting or importing reading data at $base"
 
+# The Your reading data page: download, import and its summary, the bad-file
+# alert, Back to the book, and the sign-in redirect, at phone and desktop widths.
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"     node "$reader/e2e/data-page.e2e.mjs" || fail "the reading data page at $base"
+
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" builtin Resume
 set_progress "$base" 0
 check_takeover_in_browser "$base" builtin Play
 check_login_return "$base" details
+check_login_return "$base" home data
 set_integration "$base" true
 check_web_patched "$base"
 check_login_return "$base" oriel
+check_login_return "$base" data data
 check_takeover_in_browser "$base" oriel Play
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
@@ -586,6 +592,7 @@ set_progress "http://127.0.0.1:$port/jf" 0
 check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
 check_login_return "http://127.0.0.1:$port/jf" oriel
+check_login_return "http://127.0.0.1:$port/jf" data data
 set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume "$PROGRESS_TEXT"
 set_progress "http://127.0.0.1:$port/jf" 0

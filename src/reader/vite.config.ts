@@ -1,5 +1,6 @@
 /// <reference types="vitest/config" />
 import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
 import { defineConfig, type Plugin } from 'vite'
 
 const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
@@ -35,6 +36,13 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         target: 'es2022',
+        // The reader, and the Your reading data page beside it.
+        rollupOptions: {
+            input: {
+                index: fileURLToPath(new URL('./index.html', import.meta.url)),
+                data: fileURLToPath(new URL('./data.html', import.meta.url)),
+            },
+        },
     },
     test: {
         include: ['tests/**/*.test.ts'],

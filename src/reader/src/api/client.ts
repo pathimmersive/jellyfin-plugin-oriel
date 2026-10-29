@@ -1,3 +1,5 @@
+import { type ImportResult, isImportResult } from '../data/summary'
+
 /** A book could not be fetched; the message is meant for the reader. */
 export class BookLoadError extends Error {
     constructor(message: string, readonly status?: number) {
@@ -172,5 +174,71 @@ export const writeStoredPosition = async (
         return isStoredPosition(data) ? data : null
     } catch {
         return null
+    }
+}
+
+/** The reading data file from /Oriel/Export and the name the server gives it, or why it could not be had. */
+export type ReadingDataFile = { ok: true, blob: Blob, fileName: string } | { ok: false, reason: string }
+
+const DEFAULT_EXPORT_NAME = 'oriel-reading-data.json'
+
+/** The file name in a Content-Disposition header, or null. */
+export const attachmentName = (disposition: string | null): string | null => {
+    if (!disposition) return null
+    const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(disposition)
+    if (encoded) {
+        try {
+            return decodeURIComponent(encoded[1].trim())
+        } catch { /* fall back to the plain name */ }
+    }
+    const plain = /filename\s*=\s*"?([^";]+)"?/i.exec(disposition)
+    return plain ? plain[1].trim() : null
+}
+
+/** Downloads the signed-in user's reading data through /Oriel/Export. */
+export const downloadReadingData = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<ReadingDataFile> => {
+    try {
+        const response = await fetchImpl(`${basePath}/Oriel/Export`, { headers: { Authorization: authorization } })
+        if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` }
+        const fileName = attachmentName(response.headers.get('Content-Disposition')) ?? DEFAULT_EXPORT_NAME
+        return { ok: true, blob: await response.blob(), fileName }
+    } catch (error) {
+        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
+    }
+}
+
+/**
+ * What importing a file did: the server's result, a file it rejected (not an
+ * Oriel export, too new, malformed or too large; nothing was stored), or a
+ * failure to reach it.
+ */
+export type ImportOutcome =
+    | { kind: 'done', result: ImportResult }
+    | { kind: 'rejected' }
+    | { kind: 'failed', reason: string }
+
+/** Imports a reading data file for the signed-in user through /Oriel/Import. */
+export const importReadingData = async (
+    basePath: string,
+    authorization: string,
+    file: Blob,
+    fetchImpl: typeof fetch = fetch,
+): Promise<ImportOutcome> => {
+    try {
+        const response = await fetchImpl(`${basePath}/Oriel/Import`, {
+            method: 'POST',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: file,
+        })
+        if (response.status === 400) return { kind: 'rejected' }
+        if (!response.ok) return { kind: 'failed', reason: `HTTP ${response.status}` }
+        const result: unknown = await response.json()
+        return isImportResult(result) ? { kind: 'done', result } : { kind: 'failed', reason: 'an unexpected reply' }
+    } catch (error) {
+        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) }
     }
 }
