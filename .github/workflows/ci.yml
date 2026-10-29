@@ -25,6 +25,7 @@ jobs:
           cache-dependency-path: src/reader/package-lock.json
       # Building the plugin runs npm ci and the reader build, then embeds it.
       - run: dotnet test
+      - run: bash scripts/test-package.sh
       - run: npm --prefix src/reader test
       - run: bash scripts/check-community-files.sh
 
