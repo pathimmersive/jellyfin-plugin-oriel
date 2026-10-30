@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachPageInput, clickTurn, keyTurn, type Turn, wheelGesture } from '../src/engine/input'
+import { attachPageInput, clickTarget, keyTurn, type Turn, wheelGesture } from '../src/engine/input'
 
 const key = (key: string, mods: Partial<{ shiftKey: boolean, ctrlKey: boolean, altKey: boolean, metaKey: boolean }> = {}) =>
     ({ key, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...mods })
@@ -33,25 +33,33 @@ describe('keyTurn', () => {
     })
 })
 
-describe('clickTurn', () => {
-    // A page 1000 wide starting at 100: edges up to 320 and from 880.
-    it('turns left in the left 22% and right in the right 22%', () => {
-        expect(clickTurn(100, 100, 1000)).toBe('left')
-        expect(clickTurn(319, 100, 1000)).toBe('left')
-        expect(clickTurn(881, 100, 1000)).toBe('right')
-        expect(clickTurn(1100, 100, 1000)).toBe('right')
+describe('clickTarget', () => {
+    // A page 1000 wide starting at 100: with a mouse, edges up to 320 and from 880.
+    it('turns left in the left 22% and right in the right 22% with a mouse', () => {
+        expect(clickTarget(100, 100, 1000, false)).toBe('left')
+        expect(clickTarget(319, 100, 1000, false)).toBe('left')
+        expect(clickTarget(881, 100, 1000, false)).toBe('right')
+        expect(clickTarget(1100, 100, 1000, false)).toBe('right')
     })
 
-    it('turns nothing in the middle 56%', () => {
-        expect(clickTurn(321, 100, 1000)).toBeNull()
-        expect(clickTurn(600, 100, 1000)).toBeNull()
-        expect(clickTurn(879, 100, 1000)).toBeNull()
+    it('asks for the controls in the middle 56% with a mouse', () => {
+        expect(clickTarget(321, 100, 1000, false)).toBe('menu')
+        expect(clickTarget(600, 100, 1000, false)).toBe('menu')
+        expect(clickTarget(879, 100, 1000, false)).toBe('menu')
     })
 
-    it('turns nothing outside the page or on a page with no width', () => {
-        expect(clickTurn(50, 100, 1000)).toBeNull()
-        expect(clickTurn(1200, 100, 1000)).toBeNull()
-        expect(clickTurn(100, 100, 0)).toBeNull()
+    // With touch, edges up to 400 and from 800.
+    it('turns in the outer 30% and asks for the controls in the middle 40% with touch', () => {
+        expect(clickTarget(399, 100, 1000, true)).toBe('left')
+        expect(clickTarget(801, 100, 1000, true)).toBe('right')
+        expect(clickTarget(401, 100, 1000, true)).toBe('menu')
+        expect(clickTarget(799, 100, 1000, true)).toBe('menu')
+    })
+
+    it('does nothing outside the page or on a page with no width', () => {
+        expect(clickTarget(50, 100, 1000, false)).toBeNull()
+        expect(clickTarget(1200, 100, 1000, true)).toBeNull()
+        expect(clickTarget(100, 100, 0, false)).toBeNull()
     })
 })
 
@@ -118,12 +126,16 @@ describe('wheelGesture', () => {
 const page = (selected = false) => {
     const window = new EventTarget()
     const turns: Turn[] = []
+    let menus = 0
+    let swipes = 0
     const time = clock()
     attachPageInput(
         { defaultView: window as unknown as Window, getSelection: () => ({ isCollapsed: !selected }) },
         () => ({ left: 0, width: 1000 }),
         wheelGesture(time.now),
         turn => turns.push(turn),
+        () => { menus++ },
+        () => { swipes++ },
     )
     const fire = (type: string, fields: Record<string, unknown>) => {
         const event = new Event(type, { cancelable: true })
@@ -131,11 +143,17 @@ const page = (selected = false) => {
         window.dispatchEvent(event)
         return event
     }
-    const click = (x: number, fields: Record<string, unknown> = {}, downX = x) => {
-        fire('pointerdown', { button: 0, clientX: downX, clientY: 300 })
+    const click = (x: number, fields: Record<string, unknown> = {}, downX = x, pointerType = 'mouse') => {
+        fire('pointerdown', { button: 0, clientX: downX, clientY: 300, pointerType })
         return fire('click', { button: 0, clientX: x, clientY: 300, target: null, ...fields })
     }
-    return { turns, fire, click, time }
+    // A finger down at `x`, then up at `upX` after `ms`.
+    const tap = (x: number, { upX = x, ms = 80, target = null as unknown }: { upX?: number, ms?: number, target?: unknown } = {}) => {
+        const at = (clientX: number) => [{ clientX, clientY: 300 }]
+        fire('touchstart', { touches: at(x), timeStamp: 1000 })
+        return fire('touchend', { touches: [], changedTouches: at(upX), timeStamp: 1000 + ms, target })
+    }
+    return { turns, menus: () => menus, swipes: () => swipes, fire, click, tap, time }
 }
 
 describe('attachPageInput', () => {
@@ -154,17 +172,57 @@ describe('attachPageInput', () => {
         expect(turns).toEqual([])
     })
 
-    it('turns on a click on an edge but not in the middle', () => {
-        const { turns, click } = page()
+    it('turns on a click on an edge and asks for the controls on a click in the middle', () => {
+        const { turns, menus, click } = page()
         click(950)
         click(50)
         click(500)
         expect(turns).toEqual(['right', 'left'])
+        expect(menus()).toBe(1)
+    })
+
+    it('reads a tap from touch events, with the wider touch edges', () => {
+        const { turns, menus, tap, click } = page()
+        tap(250)
+        tap(500)
+        expect(turns).toEqual(['left'])
+        expect(menus()).toBe(1)
+        // The click a tap ends in is not counted again.
+        click(250, {}, 250, 'touch')
+        expect(turns).toEqual(['left'])
+        expect(menus()).toBe(1)
+    })
+
+    it('does not take a swipe, a long press, a second finger or a tap on a control for a tap', () => {
+        const { turns, menus, swipes, tap, fire } = page()
+        tap(500, { upX: 560 })
+        tap(500, { ms: 900 })
+        tap(500, { target: { closest: (selector: string) => selector.includes('button') ? {} : null } })
+        fire('touchstart', { touches: [{ clientX: 500, clientY: 300 }, { clientX: 600, clientY: 300 }], timeStamp: 0 })
+        fire('touchend', { touches: [], changedTouches: [{ clientX: 500, clientY: 300 }], timeStamp: 50, target: null })
+        expect(turns).toEqual([])
+        expect(menus()).toBe(0)
+        expect(swipes()).toBe(1)
+    })
+
+    it('does not report a drag that selects text as a swipe', () => {
+        const { swipes, tap } = page(true)
+        tap(500, { upX: 560 })
+        expect(swipes()).toBe(0)
+    })
+
+    it('leaves clicks on the controls themselves alone', () => {
+        const { turns, menus, click } = page()
+        const control = { closest: (selector: string) => selector.includes('button') ? {} : null }
+        click(500, { target: control })
+        click(950, { target: control })
+        expect(turns).toEqual([])
+        expect(menus()).toBe(0)
     })
 
     it('does not turn on a click on a link, after a drag, or with text selected', () => {
         const link = page()
-        link.click(950, { target: { closest: (selector: string) => selector === 'a[href]' ? {} : null } })
+        link.click(950, { target: { closest: (selector: string) => selector.includes('a[href]') ? {} : null } })
         link.click(950, {}, 600)
         expect(link.turns).toEqual([])
         const selected = page(true)
@@ -193,6 +251,6 @@ describe('attachPageInput', () => {
     })
 
     it('does nothing for a document without a window', () => {
-        expect(() => attachPageInput({ defaultView: null, getSelection: () => null }, () => null, wheelGesture(), () => {})).not.toThrow()
+        expect(() => attachPageInput({ defaultView: null, getSelection: () => null }, () => null, wheelGesture(), () => {}, () => {})).not.toThrow()
     })
 })
