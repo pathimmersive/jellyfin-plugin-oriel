@@ -1,9 +1,11 @@
 // Checks, in Playwright WebKit at a phone size, that the reader opens books in
-// formats other than EPUB: the comic shows its first page (a red image), and
-// after a page turn it is saved to Oriel and mirrored to Jellyfin, and opens
-// again on the same page. Configured by environment: ORIEL_BASE (server URL
-// including any BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN and
-// ORIEL_CBZ_ID. Exits non-zero on the first failed check.
+// formats other than EPUB: the comic shows its first page (a red image) and
+// the MOBI and AZW3 books their first chapter's text, and after a page turn
+// each is saved to Oriel and mirrored to Jellyfin, and opens again on the same
+// page. Configured by environment: ORIEL_BASE (server URL including any
+// BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_CBZ_ID,
+// ORIEL_MOBI_ID, ORIEL_MOBI_TEXT, ORIEL_AZW3_ID and ORIEL_AZW3_TEXT (each
+// book's first line). Exits non-zero on the first failed check.
 import { devices, webkit } from 'playwright'
 
 const env = name => {
@@ -38,6 +40,13 @@ const api = async path => {
     return response.ok ? response.json() : null
 }
 
+// The book renders in iframes inside a closed shadow root, so read every frame.
+const frameText = async page => {
+    const texts = await Promise.all(page.frames().map(frame =>
+        frame.evaluate(() => document.body?.innerText ?? '').catch(() => '')))
+    return texts.join('\n')
+}
+
 // The colour at the middle of the first loaded image in any of the book's frames.
 const pageColour = async page => {
     for (const frame of page.frames()) {
@@ -59,6 +68,16 @@ const pageColour = async page => {
 const RED = [200, 30, 30]
 const near = (a, b) => a && a.every((v, i) => Math.abs(v - b[i]) < 12)
 
+// Waits for a page to show what `seen` looks for; true once it does.
+const shows = async (page, seen) => {
+    for (let i = 0; i < 20; i++) {
+        if (await seen(page)) return true
+        await pause(500)
+    }
+    return false
+}
+const showsText = text => async page => (await frameText(page)).includes(text)
+
 const where = page => page.evaluate(() => document.querySelector('foliate-view').lastLocation?.cfi ?? null)
 
 const open = async (context, id) => {
@@ -72,6 +91,12 @@ const open = async (context, id) => {
     return page
 }
 
+const books = [
+    { label: 'comic', id: env('ORIEL_CBZ_ID'), first: 'its first page (red)', seen: async page => near(await pageColour(page), RED) },
+    { label: 'MOBI book', id: env('ORIEL_MOBI_ID'), first: `"${env('ORIEL_MOBI_TEXT')}"`, seen: showsText(env('ORIEL_MOBI_TEXT')) },
+    { label: 'AZW3 book', id: env('ORIEL_AZW3_ID'), first: `"${env('ORIEL_AZW3_TEXT')}"`, seen: showsText(env('ORIEL_AZW3_TEXT')) },
+]
+
 const browser = await webkit.launch()
 let failed = false
 try {
@@ -79,38 +104,35 @@ try {
     await context.addInitScript(value => {
         localStorage.setItem('jellyfin_credentials', value)
     }, credentials)
-    const id = env('ORIEL_CBZ_ID')
 
-    let page = await open(context, id)
-    let colour = null
-    for (let i = 0; i < 20 && !near(colour, RED); i++) {
-        await pause(500)
-        colour = await pageColour(page)
+    for (const book of books) {
+        let page = await open(context, book.id)
+        if (!await shows(page, book.seen)) fail(`the ${book.label} opened but does not show ${book.first}`)
+        pass(`the ${book.label} opens in Oriel and shows ${book.first}`)
+
+        const before = await where(page)
+        await page.keyboard.press('ArrowRight')
+        await pause(1500)
+        const turned = await where(page)
+        if (!turned || turned === before) fail(`turning a page in the ${book.label} left it at ${before}`)
+        // Longer than the reader waits before saving a move.
+        await pause(6000)
+        const stored = await api(`/Oriel/Positions/${book.id}`)
+        if (stored?.cfi !== turned) fail(`the ${book.label}'s place ${turned} was not saved: ${JSON.stringify(stored)}`)
+        const mirrored = await api(`/UserItems/${book.id}/UserData?userId=${userId}`)
+        if (!(mirrored?.PlaybackPositionTicks > 0)) fail(`the ${book.label}'s place was not mirrored to Jellyfin: ${JSON.stringify(mirrored)}`)
+        await page.close()
+
+        page = await open(context, book.id)
+        let reopened = null
+        for (let i = 0; i < 10 && reopened !== turned; i++) {
+            await pause(500)
+            reopened = await where(page)
+        }
+        if (reopened !== turned) fail(`the ${book.label} reopened at ${reopened}, not ${turned}`)
+        pass(`a page turned in the ${book.label} is saved, mirrored to Jellyfin, and opens again at ${turned}`)
+        await page.close()
     }
-    if (!near(colour, RED)) fail(`the comic opened but does not show its first page (red); the page colour is ${colour}`)
-    pass('the comic opens in Oriel and shows its first page')
-
-    const before = await where(page)
-    await page.keyboard.press('ArrowRight')
-    await pause(1500)
-    const turned = await where(page)
-    if (!turned || turned === before) fail(`turning a page in the comic left it at ${before}`)
-    // Longer than the reader waits before saving a move.
-    await pause(6000)
-    const stored = await api(`/Oriel/Positions/${id}`)
-    if (stored?.cfi !== turned) fail(`the comic's place ${turned} was not saved: ${JSON.stringify(stored)}`)
-    const mirrored = await api(`/UserItems/${id}/UserData?userId=${userId}`)
-    if (!(mirrored?.PlaybackPositionTicks > 0)) fail(`the comic's place was not mirrored to Jellyfin: ${JSON.stringify(mirrored)}`)
-    await page.close()
-
-    page = await open(context, id)
-    let reopened = null
-    for (let i = 0; i < 10 && reopened !== turned; i++) {
-        await pause(500)
-        reopened = await where(page)
-    }
-    if (reopened !== turned) fail(`the comic reopened at ${reopened}, not ${turned}`)
-    pass(`a page turned in the comic is saved, mirrored to Jellyfin, and opens again at ${turned}`)
 } catch (error) {
     console.error(`FAIL: ${error.message}`)
     failed = true
