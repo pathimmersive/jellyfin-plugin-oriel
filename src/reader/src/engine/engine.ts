@@ -1,5 +1,7 @@
 // The only module that touches foliate-js.
+import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
+import type { TocEntry } from '../controls/contents'
 import type { Moved, StartAt } from '../position/position'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { guardSelectionDrag } from './selection'
@@ -11,7 +13,7 @@ interface FoliateView extends HTMLElement {
     goToFraction(fraction: number): Promise<void>
     goToTextStart(): Promise<void>
     resolveNavigation(target: string): { index?: unknown } | undefined
-    book: { sections: unknown[], metadata?: { title?: unknown } }
+    book: { sections: unknown[], metadata?: { title?: unknown }, toc?: TocEntry[] }
     next(): Promise<void>
     prev(): Promise<void>
     goLeft(): Promise<void>
@@ -24,12 +26,16 @@ interface FoliateView extends HTMLElement {
 interface Location {
     fraction?: number
     cfi?: string
-    tocItem?: { label?: string }
+    tocItem?: { label?: string, href?: string }
 }
 
-/** The place shown: its chapter's name (empty for none) and the fraction of the book. */
+/**
+ * The place shown: its chapter's name (empty for none), the link of its
+ * contents entry (null for none) and the fraction of the book.
+ */
 export interface Place {
     chapter: string
+    href: string | null
     fraction: number
 }
 
@@ -67,6 +73,12 @@ export interface OpenBook {
     onPlace(onPlace: (place: Place) => void): void
     /** Goes to a fraction of the book: a reader move, saved like a page turn. */
     seek(fraction: number): Promise<void>
+    /** The book's contents, as foliate-js gives them; empty for none. */
+    contents: TocEntry[]
+    /** The fraction of the book where a contents link leads: the start of its section. */
+    fractionOf(href: string): number | null
+    /** Goes to a contents link: a reader move, saved like a page turn. */
+    goTo(href: string): Promise<void>
 }
 
 // The paginator's reasons for re-placing the current position rather than moving.
@@ -106,9 +118,14 @@ export const openBook = async (
         const doc = (event as CustomEvent<{ doc: Document }>).detail.doc
         guardSelectionDrag(doc)
         attachPageInput(doc, () => {
-            // A click's position in the section's frame, measured from the page.
-            const frame = doc.defaultView?.frameElement?.getBoundingClientRect()
-            return frame ? { left: page().left - frame.left, width: page().width } : null
+            // The page's left edge and width in the section frame's own
+            // coordinates. Fixed-layout pages (comics) scale their frame with a
+            // CSS transform, so a position inside it is unscaled.
+            const element = doc.defaultView?.frameElement as HTMLElement | null | undefined
+            const frame = element?.getBoundingClientRect()
+            if (!element || !frame) return null
+            const scale = element.offsetWidth > 0 ? frame.width / element.offsetWidth : 1
+            return { left: (page().left - frame.left) / scale, width: page().width / scale }
         }, gesture, turn, onMenu, onTurn)
     })
     onView?.(view)
@@ -128,8 +145,11 @@ export const openBook = async (
     if (!placed) await view.goToTextStart()
     const place = (): Place => ({
         chapter: view.lastLocation?.tocItem?.label?.trim() ?? '',
+        href: view.lastLocation?.tocItem?.href ?? null,
         fraction: view.lastLocation?.fraction ?? 0,
     })
+    // Where each section starts, as foliate-js measures progress through the book.
+    const sectionStarts: number[] = new SectionProgress(view.book.sections, 1500, 1600).sectionFractions
     const opened: OpenBook = {
         openedAt: view.lastLocation?.cfi ?? null,
         placed,
@@ -140,6 +160,14 @@ export const openBook = async (
         },
         async seek(fraction) {
             await view.goToFraction(fraction)
+        },
+        contents: view.book.toc ?? [],
+        fractionOf(href) {
+            const index = view.resolveNavigation(href)?.index
+            return typeof index === 'number' && Number.isInteger(index) ? sectionStarts[index] ?? null : null
+        },
+        async goTo(href) {
+            await view.goTo(href)
         },
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()

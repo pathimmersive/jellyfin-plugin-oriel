@@ -164,7 +164,125 @@ body {
   color: rgba(255, 255, 255, .7);
 }
 
+/* Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen. */
+#contents-backdrop {
+  position: fixed;
+  z-index: 5;
+  inset: 0;
+  background: rgba(0, 0, 0, .5);
+}
+
+#contents {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 6;
+  left: 0;
+  right: 0;
+  top: calc(env(safe-area-inset-top) + 120px);
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: env(safe-area-inset-bottom);
+  border-radius: 12px 12px 0 0;
+  background: #202020;
+  color: rgba(255, 255, 255, .87);
+}
+
+.panel-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 56px;
+  padding: 0 4px 0 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+
+.panel-header h2 {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panel-body {
+  flex: 1;
+  overflow: auto;
+}
+
+#contents ol {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+}
+
+#contents .entry {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 48px;
+  padding: 0 20px 0 calc(20px + var(--depth, 0) * 20px);
+  font-size: 15px;
+  color: rgba(255, 255, 255, .87);
+  text-decoration: none;
+}
+
+#contents .entry[aria-current] {
+  background: rgba(0, 164, 220, .35);
+}
+
+#contents .entry:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+#contents .where {
+  flex: none;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#contents .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 300px;
+  margin: 0;
+  padding: 0 32px;
+  font-size: 20px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+#contents .empty svg {
+  width: 48px;
+  height: 48px;
+  color: rgba(255, 255, 255, .7);
+}
+
 @media (min-width: 600px) {
+  #contents-backdrop {
+    display: none;
+  }
+
+  #contents {
+    left: auto;
+    width: min(440px, 100%);
+    top: calc(env(safe-area-inset-top) + 57px);
+    bottom: calc(env(safe-area-inset-bottom) + 83px);
+    padding-bottom: 0;
+    border-radius: 0;
+    border-left: 1px solid rgba(255, 255, 255, .12);
+  }
+
   #reading-footer {
     font-size: 13px;
   }

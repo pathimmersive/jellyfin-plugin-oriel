@@ -11,6 +11,7 @@
 // ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID and ORIEL_BROWSER. Exits non-zero
 // on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
+import { press as pressAt } from './press.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -47,7 +48,7 @@ const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
-const CHAPTERS = ['Chapter One', 'Chapter Two', 'Chapter Three', 'Chapter Four']
+const CHAPTERS = ['Chapter One', 'Chapter Two', 'Chapter Two, Second Half', 'Chapter Three', 'Chapter Four']
 const detailsUrl = `${base}/web/#/details?id=${itemId}`
 
 // The page shown, as "<section index>:<page>".
@@ -56,38 +57,8 @@ const position = page => page.evaluate(() => {
     return `${renderer.getContents()[0]?.index}:${renderer.page}`
 })
 
-// A click with the mouse, or a tap, at a share of the book's width. A tap is
-// a touchstart and touchend built by hand in the frame showing the page, as
-// iOS sends them: Playwright's touchscreen does not reach into frames, and
-// desktop WebKit has no Touch constructor.
 const press = async (page, share) => {
-    const rect = await page.locator('#book').boundingBox()
-    if (!rect) fail('the book has no box on the page')
-    const x = rect.x + rect.width * share
-    const y = rect.y + rect.height / 2
-    if (!setup.touch) await page.mouse.click(x, y)
-    else {
-        const tapped = await page.evaluate(async ({ x, y }) => {
-            const doc = document.querySelector('foliate-view').renderer.getContents()[0]?.doc
-            const frame = doc?.defaultView?.frameElement?.getBoundingClientRect()
-            if (!frame) return false
-            const clientX = x - frame.left
-            const clientY = y - frame.top
-            const target = doc.elementFromPoint(clientX, clientY) ?? doc.body
-            const fire = (type, touches) => {
-                const event = new Event(type, { bubbles: true, cancelable: true })
-                const touch = { identifier: 1, target, clientX, clientY, screenX: clientX, screenY: clientY }
-                Object.defineProperty(event, 'touches', { value: touches ? [touch] : [] })
-                Object.defineProperty(event, 'changedTouches', { value: [touch] })
-                target.dispatchEvent(event)
-            }
-            fire('touchstart', true)
-            await new Promise(resolve => setTimeout(resolve, 60))
-            fire('touchend', false)
-            return true
-        }, { x, y })
-        if (!tapped) fail('no frame shows the page to tap')
-    }
+    if (!await pressAt(page, share, setup.touch)) fail('no frame shows the page to tap')
     await pause(600)
 }
 

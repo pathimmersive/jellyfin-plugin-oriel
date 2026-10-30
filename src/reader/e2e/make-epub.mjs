@@ -15,6 +15,10 @@ if (!output || !chapterText) {
 const filler = Array.from({ length: 20 }, (_, i) =>
     `<p>Paragraph ${i + 1} holds plain filler text, so that every chapter is about the same length.</p>`).join('')
     + Array.from({ length: 20 }, () => '<p>More filler follows here, a line at a time, to pad the chapter out.</p>').join('')
+// The nested entry marks a paragraph halfway through Chapter Two; the text is unchanged.
+const NESTED_ID = 'second-half'
+const NESTED_TITLE = 'Chapter Two, Second Half'
+const nestedFiller = filler.replace('<p>Paragraph 11 ', `<p id="${NESTED_ID}">Paragraph 11 `)
 const chapters = [
     ['ch1', 'Chapter One', chapterText],
     ['ch2', 'Chapter Two', 'Oriel smoke chapter two starts here.'],
@@ -52,10 +56,11 @@ ${chapters.map(([id]) => `    <item id="${id}" href="${id}.xhtml" media-type="ap
 ${chapters.map(([id]) => `    <itemref idref="${id}"/>`).join('\n')}
   </spine>
 </package>`],
+    // Chapter Two's contents entry has one nested entry, for its second half.
     ['OEBPS/nav.xhtml', xhtml('Contents', `<nav epub:type="toc"><ol>
-${chapters.map(([id, title]) => `<li><a href="${id}.xhtml">${title}</a></li>`).join('\n')}
+${chapters.map(([id, title]) => `<li><a href="${id}.xhtml">${title}</a>${id === 'ch2' ? `<ol><li><a href="ch2.xhtml#${NESTED_ID}">${NESTED_TITLE}</a></li></ol>` : ''}</li>`).join('\n')}
 </ol></nav>`)],
-    ...chapters.map(([id, title, first]) => [`OEBPS/${id}.xhtml`, xhtml(title, `<h1>${title}</h1><p>${first}</p>${filler}`)]),
+    ...chapters.map(([id, title, first]) => [`OEBPS/${id}.xhtml`, xhtml(title, `<h1>${title}</h1><p>${first}</p>${id === 'ch2' ? nestedFiller : filler}`)]),
 ]
 
 // Stored zip entries, mimetype first, as EPUB requires.
