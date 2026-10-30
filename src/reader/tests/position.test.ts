@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from '../src/api/client'
-import { chooseStart, fractionFromTicks, positionWriter, saveBoth, ticksFromFraction } from '../src/position/position'
+import type { JellyfinPosition, StoredPosition } from '../src/api/client'
+import { chooseStart, fallbackStart, fractionFromTicks, missingPlaceNotice, positionWriter, saveBoth, ticksFromFraction } from '../src/position/position'
 
 const CFI = 'epubcfi(/6/8!/4/2/1:0)'
 const stored = (savedAt: string) => ({ cfi: CFI, fraction: 0.6, savedAt })
@@ -159,5 +160,36 @@ describe('position requests', () => {
             keepalive: false,
         })
         expect(await writeStoredPosition('', 'abc', 'auth', CFI, 0.6, false, json(null, 400))).toBeNull()
+    })
+})
+
+describe('fallbackStart', () => {
+    const stored = (fraction: number): StoredPosition => ({ cfi: 'epubcfi(/6/20!/4/2/1:0)', fraction, savedAt: '2026-10-29T12:00:00Z' })
+    const jellyfin = (ticks: number | null): JellyfinPosition => ({ ticks, lastPlayed: '2026-10-29T11:00:00Z' })
+
+    it("opens at Jellyfin's place first", () => {
+        expect(fallbackStart(stored(0.3), jellyfin(6_000_000))).toEqual({ fraction: 0.6, from: 'jellyfin' })
+    })
+
+    it("opens at the saved place's own fraction when Jellyfin has no place", () => {
+        expect(fallbackStart(stored(0.3), jellyfin(null))).toEqual({ fraction: 0.3, from: 'saved' })
+        expect(fallbackStart(stored(0.3), null)).toEqual({ fraction: 0.3, from: 'saved' })
+    })
+
+    it('counts a place at 0 as the start, and opens at the start with neither', () => {
+        expect(fallbackStart(stored(0.3), jellyfin(0))).toEqual({ fraction: 0.3, from: 'saved' })
+        expect(fallbackStart(stored(0), jellyfin(0))).toEqual({ fraction: null, from: 'start' })
+        expect(fallbackStart(null, null)).toEqual({ fraction: null, from: 'start' })
+    })
+})
+
+describe('missingPlaceNotice', () => {
+    it('says where the book opened instead', () => {
+        expect(missingPlaceNotice({ fraction: 0.42, from: 'jellyfin' }))
+            .toBe('Your saved place is not in this copy of the book, so it opened at 42%, where you were in Jellyfin.')
+        expect(missingPlaceNotice({ fraction: 0.3, from: 'saved' }))
+            .toBe('Your saved place is not in this copy of the book, so it opened at 30%, where you were.')
+        expect(missingPlaceNotice({ fraction: null, from: 'start' }))
+            .toBe('Your saved place is not in this copy of the book, so it opened at the start.')
     })
 })

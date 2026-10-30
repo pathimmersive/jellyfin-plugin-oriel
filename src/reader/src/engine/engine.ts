@@ -9,6 +9,9 @@ interface FoliateView extends HTMLElement {
     init(options: { lastLocation?: unknown, showTextStart?: boolean }): Promise<void>
     goTo(target: string): Promise<unknown>
     goToFraction(fraction: number): Promise<void>
+    goToTextStart(): Promise<void>
+    resolveNavigation(target: string): { index?: unknown } | undefined
+    book: { sections: unknown[] }
     next(): Promise<void>
     prev(): Promise<void>
     goLeft(): Promise<void>
@@ -24,6 +27,17 @@ export interface OpenBook {
      * this same position is not a move by the reader.
      */
     openedAt: string | null
+    /**
+     * False when the book was asked to open at a CFI that is not a place in
+     * it; it then shows the start of the text until `reopen` places it.
+     */
+    placed: boolean
+    /**
+     * Places the book at a fraction of it, or at the start of the text for
+     * null, before any move: a re-placement, not a move, so `openedAt` is
+     * updated and nothing is saved.
+     */
+    reopen(fraction: number | null): Promise<void>
     /**
      * Calls `onMoved` with the position now shown (its CFI and the fraction of
      * the book) whenever the reader moves: a page turn, a swipe or a link.
@@ -78,10 +92,20 @@ export const openBook = async (
     // its blank lead page. So open at the text start, then move to the saved
     // position. The move is a re-placement ('anchor'), not a move to save.
     await view.init({ showTextStart: true })
-    if (start && 'cfi' in start) await view.goTo(start.cfi)
+    let placed = true
+    if (start && 'cfi' in start) placed = await placeCfi(view, start.cfi)
     else if (start) await view.goToFraction(start.fraction)
-    return {
+    // A CFI that names no section, or that the view could not go to, leaves
+    // nothing sensible on screen: go back to the start of the text.
+    if (!placed) await view.goToTextStart()
+    const opened: OpenBook = {
         openedAt: view.lastLocation?.cfi ?? null,
+        placed,
+        async reopen(fraction) {
+            if (fraction === null) await view.goToTextStart()
+            else await view.goToFraction(fraction)
+            opened.openedAt = view.lastLocation?.cfi ?? null
+        },
         onMoved(onMoved) {
             // The view handles the renderer's relocate first and updates
             // lastLocation with the CFI and the fraction of the whole book.
@@ -92,4 +116,14 @@ export const openBook = async (
             })
         },
     }
+    return opened
+}
+
+// Goes to a saved CFI; false when it is not a place in this book. foliate-js
+// resolves a CFI to a section index without checking it, and its goTo returns
+// nothing when it cannot go there.
+const placeCfi = async (view: FoliateView, cfi: string): Promise<boolean> => {
+    const index = view.resolveNavigation(cfi)?.index
+    if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index >= view.book.sections.length) return false
+    return (await view.goTo(cfi)) !== undefined
 }

@@ -4,7 +4,7 @@ import { serverBasePath } from './base'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
-import { chooseStart, positionWriter, saveBoth } from './position/position'
+import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBoth } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 
@@ -51,6 +51,14 @@ const start = async (): Promise<void> => {
         stage = 'opened'
         const start = chooseStart(stored, jellyfin)
         const opened = await openBook(book, file, view => overlay?.timeTurns(view), start)
+        // A saved place that is not in this copy of the book (another edition,
+        // or an import from another server): open somewhere sensible and say so.
+        let notice: HTMLElement | null = null
+        if (!opened.placed) {
+            const fallback = fallbackStart(stored, jellyfin)
+            await opened.reopen(fallback.fraction)
+            notice = showNotice(missingPlaceNotice(fallback))
+        }
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
 
@@ -62,7 +70,13 @@ const start = async (): Promise<void> => {
                 (cfi, fraction, keep) => writeStoredPosition(basePath, itemId, authorization, cfi, fraction, keep),
                 (ticks, lastPlayed, keep) => writeJellyfinPosition(basePath, itemId, session.userId, authorization, ticks, lastPlayed, keep)),
             opened.openedAt)
-        opened.onMoved(position => writer.moved(position))
+        opened.onMoved(position => {
+            if (notice && position.cfi !== opened.openedAt) {
+                notice.remove()
+                notice = null
+            }
+            writer.moved(position)
+        })
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'hidden') writer.flush()
         })
@@ -75,6 +89,18 @@ const start = async (): Promise<void> => {
             ? error.message
             : `The book could not be ${stage}. ${describe(error)}`)
     }
+}
+
+// A note at the bottom of the page, as the reader's notices are drawn.
+const showNotice = (text: string): HTMLElement => {
+    const notice = document.createElement('div')
+    notice.className = 'notice'
+    notice.setAttribute('role', 'status')
+    notice.innerHTML = '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">'
+        + '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span></span>'
+    notice.querySelector('span')!.textContent = text
+    document.body.append(notice)
+    return notice
 }
 
 const describe = (error: unknown): string =>
