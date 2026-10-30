@@ -48,7 +48,7 @@ describe('launcher', () => {
         expect(player.priority).toBe(0)
     })
 
-    it('claims EPUB books only', async () => {
+    it('claims the formats Oriel opens', async () => {
         const player = await load('/web/').createPlayer()
         expect(player.canPlayMediaType('Book')).toBe(true)
         expect(player.canPlayMediaType('Video')).toBe(false)
@@ -59,7 +59,9 @@ describe('launcher', () => {
         for (const kindle of ['Novel.mobi', 'Novel.MOBI', 'Novel.azw', 'Novel.azw3', 'Novel.AZW3']) {
             expect(player.canPlayItem({ Path: `/media/books/${kindle}` })).toBe(true)
         }
-        for (const other of ['manual.pdf', 'novel.fb2', 'comic.cbr', 'comic.cb7', 'novel.azw4']) {
+        expect(player.canPlayItem({ Path: '/media/books/Manual.pdf' })).toBe(true)
+        expect(player.canPlayItem({ Path: '/media/books/Manual.PDF' })).toBe(true)
+        for (const other of ['novel.fb2', 'comic.cbr', 'comic.cb7', 'novel.azw4']) {
             expect(player.canPlayItem({ Path: `/media/books/${other}` })).toBe(false)
         }
         expect(player.canPlayItem({})).toBe(false)

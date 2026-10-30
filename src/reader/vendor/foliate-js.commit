@@ -2,9 +2,12 @@
 repository: https://github.com/johnfactotum/foliate-js
 commit: 78914aef4466eb960965702401634c2cb348e9b1
 date: 2026-05-01
-license: MIT (./foliate-js/LICENSE); vendored zip.js BSD-3-Clause, fflate MIT
-# Left out of the copy: pdf.js and vendor/pdfjs (PDF support is a later
-# phase; vite.config.ts stubs the import), the demo reader (reader.html,
-# reader.js, ui/), tests/, and build and lint tooling.
+license: MIT (./foliate-js/LICENSE); vendored zip.js BSD-3-Clause, fflate MIT,
+  PDF.js 5.5.207 Apache-2.0 (its standard fonts and character maps carry their
+  own licences beside them)
+# Left out of the copy: PDF.js's source maps (vendor/pdfjs/*.map), the demo
+# reader (reader.html, reader.js, ui/), tests/, and build and lint tooling.
+# vite.config.ts copies vendor/pdfjs into the built reader beside the PDF
+# adapter's chunk, which fetches it only when a PDF opens.
 # Upgrade on purpose: replace ./foliate-js from the new commit with the same
 # exclusions, then update this file.

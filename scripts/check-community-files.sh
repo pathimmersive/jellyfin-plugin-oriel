@@ -5,9 +5,10 @@
 # Usage: scripts/check-community-files.sh
 #
 # A vendored package is a folder under src/reader/vendor with a LICENSE file;
-# a bundled library is a .js file under src/reader/vendor/*/vendor, such as
-# foliate-js's zip.js and fflate, whose minified copies carry no notice of
-# their own. Each needs a "## " heading in the notices that names it.
+# a bundled library is a .js file or a folder under src/reader/vendor/*/vendor,
+# such as foliate-js's zip.js and fflate, whose minified copies carry no notice
+# of their own, and its pdfjs folder. Each needs a "## " heading in the notices
+# that names it.
 # Exits non-zero listing everything missing.
 set -euo pipefail
 
@@ -44,7 +45,7 @@ for license in src/reader/vendor/*/LICENSE; do
     name="$(basename "$(dirname "$license")")"
     if has_entry "$name"; then pass "notice for $name"; else fail "no '## ' entry for $name in $notices"; fi
 done
-for lib in src/reader/vendor/*/vendor/*.js; do
+for lib in src/reader/vendor/*/vendor/*.js src/reader/vendor/*/vendor/*/; do
     [ -e "$lib" ] || continue
     name="$(basename "$lib" .js)"
     if has_entry "$name"; then pass "notice for $name (bundled in $(basename "$(dirname "$(dirname "$lib")")"))"
