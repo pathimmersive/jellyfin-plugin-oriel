@@ -558,7 +558,14 @@ ORIEL_OTHER_TOKEN="$(sed -E 's/.*Token="([^"]*)".*/\1/' <<< "$reader_header")" O
 
 # The Your reading data page: download, import and its summary, the bad-file
 # alert, Back to the book, and the sign-in redirect, at phone and desktop widths.
-ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"     node "$reader/e2e/data-page.e2e.mjs" || fail "the reading data page at $base"
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+    node "$reader/e2e/data-page.e2e.mjs" || fail "the reading data page at $base"
+
+# A newest saved place that is not in the book: the reader opens at Jellyfin's
+# place, else the saved fraction, else the start, and says so.
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+ORIEL_FIRST_TEXT="$BOOK_TEXT" ORIEL_JELLYFIN_TEXT="$PROGRESS_TEXT" \
+    node "$reader/e2e/missing-place.e2e.mjs" || fail "a saved place that is not in the book at $base"
 
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"

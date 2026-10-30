@@ -106,3 +106,27 @@ export const saveBoth = async (
     const mirrored = await writeJellyfin(ticksFromFraction(position.fraction), stored?.savedAt ?? now().toISOString(), keepalive)
     return stored !== null && mirrored
 }
+
+/** Where the reader opened instead of a saved place that is not in the book. */
+export type Fallback = { fraction: number, from: 'jellyfin' | 'saved' } | { fraction: null, from: 'start' }
+
+/**
+ * Where to open when the saved place is not a place in this copy of the book:
+ * Jellyfin's place, else the saved place's own fraction, else the start of the
+ * text. A place at 0 counts as the start.
+ */
+export const fallbackStart = (stored: StoredPosition | null, jellyfin: JellyfinPosition | null): Fallback => {
+    const fromJellyfin = fractionFromTicks(jellyfin?.ticks ?? null)
+    if (fromJellyfin !== null) return { fraction: fromJellyfin, from: 'jellyfin' }
+    const saved = stored?.fraction
+    if (typeof saved === 'number' && Number.isFinite(saved) && saved > 0) return { fraction: Math.min(saved, 1), from: 'saved' }
+    return { fraction: null, from: 'start' }
+}
+
+/** What the reader says after opening at a fallback place. */
+export const missingPlaceNotice = (fallback: Fallback): string => {
+    const lead = 'Your saved place is not in this copy of the book, so it opened'
+    if (fallback.fraction === null) return `${lead} at the start.`
+    const where = fallback.from === 'jellyfin' ? 'where you were in Jellyfin' : 'where you were'
+    return `${lead} at ${Math.round(fallback.fraction * 100)}%, ${where}.`
+}
