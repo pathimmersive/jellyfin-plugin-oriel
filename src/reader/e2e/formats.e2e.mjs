@@ -1,11 +1,12 @@
 // Checks, in Playwright WebKit at a phone size, that the reader opens books in
-// formats other than EPUB: the comic shows its first page (a red image) and
-// the MOBI and AZW3 books their first chapter's text, and after a page turn
-// each is saved to Oriel and mirrored to Jellyfin, and opens again on the same
-// page. Configured by environment: ORIEL_BASE (server URL including any
-// BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_CBZ_ID,
-// ORIEL_MOBI_ID, ORIEL_MOBI_TEXT, ORIEL_AZW3_ID and ORIEL_AZW3_TEXT (each
-// book's first line). Exits non-zero on the first failed check.
+// formats other than EPUB: the comic shows its first page (a red image), the
+// MOBI and AZW3 books their first chapter's text and the PDF its first page's
+// text, and after a page turn each is saved to Oriel and mirrored to Jellyfin,
+// and opens again on the same page. Only the PDF fetches PDF.js. Configured by
+// environment: ORIEL_BASE (server URL including any BaseUrl), ORIEL_SERVER_ID,
+// ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_CBZ_ID, ORIEL_MOBI_ID, ORIEL_MOBI_TEXT,
+// ORIEL_AZW3_ID, ORIEL_AZW3_TEXT, ORIEL_PDF_ID and ORIEL_PDF_TEXT (each book's
+// first line). Exits non-zero on the first failed check.
 import { devices, webkit } from 'playwright'
 
 const env = name => {
@@ -80,8 +81,12 @@ const showsText = text => async page => (await frameText(page)).includes(text)
 
 const where = page => page.evaluate(() => document.querySelector('foliate-view').lastLocation?.cfi ?? null)
 
-const open = async (context, id) => {
+// PDF.js, its worker and the PDF adapter's chunk, none of which other books need.
+const PDF_FILES = /\/pdfjs\/|pdf\.worker|\/pdf-[\w-]+\.js/
+
+const open = async (context, id, fetched = []) => {
     const page = await context.newPage()
+    page.on('request', request => fetched.push(request.url()))
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"], body[data-state="error"]', { timeout: 30_000 })
         .catch(() => fail(`the reader never reported rendered or error for ${id}`))
@@ -95,6 +100,7 @@ const books = [
     { label: 'comic', id: env('ORIEL_CBZ_ID'), first: 'its first page (red)', seen: async page => near(await pageColour(page), RED) },
     { label: 'MOBI book', id: env('ORIEL_MOBI_ID'), first: `"${env('ORIEL_MOBI_TEXT')}"`, seen: showsText(env('ORIEL_MOBI_TEXT')) },
     { label: 'AZW3 book', id: env('ORIEL_AZW3_ID'), first: `"${env('ORIEL_AZW3_TEXT')}"`, seen: showsText(env('ORIEL_AZW3_TEXT')) },
+    { label: 'PDF', id: env('ORIEL_PDF_ID'), first: `"${env('ORIEL_PDF_TEXT')}"`, seen: showsText(env('ORIEL_PDF_TEXT')), pdf: true },
 ]
 
 const browser = await webkit.launch()
@@ -106,9 +112,14 @@ try {
     }, credentials)
 
     for (const book of books) {
-        let page = await open(context, book.id)
+        const fetched = []
+        let page = await open(context, book.id, fetched)
         if (!await shows(page, book.seen)) fail(`the ${book.label} opened but does not show ${book.first}`)
         pass(`the ${book.label} opens in Oriel and shows ${book.first}`)
+        const pdfFiles = fetched.filter(url => PDF_FILES.test(url))
+        if (book.pdf && !pdfFiles.length) fail(`the ${book.label} showed without fetching PDF.js`)
+        if (!book.pdf && pdfFiles.length) fail(`the ${book.label} fetched PDF.js files: ${pdfFiles.join(', ')}`)
+        if (!book.pdf) pass(`the ${book.label} fetched no PDF.js file`)
 
         const before = await where(page)
         await page.keyboard.press('ArrowRight')

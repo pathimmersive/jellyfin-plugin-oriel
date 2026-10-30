@@ -38,9 +38,9 @@
         return (mediaType || '').toLowerCase() === 'book';
     };
 
-    // The formats Oriel opens: EPUB books, CBZ comics, and MOBI, AZW and AZW3 Kindle books.
+    // The formats Oriel opens: EPUB books, CBZ comics, MOBI, AZW and AZW3 Kindle books, and PDFs.
     OrielBookPlayer.prototype.canPlayItem = function (item) {
-        return !!(item && typeof item.Path === 'string' && /\.(epub|cbz|mobi|azw3?)$/i.test(item.Path));
+        return !!(item && typeof item.Path === 'string' && /\.(epub|cbz|mobi|azw3?|pdf)$/i.test(item.Path));
     };
 
     OrielBookPlayer.prototype.play = function (options) {

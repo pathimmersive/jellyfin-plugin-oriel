@@ -90,6 +90,8 @@ node "$reader/e2e/make-cbz.mjs" "$work/media/books/oriel-smoke-comic.CBZ" || fai
 cp "$reader/e2e/fixtures/oriel-smoke.mobi" "$reader/e2e/fixtures/oriel-smoke.azw3" "$work/media/books/" || fail "copy the test Kindle books"
 MOBI_TEXT="Oriel smoke MOBI chapter one opens here."
 AZW3_TEXT="Oriel smoke AZW3 chapter one opens here."
+PDF_TEXT="Oriel smoke PDF page one opens here."
+node "$reader/e2e/make-pdf.mjs" "$work/media/books/oriel-smoke.pdf" "$PDF_TEXT" || fail "generate test PDF"
 (cd "$reader" && npx playwright install webkit chromium >/dev/null) || fail "install Playwright WebKit and Chromium"
 
 fetch_file_transformation "$work/ft" || fail "fetch File Transformation $FT_VERSION"
@@ -160,7 +162,7 @@ book_id() {
 }
 # A library added while the startup scan is still running is left out of that
 # scan, and its own refresh is dropped, so ask for another scan every 10 s.
-item_id="" cbz_id="" mobi_id="" azw3_id=""
+item_id="" cbz_id="" mobi_id="" azw3_id="" pdf_id=""
 for i in $(seq 1 60); do
     if [ $((i % 10)) = 0 ]; then
         curl -sf -X POST -H "Authorization: $token_header" "$base/Library/Refresh" >/dev/null || true
@@ -171,15 +173,16 @@ for i in $(seq 1 60); do
     cbz_id="$(book_id .cbz <<< "$books")"
     mobi_id="$(book_id .mobi <<< "$books")"
     azw3_id="$(book_id .azw3 <<< "$books")"
-    [ -n "$item_id" ] && [ -n "$cbz_id" ] && [ -n "$mobi_id" ] && [ -n "$azw3_id" ] && break
+    pdf_id="$(book_id .pdf <<< "$books")"
+    [ -n "$item_id" ] && [ -n "$cbz_id" ] && [ -n "$mobi_id" ] && [ -n "$azw3_id" ] && [ -n "$pdf_id" ] && break
     sleep 1
 done
-if [ -z "$item_id" ] || [ -z "$cbz_id" ] || [ -z "$mobi_id" ] || [ -z "$azw3_id" ]; then
+if [ -z "$item_id" ] || [ -z "$cbz_id" ] || [ -z "$mobi_id" ] || [ -z "$azw3_id" ] || [ -z "$pdf_id" ]; then
     docker logs "$container" 2>&1 | tail -60 >&2
     echo "INFO: the books library lists: $(grep -o '"Path":"[^"]*"' <<< "$books" | tr '\n' ' ')" >&2
-    fail "the books library does not list all of the test EPUB ($item_id), comic ($cbz_id), MOBI ($mobi_id) and AZW3 ($azw3_id)"
+    fail "the books library does not list all of the test EPUB ($item_id), comic ($cbz_id), MOBI ($mobi_id), AZW3 ($azw3_id) and PDF ($pdf_id)"
 fi
-pass "books library lists the test EPUB as $item_id, the comic as $cbz_id, the MOBI as $mobi_id and the AZW3 as $azw3_id"
+pass "books library lists the test EPUB as $item_id, the comic as $cbz_id, the MOBI as $mobi_id, the AZW3 as $azw3_id and the PDF as $pdf_id"
 
 # The reader in WebKit: renders the book, reports an unknown item, and sends
 # a signed-out visitor to the login page.
@@ -589,10 +592,12 @@ ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_T
 ORIEL_FIRST_TEXT="$BOOK_TEXT" ORIEL_JELLYFIN_TEXT="$PROGRESS_TEXT" \
     node "$reader/e2e/missing-place.e2e.mjs" || fail "a saved place that is not in the book at $base"
 
-# Books in other formats: the comic shows its first page and the Kindle books
-# their first chapter, and a page turned in each is saved, mirrored and reopened.
+# Books in other formats: the comic shows its first page, the Kindle books their
+# first chapter and the PDF its first page's text, and a page turned in each is
+# saved, mirrored and reopened.
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_CBZ_ID="$cbz_id" \
 ORIEL_MOBI_ID="$mobi_id" ORIEL_MOBI_TEXT="$MOBI_TEXT" ORIEL_AZW3_ID="$azw3_id" ORIEL_AZW3_TEXT="$AZW3_TEXT" \
+ORIEL_PDF_ID="$pdf_id" ORIEL_PDF_TEXT="$PDF_TEXT" \
     node "$reader/e2e/formats.e2e.mjs" || fail "opening books in other formats at $base"
 
 check_web_stock "$base"
@@ -608,7 +613,7 @@ check_login_return "$base" oriel
 check_login_return "$base" data data
 check_takeover_in_browser "$base" oriel Play
 # These books were read above; with no progress in Jellyfin their button reads Play.
-for other_id in "$cbz_id" "$mobi_id" "$azw3_id"; do
+for other_id in "$cbz_id" "$mobi_id" "$azw3_id" "$pdf_id"; do
     set_progress "$base" 0 "$other_id"
     check_takeover_in_browser "$base" oriel Play "" "$other_id"
 done
