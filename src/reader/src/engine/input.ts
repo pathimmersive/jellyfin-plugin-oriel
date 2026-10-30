@@ -30,21 +30,25 @@ export const keyTurn = (event: KeyInput): Turn | null => {
     }
 }
 
-/** The share of the page's width on each side where a click turns the page. */
+/** The share of the page's width on each side where a mouse click turns the page. */
 export const EDGE = 0.22
+/** The share on each side where a tap on a touch screen turns the page. */
+export const TOUCH_EDGE = 0.3
 
 /**
- * The turn a click at `x` asks for on a page `width` wide starting at `left`:
- * the outer 22% on each side turn left or right; the middle, and anywhere
- * outside the page, turn nothing.
+ * What a click at `x` on a page `width` wide starting at `left` asks for: the
+ * outer 22% on each side turn left or right (30% for a tap on a touch screen)
+ * and the middle shows or hides the reader's controls ('menu'). Anywhere
+ * outside the page asks for nothing.
  */
-export const clickTurn = (x: number, left: number, width: number): Turn | null => {
+export const clickTarget = (x: number, left: number, width: number, touch: boolean): Turn | 'menu' | null => {
     if (width <= 0) return null
     const share = (x - left) / width
     if (share < 0 || share > 1) return null
-    if (share < EDGE) return 'left'
-    if (share > 1 - EDGE) return 'right'
-    return null
+    const edge = touch ? TOUCH_EDGE : EDGE
+    if (share < edge) return 'left'
+    if (share > 1 - edge) return 'right'
+    return 'menu'
 }
 
 /** Wheel events further apart than this start a new gesture. */
@@ -100,22 +104,28 @@ export interface PageDocument {
     getSelection(): Pick<Selection, 'isCollapsed'> | null
 }
 
-/** How far the mouse may move between press and release and still be a click. */
+/** How far the mouse or a finger may move between press and release and still be a click or tap. */
 const CLICK_SLOP = 5
+/** How long a finger may rest and still be a tap, in milliseconds. */
+export const TAP_MS = 500
 
 /**
  * Turns pages from `doc`'s keys, clicks and wheel. `area` gives the page's
  * left edge and width in `doc`'s coordinates; `gesture` is the wheel gesture
- * shared by every document; `turn` performs a turn. A click on a link, a click after a drag, and a click
- * that leaves text selected do not turn; neither does a key typed into an
- * editable field. Handled keys and wheel events are cancelled, so the browser
- * does not also scroll.
+ * shared by every document; `turn` performs a turn and `menu` shows or hides
+ * the controls, for a click in the middle. `swiped` is told of a one-finger
+ * swipe, which the paginator turns on its own. A click on a link or a control, a
+ * click after a drag, and a click that leaves text selected do neither; nor
+ * does a key typed into an editable field. Handled keys and wheel events are
+ * cancelled, so the browser does not also scroll.
  */
 export const attachPageInput = (
     doc: PageDocument,
     area: () => { left: number, width: number } | null,
     gesture: (event: WheelInput) => Turn | null,
     turn: (turn: Turn) => void,
+    menu: () => void,
+    swiped: () => void = () => {},
 ): void => {
     const win = doc.defaultView
     if (!win) return
@@ -127,21 +137,53 @@ export const attachPageInput = (
         turn(wanted)
     })
 
+    // A click or tap at `x` turns at the edges and shows the controls in the
+    // middle, unless it lands on a link or a control or leaves text selected.
+    const act = (target: EventTarget | null, x: number, touch: boolean): void => {
+        if ((target as Partial<Element> | null)?.closest?.('a[href], button, input, [data-controls]')) return
+        const selection = doc.getSelection()
+        if (selection && !selection.isCollapsed) return
+        const bounds = area()
+        const wanted = bounds && clickTarget(x, bounds.left, bounds.width, touch)
+        if (wanted === 'menu') menu()
+        else if (wanted) turn(wanted)
+    }
+
+    // Mouse clicks. A tap also ends in a click, but iOS Safari does not send
+    // one for a tap on plain text, so taps are read from touch events below
+    // and their clicks are left alone.
     let down: { x: number, y: number } | null = null
     win.addEventListener('pointerdown', event => {
-        down = event.button === 0 ? { x: event.clientX, y: event.clientY } : null
+        down = event.button === 0 && event.pointerType !== 'touch' ? { x: event.clientX, y: event.clientY } : null
     })
     win.addEventListener('click', event => {
         const start = down
         down = null
         if (event.button !== 0 || event.defaultPrevented || !start) return
         if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > CLICK_SLOP) return
-        if ((event.target as Partial<Element> | null)?.closest?.('a[href]')) return
-        const selection = doc.getSelection()
-        if (selection && !selection.isCollapsed) return
-        const bounds = area()
-        const wanted = bounds && clickTurn(event.clientX, bounds.left, bounds.width)
-        if (wanted) turn(wanted)
+        act(event.target, event.clientX, false)
+    })
+
+    // Taps: one finger, lifted within TAP_MS without moving. A longer press
+    // selects text, and a move is a swipe, which the paginator turns.
+    let touched: { x: number, y: number, time: number } | null = null
+    win.addEventListener('touchstart', event => {
+        const touch = event.touches.length === 1 ? event.touches[0] : null
+        touched = touch ? { x: touch.clientX, y: touch.clientY, time: event.timeStamp } : null
+    })
+    win.addEventListener('touchend', event => {
+        const start = touched
+        touched = null
+        const touch = event.changedTouches[0]
+        if (!start || !touch) return
+        if (Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > CLICK_SLOP) {
+            // A drag that leaves text selected is a selection, not a swipe.
+            const selection = doc.getSelection()
+            if (!selection || selection.isCollapsed) swiped()
+            return
+        }
+        if (event.timeStamp - start.time > TAP_MS) return
+        act(event.target, touch.clientX, true)
     })
 
     win.addEventListener('wheel', event => {

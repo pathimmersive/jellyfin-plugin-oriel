@@ -1,6 +1,7 @@
 import './reader.css'
 import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
+import { type Controls, createControls } from './controls/controls'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
@@ -50,7 +51,9 @@ const start = async (): Promise<void> => {
         overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
         const start = chooseStart(stored, jellyfin)
-        const opened = await openBook(book, file, view => overlay?.timeTurns(view), start)
+        let controls: Controls | null = null
+        const opened = await openBook(book, file, view => overlay?.timeTurns(view), start,
+            () => controls?.middle(), () => controls?.turned())
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -61,6 +64,19 @@ const start = async (): Promise<void> => {
         }
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
+
+        // The reader's controls: a tap in the middle of the page shows them
+        // and a page turn hides them; a move with their slider keeps them.
+        controls = createControls(document.body, {
+            title: opened.title,
+            detailsUrl: `${basePath}/web/#/details?id=${encodeURIComponent(itemId)}`,
+            dataUrl: `${basePath}/Oriel/data.html?id=${encodeURIComponent(itemId)}`,
+            seek: fraction => opened.seek(fraction),
+        })
+        const shown = controls
+        const place = opened.place()
+        shown.locate(place.chapter, place.fraction)
+        opened.onPlace(({ chapter, fraction }) => shown.locate(chapter, fraction))
 
         // Save the exact position to Oriel's store and the approximate one to
         // Jellyfin, so Resume, Continue Reading and the built-in reader pick up
