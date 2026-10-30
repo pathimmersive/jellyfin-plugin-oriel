@@ -84,6 +84,8 @@ pass "publish output bundles no host assemblies"
 reader="$repo/src/reader"
 mkdir -p "$work/media/books"
 node "$reader/e2e/make-epub.mjs" "$work/media/books/oriel-smoke.epub" "$BOOK_TEXT" || fail "generate test EPUB"
+# A comic with an upper-case extension, as some libraries have.
+node "$reader/e2e/make-cbz.mjs" "$work/media/books/oriel-smoke-comic.CBZ" || fail "generate test CBZ"
 (cd "$reader" && npx playwright install webkit chromium >/dev/null) || fail "install Playwright WebKit and Chromium"
 
 fetch_file_transformation "$work/ft" || fail "fetch File Transformation $FT_VERSION"
@@ -141,23 +143,37 @@ code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization
     -d '{"LibraryOptions":{}}' \
     "$base/Library/VirtualFolders?name=Books&collectionType=books&paths=%2Fmedia%2Fbooks&refreshLibrary=true")"
 [ "$code" = "204" ] || fail "creating the books library returned $code"
+# The id of the listed book whose file ends with the given extension, in any
+# case, or nothing.
+book_id() {
+    node -e 'let s = ""; process.stdin.on("data", d => s += d).on("end", () => {
+        const ext = process.argv[1].toLowerCase()
+        let items = []
+        try { items = JSON.parse(s).Items ?? [] } catch {}
+        const book = items.find(i => (i.Path ?? "").toLowerCase().endsWith(ext))
+        if (book) console.log(book.Id)
+    })' "$1"
+}
 # A library added while the startup scan is still running is left out of that
 # scan, and its own refresh is dropped, so ask for another scan every 10 s.
-item_id=""
+item_id="" cbz_id=""
 for i in $(seq 1 60); do
     if [ $((i % 10)) = 0 ]; then
         curl -sf -X POST -H "Authorization: $token_header" "$base/Library/Refresh" >/dev/null || true
     fi
-    item_id="$(curl -sf -H "Authorization: $token_header" \
-        "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book" | json_str Id || true)"
-    [ -n "$item_id" ] && break
+    books="$(curl -sf -H "Authorization: $token_header" \
+        "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book&Fields=Path" || true)"
+    item_id="$(book_id .epub <<< "$books")"
+    cbz_id="$(book_id .cbz <<< "$books")"
+    [ -n "$item_id" ] && [ -n "$cbz_id" ] && break
     sleep 1
 done
-if [ -z "$item_id" ]; then
+if [ -z "$item_id" ] || [ -z "$cbz_id" ]; then
     docker logs "$container" 2>&1 | tail -60 >&2
-    fail "the test EPUB never appeared in the books library"
+    echo "INFO: the books library lists: $(grep -o '"Path":"[^"]*"' <<< "$books" | tr '\n' ' ')" >&2
+    fail "the books library does not list both the test EPUB ($item_id) and the comic ($cbz_id)"
 fi
-pass "books library lists the test EPUB as $item_id"
+pass "books library lists the test EPUB as $item_id and the comic as $cbz_id"
 
 # The reader in WebKit: renders the book, reports an unknown item, and sends
 # a signed-out visitor to the login page.
@@ -267,8 +283,8 @@ resume_lists_book() {
 write_user_data() {
     local body="${1%\}},\"LastPlayedDate\":\"$(date -u +%Y-%m-%dT%H:%M:%S.000Z)\"}"
     code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
-        -d "$body" "${2:-$base}/UserItems/$item_id/UserData?userId=$user_id")"
-    [ "$code" = "200" ] || fail "POST /UserItems/$item_id/UserData $1 returned $code"
+        -d "$body" "${2:-$base}/UserItems/${3:-$item_id}/UserData?userId=$user_id")"
+    [ "$code" = "200" ] || fail "POST /UserItems/${3:-$item_id}/UserData $1 returned $code"
 }
 
 show_user_data() {
@@ -481,8 +497,8 @@ fi
 # and, for Oriel, the line $4 on screen when given.
 check_takeover_in_browser() {
     ORIEL_BASE="$1" ORIEL_EXPECT="$2" ORIEL_BUTTON="$3" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" \
-    ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="${4:-}" \
-        node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader"
+    ORIEL_TOKEN="$token" ORIEL_ITEM_ID="${5:-$item_id}" ORIEL_EXPECT_TEXT="${4:-}" \
+        node "$reader/e2e/takeover.e2e.mjs" || fail "$3 in jellyfin-web at $1 did not open the $2 reader for ${5:-the test EPUB}"
 }
 
 # Opens the reader signed out, signs in on the jellyfin-web login page it is
@@ -494,7 +510,7 @@ check_login_return() {
 }
 
 # Saves or clears the test EPUB's position, so its detail page offers Resume or Play.
-set_progress() { write_user_data "{\"PlaybackPositionTicks\":$2}" "$1"; }
+set_progress() { write_user_data "{\"PlaybackPositionTicks\":$2}" "$1" "${3:-}"; }
 
 # The integration off: jellyfin-web is served exactly as shipped.
 check_web_stock() {
@@ -567,6 +583,11 @@ ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_T
 ORIEL_FIRST_TEXT="$BOOK_TEXT" ORIEL_JELLYFIN_TEXT="$PROGRESS_TEXT" \
     node "$reader/e2e/missing-place.e2e.mjs" || fail "a saved place that is not in the book at $base"
 
+# A comic: it shows its first page, and a page turned is saved, mirrored and
+# reopened.
+ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_CBZ_ID="$cbz_id" \
+    node "$reader/e2e/formats.e2e.mjs" || fail "opening a comic at $base"
+
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" builtin Resume
@@ -579,6 +600,9 @@ check_web_patched "$base"
 check_login_return "$base" oriel
 check_login_return "$base" data data
 check_takeover_in_browser "$base" oriel Play
+# The comic was read above; with no progress in Jellyfin its button reads Play.
+set_progress "$base" 0 "$cbz_id"
+check_takeover_in_browser "$base" oriel Play "" "$cbz_id"
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
 

@@ -19,6 +19,14 @@ describe('downloadBook', () => {
         expect(calls[0].url).toBe('/jf/Items/abc/Download')
         expect(calls[0].init?.headers).toEqual({ Authorization: 'MediaBrowser Token="t"' })
         expect(await file.text()).toBe('PK')
+        expect(file.name).toBe('abc.epub')
+    })
+
+    it('names the file as the server does, lower-cased, so foliate-js can tell a comic by its name', async () => {
+        const fetchImpl = (async () => new Response('PK', {
+            headers: { 'Content-Disposition': "attachment; filename=Oriel-Comic.CBZ; filename*=UTF-8''Oriel-Comic.CBZ" },
+        })) as typeof fetch
+        expect((await downloadBook('', 'abc', 'h', fetchImpl)).name).toBe('oriel-comic.cbz')
     })
 
     it.each([
