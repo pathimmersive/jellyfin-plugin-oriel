@@ -23,7 +23,9 @@ export const downloadErrorMessage = (status: number): string => {
 
 /**
  * Fetches a book file through /Items/{id}/Download, which applies the user's
- * library access and download permission.
+ * library access and download permission. The file takes the name the server
+ * gives it, lower-cased, because foliate-js tells some formats (comics) from
+ * EPUB by name; without one it is named as an EPUB.
  */
 export const downloadBook = async (
     basePath: string,
@@ -36,7 +38,8 @@ export const downloadBook = async (
     })
     if (!response.ok) throw new BookLoadError(downloadErrorMessage(response.status), response.status)
     const blob = await response.blob()
-    return new File([blob], `${itemId}.epub`, { type: blob.type })
+    const name = attachmentName(response.headers.get('Content-Disposition'))?.toLowerCase() || `${itemId}.epub`
+    return new File([blob], name, { type: blob.type })
 }
 
 /**

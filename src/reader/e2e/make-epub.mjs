@@ -4,7 +4,7 @@
 // three, whose first line is "Oriel smoke chapter three starts here."
 // Usage: node e2e/make-epub.mjs <output.epub> <first-chapter text>
 import { writeFileSync } from 'node:fs'
-import { crc32 } from 'node:zlib'
+import { zip } from './zip.mjs'
 
 const [output, chapterText] = process.argv.slice(2)
 if (!output || !chapterText) {
@@ -58,43 +58,5 @@ ${chapters.map(([id, title]) => `<li><a href="${id}.xhtml">${title}</a></li>`).j
     ...chapters.map(([id, title, first]) => [`OEBPS/${id}.xhtml`, xhtml(title, `<h1>${title}</h1><p>${first}</p>${filler}`)]),
 ]
 
-// Stored (uncompressed) zip entries, mimetype first, as EPUB requires.
-const locals = []
-const centrals = []
-let offset = 0
-for (const [name, text] of files) {
-    const nameBytes = Buffer.from(name, 'utf8')
-    const data = Buffer.from(text, 'utf8')
-    const crc = crc32(data)
-
-    const local = Buffer.alloc(30)
-    local.writeUInt32LE(0x04034b50, 0)
-    local.writeUInt16LE(20, 4)
-    local.writeUInt32LE(crc, 14)
-    local.writeUInt32LE(data.length, 18)
-    local.writeUInt32LE(data.length, 22)
-    local.writeUInt16LE(nameBytes.length, 26)
-    locals.push(local, nameBytes, data)
-
-    const central = Buffer.alloc(46)
-    central.writeUInt32LE(0x02014b50, 0)
-    central.writeUInt16LE(20, 4)
-    central.writeUInt16LE(20, 6)
-    central.writeUInt32LE(crc, 16)
-    central.writeUInt32LE(data.length, 20)
-    central.writeUInt32LE(data.length, 24)
-    central.writeUInt16LE(nameBytes.length, 28)
-    central.writeUInt32LE(offset, 42)
-    centrals.push(central, nameBytes)
-
-    offset += local.length + nameBytes.length + data.length
-}
-const centralSize = centrals.reduce((n, b) => n + b.length, 0)
-const end = Buffer.alloc(22)
-end.writeUInt32LE(0x06054b50, 0)
-end.writeUInt16LE(files.length, 8)
-end.writeUInt16LE(files.length, 10)
-end.writeUInt32LE(centralSize, 12)
-end.writeUInt32LE(offset, 16)
-
-writeFileSync(output, Buffer.concat([...locals, ...centrals, end]))
+// Stored zip entries, mimetype first, as EPUB requires.
+writeFileSync(output, zip(files))

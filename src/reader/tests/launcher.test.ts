@@ -54,7 +54,11 @@ describe('launcher', () => {
         expect(player.canPlayMediaType('Video')).toBe(false)
         expect(player.canPlayItem({ Path: '/media/books/Pillars.epub' })).toBe(true)
         expect(player.canPlayItem({ Path: '/media/books/Pillars.EPUB' })).toBe(true)
-        expect(player.canPlayItem({ Path: '/media/books/manual.pdf' })).toBe(false)
+        expect(player.canPlayItem({ Path: '/media/books/Comic.cbz' })).toBe(true)
+        expect(player.canPlayItem({ Path: '/media/books/Comic.CBZ' })).toBe(true)
+        for (const other of ['manual.pdf', 'novel.mobi', 'novel.azw3', 'novel.fb2', 'comic.cbr', 'comic.cb7']) {
+            expect(player.canPlayItem({ Path: `/media/books/${other}` })).toBe(false)
+        }
         expect(player.canPlayItem({})).toBe(false)
     })
 
