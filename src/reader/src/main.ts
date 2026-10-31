@@ -9,6 +9,8 @@ import { openBook } from './engine/engine'
 import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBoth } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
+import { fontFaces } from './settings/fonts'
+import { bookStyles, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -19,6 +21,13 @@ const book = document.getElementById('book')!
 const show = (state: string, message = ''): void => {
     document.body.dataset.state = state
     status.textContent = message
+}
+
+// The page around the book takes the theme: its background and the reading footer's colour.
+const themePage = (settings: Settings): void => {
+    const theme = THEMES[settings.theme]
+    document.documentElement.style.setProperty('--page-background', theme.background)
+    document.documentElement.style.setProperty('--page-footer', theme.footer)
 }
 
 const start = async (): Promise<void> => {
@@ -35,6 +44,15 @@ const start = async (): Promise<void> => {
         show('error', 'No book was chosen. Open a book from your Jellyfin library.')
         return
     }
+
+    // The settings kept on this device, applied before the first page shows.
+    // The bundled fonts are declared here too, for Preferences' font buttons.
+    let settings = readSettings(localStorage)
+    const faces = fontFaces()
+    const fontStyle = document.createElement('style')
+    fontStyle.textContent = faces
+    document.head.append(fontStyle)
+    themePage(settings)
 
     const overlay = debugRequested(location.search) ? new DebugOverlay(document.body) : null
     show('loading', 'Loading the book…')
@@ -54,7 +72,7 @@ const start = async (): Promise<void> => {
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
         const opened = await openBook(book, file, view => overlay?.timeTurns(view), start,
-            () => controls?.middle(), () => controls?.turned())
+            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces))
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -75,6 +93,14 @@ const start = async (): Promise<void> => {
             seek: fraction => opened.seek(fraction),
             contents: () => contentsRows(opened.contents, href => opened.fractionOf(href), opened.place().href),
             choose: href => opened.goTo(href),
+            settings,
+            fixedLayout: opened.fixedLayout,
+            change(changed) {
+                settings = changed
+                writeSettings(localStorage, settings)
+                themePage(settings)
+                opened.setStyles(bookStyles(settings, faces))
+            },
         })
         const shown = controls
         const place = opened.place()

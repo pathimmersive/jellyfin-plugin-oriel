@@ -9,6 +9,11 @@ body {
   margin: 0;
 }
 
+/* The page around the book takes the theme chosen in Preferences. */
+body[data-state="rendered"] {
+  background: var(--page-background, #ffffff);
+}
+
 #status {
   margin: 0;
   padding: 1rem;
@@ -55,7 +60,7 @@ body {
   right: calc(env(safe-area-inset-right) + 24px);
   bottom: env(safe-area-inset-bottom);
   font-size: 12px;
-  color: #6b6b6b;
+  color: var(--page-footer, #6b6b6b);
 }
 
 /* The controls, drawn as jellyfin-web draws its own: dark bars over the book. */
@@ -165,14 +170,16 @@ body {
 }
 
 /* Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen. */
-#contents-backdrop {
+#contents-backdrop,
+#prefs-backdrop {
   position: fixed;
   z-index: 5;
   inset: 0;
   background: rgba(0, 0, 0, .5);
 }
 
-#contents {
+#contents,
+#prefs {
   box-sizing: border-box;
   position: fixed;
   z-index: 6;
@@ -268,12 +275,159 @@ body {
   color: rgba(255, 255, 255, .7);
 }
 
+/* Preferences: groups of choices, as the canvas draws them. */
+#prefs .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  padding: 16px 0 28px;
+}
+
+#prefs .note {
+  margin: 0;
+  padding: 0 20px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .7);
+}
+
+#prefs .choices {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+#prefs .group-label {
+  padding: 0 20px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#prefs .choice-row {
+  display: flex;
+  gap: 10px;
+  overflow-x: auto;
+  padding: 4px 20px 8px;
+}
+
+#prefs button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+}
+
+#prefs button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
+}
+
+#prefs button:disabled {
+  cursor: default;
+  opacity: .38;
+}
+
+#prefs .theme {
+  flex: none;
+  width: 76px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+#prefs .theme .swatch {
+  width: 76px;
+  height: 58px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 6px;
+  font-family: 'Literata', Georgia, serif;
+  font-size: 20px;
+}
+
+#prefs .theme .name {
+  font-size: 12px;
+  color: rgba(255, 255, 255, .7);
+  white-space: nowrap;
+}
+
+#prefs .theme[aria-pressed="true"] .swatch {
+  box-shadow: 0 0 0 3px #00a4dc;
+}
+
+#prefs .theme[aria-pressed="true"] .name {
+  color: #00a4dc;
+}
+
+#prefs .font {
+  flex: none;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+#prefs .font[aria-pressed="true"] {
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+}
+
+#prefs .stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 52px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+
+#prefs .stepper-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#prefs .step {
+  width: 48px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font-family: 'Literata', Georgia, serif;
+}
+
+#prefs .small-a {
+  font-size: 14px;
+}
+
+#prefs .large-a {
+  font-size: 22px;
+}
+
+#prefs .value {
+  width: 64px;
+  text-align: center;
+}
+
 @media (min-width: 600px) {
-  #contents-backdrop {
+  #contents-backdrop,
+#prefs-backdrop {
     display: none;
   }
 
-  #contents {
+  #contents,
+#prefs {
     left: auto;
     width: min(440px, 100%);
     top: calc(env(safe-area-inset-top) + 57px);

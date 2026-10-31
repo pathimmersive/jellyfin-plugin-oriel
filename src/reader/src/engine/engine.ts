@@ -18,7 +18,8 @@ interface FoliateView extends HTMLElement {
     prev(): Promise<void>
     goLeft(): Promise<void>
     goRight(): Promise<void>
-    renderer: HTMLElement
+    renderer: HTMLElement & { setStyles?(styles: string): void }
+    isFixedLayout: boolean
     lastLocation?: Location
 }
 
@@ -79,6 +80,13 @@ export interface OpenBook {
     fractionOf(href: string): number | null
     /** Goes to a contents link: a reader move, saved like a page turn. */
     goTo(href: string): Promise<void>
+    /** True for a fixed layout (comics, PDFs), whose pages have no text to restyle. */
+    fixedLayout: boolean
+    /**
+     * Puts a stylesheet in every section of a reflowable book, now and as
+     * sections load; the page lays out again around the place being read.
+     */
+    setStyles(styles: string): void
 }
 
 // The paginator's reasons for re-placing the current position rather than moving.
@@ -92,6 +100,7 @@ const NOT_MOVES = new Set(['anchor', 'selection'])
  * and `relocate`. `onMenu` is called for a tap or click in the middle of the
  * page, which shows or hides the reader's controls, and `onTurn` whenever the
  * reader turns the page: a key, a click or tap on an edge, the wheel or a swipe.
+ * `styles` is the stylesheet a reflowable book's sections start with.
  */
 export const openBook = async (
     container: HTMLElement,
@@ -100,6 +109,7 @@ export const openBook = async (
     start: StartAt = null,
     onMenu: () => void = () => {},
     onTurn: () => void = () => {},
+    styles = '',
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
     // Keys, edge clicks and the wheel turn pages on a desktop, and a click in
@@ -132,6 +142,11 @@ export const openBook = async (
     container.replaceChildren(view)
     await view.open(file)
     view.renderer.setAttribute('flow', 'paginated')
+    // Before the first render, so the first page shows in the reader's settings.
+    const setStyles = (styles: string): void => {
+        if (!view.isFixedLayout) view.renderer.setStyles?.(styles)
+    }
+    setStyles(styles)
     // The paginator can place a position only once it knows the page count,
     // which the first render works out; placed any earlier, the view stays on
     // its blank lead page. So open at the text start, then move to the saved
@@ -169,6 +184,8 @@ export const openBook = async (
         async goTo(href) {
             await view.goTo(href)
         },
+        fixedLayout: view.isFixedLayout,
+        setStyles,
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()
             else await view.goToFraction(fraction)

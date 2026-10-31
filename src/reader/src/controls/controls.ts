@@ -1,3 +1,4 @@
+import { FONTS, type FontName, type Settings, SIZE, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { ContentsRow } from './contents'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
 
@@ -15,6 +16,12 @@ export interface ControlsOptions {
     contents(): ContentsRow[]
     /** Goes to a contents entry's link, as a reader move. */
     choose(href: string): Promise<void>
+    /** The settings the reader opened with. */
+    settings: Settings
+    /** True for comics and PDFs, whose pages have no text to restyle. */
+    fixedLayout: boolean
+    /** Applies and keeps settings chosen in Preferences. */
+    change(settings: Settings): void
 }
 
 /** The reader's controls, as the page drives them. */
@@ -35,6 +42,7 @@ const ICONS = {
     info: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
     toc: 'M3 9h14V7H3v2zm0 4h14v-2H3v2zm0 4h14v-2H3v2zm16 0h2v-2h-2v2zm0-10v2h2V7h-2zm0 6h2v-2h-2v2z',
     close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
+    prefs: 'M5 3h2v6H5zM5 13h2v8H5zM3 9h6v4H3zM11 3h2v2h-2zM11 9h2v12h-2zM9 5h6v4H9zM17 3h2v10h-2zM17 17h2v4h-2zM15 13h6v4h-6z',
 }
 
 const icon = (path: string): string =>
@@ -46,6 +54,9 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, attributes: Reco
     node.innerHTML = html
     return node
 }
+
+const closeButton = (): HTMLButtonElement =>
+    element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Close' }, icon(ICONS.close))
 
 const percent = (fraction: number): string => `${Math.round(Math.min(Math.max(fraction, 0), 1) * 100)}%`
 
@@ -70,9 +81,10 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const title = element('span', { class: 'title' })
     title.textContent = options.title
     const contentsButton = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Contents', 'aria-expanded': 'false', 'aria-controls': 'contents' }, icon(ICONS.toc))
+    const prefsButton = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Preferences', 'aria-expanded': 'false', 'aria-controls': 'prefs' }, icon(ICONS.prefs))
     const moreButton = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'More', 'aria-haspopup': 'true', 'aria-expanded': 'false', 'aria-controls': 'more' }, icon(ICONS.more))
     const header = element('header')
-    header.append(back, title, contentsButton, moreButton)
+    header.append(back, title, contentsButton, prefsButton, moreButton)
 
     const place = placeRow()
     const slider = element('input', { type: 'range', min: '0', max: '100', step: 'any', value: '0', 'aria-label': 'Position in the book' })
@@ -96,7 +108,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const contents = element('section', { id: 'contents', 'data-controls': '', 'aria-label': 'Contents' })
     const contentsTitle = element('h2')
     contentsTitle.textContent = options.title
-    const close = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Close' }, icon(ICONS.close))
+    const close = closeButton()
     const contentsHeader = element('div', { class: 'panel-header' })
     contentsHeader.append(contentsTitle, close)
     const contentsBody = element('div', { class: 'panel-body' })
@@ -128,7 +140,68 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         contentsBody.replaceChildren(list)
     }
 
-    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents)
+    // Preferences: a sheet or panel like Contents. Each choice applies at once.
+    const prefsBackdrop = element('div', { id: 'prefs-backdrop', 'data-controls': '' })
+    const prefs = element('section', { id: 'prefs', 'data-controls': '', 'aria-label': 'Preferences' })
+    const prefsClose = closeButton()
+    const prefsHeader = element('div', { class: 'panel-header' }, '<h2>Preferences</h2>')
+    prefsHeader.append(prefsClose)
+    const prefsBody = element('div', { class: 'panel-body' }, '<p class="note">Your preferences apply to this device.</p>')
+    prefs.append(prefsHeader, prefsBody)
+    let settings = options.settings
+    const group = (name: string): { box: HTMLElement, row: HTMLElement } => {
+        const box = element('div', { role: 'group', 'aria-label': name, class: 'choices' })
+        const label = element('span', { class: 'group-label' })
+        label.textContent = name
+        const row = element('div', { class: 'choice-row' })
+        box.append(label, row)
+        return { box, row }
+    }
+    const themes = group('Theme')
+    const themeButtons = (Object.keys(THEMES) as ThemeId[]).map(id => {
+        const theme = THEMES[id]
+        const button = element('button', { type: 'button', class: 'theme', 'aria-label': theme.name, 'aria-pressed': 'false', 'data-theme': id }, '<span class="swatch">Aa</span><span class="name"></span>')
+        button.querySelector<HTMLElement>('.swatch')!.style.cssText = `background: ${theme.background}; color: ${theme.text}`
+        button.querySelector('.name')!.textContent = theme.name
+        button.addEventListener('click', () => choose({ theme: id }))
+        themes.row.append(button)
+        return button
+    })
+    const fonts = group('Font')
+    const fontButtons = (Object.keys(FONTS) as FontName[]).map(name => {
+        const button = element('button', { type: 'button', class: 'font', 'aria-pressed': 'false', 'data-font': name })
+        button.textContent = name
+        button.style.fontFamily = FONTS[name]
+        button.disabled = options.fixedLayout
+        button.addEventListener('click', () => choose({ font: name }))
+        fonts.row.append(button)
+        return button
+    })
+    const smaller = element('button', { type: 'button', class: 'step', 'aria-label': 'Less size' }, '<span class="small-a">A</span>')
+    const sizeValue = element('span', { class: 'value' })
+    const larger = element('button', { type: 'button', class: 'step', 'aria-label': 'More size' }, '<span class="large-a">A</span>')
+    const sizeRow = element('div', { class: 'stepper' }, '<span class="stepper-name">Size</span>')
+    const stepper = element('div', { class: 'stepper-controls' })
+    stepper.append(smaller, sizeValue, larger)
+    sizeRow.append(stepper)
+    smaller.addEventListener('click', () => choose({ size: stepSize(settings.size, -1) }))
+    larger.addEventListener('click', () => choose({ size: stepSize(settings.size, 1) }))
+    prefsBody.append(themes.box, fonts.box, sizeRow)
+    const fillPrefs = (): void => {
+        for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === settings.theme))
+        for (const button of fontButtons) button.setAttribute('aria-pressed', String(button.dataset.font === settings.font))
+        sizeValue.textContent = String(settings.size)
+        smaller.disabled = options.fixedLayout || settings.size <= SIZE.min
+        larger.disabled = options.fixedLayout || settings.size >= SIZE.max
+    }
+    const choose = (changed: Partial<Settings>): void => {
+        settings = { ...settings, ...changed }
+        options.change(settings)
+        fillPrefs()
+    }
+    fillPrefs()
+
+    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs)
 
     let state: ControlsState = HIDDEN
     const show = (): void => {
@@ -140,9 +213,13 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         contents.hidden = !state.contents
         contentsBackdrop.hidden = !state.contents
         contentsButton.setAttribute('aria-expanded', String(state.contents))
+        prefs.hidden = !state.prefs
+        prefsBackdrop.hidden = !state.prefs
+        prefsButton.setAttribute('aria-expanded', String(state.prefs))
     }
     const apply = (event: ControlsEvent): void => {
         const opening = event === 'contents' && !state.contents
+        const openingPrefs = event === 'prefs' && !state.prefs
         state = nextControls(state, event)
         show()
         if (opening) {
@@ -151,6 +228,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             contentsBody.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
             close.focus()
         }
+        if (openingPrefs) prefsClose.focus()
     }
     show()
 
@@ -159,8 +237,11 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     contentsButton.addEventListener('click', () => apply('contents'))
     contentsBackdrop.addEventListener('click', () => apply('outside'))
     close.addEventListener('click', () => apply('outside'))
+    prefsButton.addEventListener('click', () => apply('prefs'))
+    prefsBackdrop.addEventListener('click', () => apply('outside'))
+    prefsClose.addEventListener('click', () => apply('outside'))
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && (state.more || state.contents)) apply('outside')
+        if (event.key === 'Escape' && (state.more || state.contents || state.prefs)) apply('outside')
     })
 
     // The percent follows the slider while it moves; the book moves on release.
