@@ -1,4 +1,4 @@
-import { FONTS, type FontName, type Settings, SIZE, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { FONTS, type FontName, INDENT, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { ContentsRow } from './contents'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
 
@@ -20,6 +20,8 @@ export interface ControlsOptions {
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
     fixedLayout: boolean
+    /** True on a screen wider than a phone's, whose margins start wider. */
+    wide(): boolean
     /** Applies and keeps settings chosen in Preferences. */
     change(settings: Settings): void
 }
@@ -43,7 +45,26 @@ const ICONS = {
     toc: 'M3 9h14V7H3v2zm0 4h14v-2H3v2zm0 4h14v-2H3v2zm16 0h2v-2h-2v2zm0-10v2h2V7h-2zm0 6h2v-2h-2v2z',
     close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
     prefs: 'M5 3h2v6H5zM5 13h2v8H5zM3 9h6v4H3zM11 3h2v2h-2zM11 9h2v12h-2zM9 5h6v4H9zM17 3h2v10h-2zM17 17h2v4h-2zM15 13h6v4h-6z',
+    down: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
+    up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z',
+    reset: 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
 }
+
+// The spacing steppers: the setting, its name, its range and how its value reads.
+type Spacing = 'lineSpacing' | 'paragraphSpacing' | 'indent'
+const SPACINGS: [Spacing, string, Range, (value: number) => string][] = [
+    ['lineSpacing', 'Line spacing', LINE_SPACING, value => value.toFixed(1)],
+    ['paragraphSpacing', 'Paragraph spacing', PARAGRAPH_SPACING, value => `${value.toFixed(1)} em`],
+    ['indent', 'Indent', INDENT, value => `${value.toFixed(1)} em`],
+]
+
+// The checkboxes: the setting and its label.
+type Check = 'justify' | 'hyphenate' | 'bookLayout'
+const CHECKS: [Check, string][] = [
+    ['justify', 'Justify text'],
+    ['hyphenate', 'Hyphenate words'],
+    ['bookLayout', "Use the book's layout and fonts"],
+]
 
 const icon = (path: string): string =>
     `<svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`
@@ -54,6 +75,21 @@ const element = <K extends keyof HTMLElementTagNameMap>(tag: K, attributes: Reco
     node.innerHTML = html
     return node
 }
+
+// A stepper's value between its Less and More buttons, with its name before them.
+const stepper = (setting: string, name: string, down: HTMLButtonElement, up: HTMLButtonElement, className = 'stepper'): { row: HTMLElement, value: HTMLElement } => {
+    const row = element('div', { class: className, 'data-setting': setting })
+    const label = element('span', { class: 'stepper-name' })
+    label.textContent = name
+    const value = element('span', { class: 'value' })
+    const controls = element('div', { class: 'stepper-controls' })
+    controls.append(down, value, up)
+    row.append(label, controls)
+    return { row, value }
+}
+
+const stepButton = (label: string, path: string): HTMLButtonElement =>
+    element('button', { type: 'button', class: 'step', 'aria-label': label }, icon(path))
 
 const closeButton = (): HTMLButtonElement =>
     element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Close' }, icon(ICONS.close))
@@ -178,21 +214,106 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return button
     })
     const smaller = element('button', { type: 'button', class: 'step', 'aria-label': 'Less size' }, '<span class="small-a">A</span>')
-    const sizeValue = element('span', { class: 'value' })
     const larger = element('button', { type: 'button', class: 'step', 'aria-label': 'More size' }, '<span class="large-a">A</span>')
-    const sizeRow = element('div', { class: 'stepper' }, '<span class="stepper-name">Size</span>')
-    const stepper = element('div', { class: 'stepper-controls' })
-    stepper.append(smaller, sizeValue, larger)
-    sizeRow.append(stepper)
+    const size = stepper('size', 'Size', smaller, larger)
     smaller.addEventListener('click', () => choose({ size: stepSize(settings.size, -1) }))
     larger.addEventListener('click', () => choose({ size: stepSize(settings.size, 1) }))
-    prefsBody.append(themes.box, fonts.box, sizeRow)
+    const steppers = element('div', { class: 'steppers' })
+    steppers.append(size.row)
+    const spacings = SPACINGS.map(([setting, name, range, read]) => {
+        const down = stepButton(`Less ${name.toLowerCase()}`, ICONS.down)
+        const up = stepButton(`More ${name.toLowerCase()}`, ICONS.up)
+        const { row, value } = stepper(setting, name, down, up)
+        down.addEventListener('click', () => choose({ [setting]: stepIn(range, settings[setting], -1) }))
+        up.addEventListener('click', () => choose({ [setting]: stepIn(range, settings[setting], 1) }))
+        steppers.append(row)
+        return { setting, range, read, down, value, up }
+    })
+
+    // Margins, in px: the screen's defaults until one is changed.
+    const margins = element('div', { role: 'group', 'aria-label': 'Margins in pixels', class: 'margins' }, '<span class="group-label">Margins (px)</span>')
+    const marginGrid = element('div', { class: 'margin-grid' })
+    margins.append(marginGrid)
+    const marginSteppers = SIDES.map(side => {
+        const name = side[0].toUpperCase() + side.slice(1)
+        const down = stepButton(`Less ${side} margin`, ICONS.down)
+        const up = stepButton(`More ${side} margin`, ICONS.up)
+        const { row, value } = stepper(`margin-${side}`, name, down, up, 'margin')
+        const move = (step: -1 | 1): void => {
+            const shown = marginsFor(settings, options.wide())
+            choose({ margins: { ...shown, [side]: stepIn(MARGIN, shown[side], step) } })
+        }
+        down.addEventListener('click', () => move(-1))
+        up.addEventListener('click', () => move(1))
+        marginGrid.append(row)
+        return { side, down, value, up }
+    })
+
+    const checks = element('div', { class: 'checks' })
+    const checkboxes = CHECKS.map(([setting, name]) => {
+        const label = element('label', {}, '<input type="checkbox"><span></span>')
+        label.querySelector('span')!.textContent = name
+        const box = label.querySelector('input')!
+        box.addEventListener('change', () => choose({ [setting]: box.checked }))
+        checks.append(label)
+        return { setting, box }
+    })
+
+    // Reset to defaults asks first, in a dialog over everything.
+    const resetButton = element('button', { type: 'button', class: 'reset' }, `${icon(ICONS.reset)}<span>Reset to defaults</span>`)
+    const resetDialog = element('div', { id: 'reset-dialog', 'data-controls': '' })
+    const dialog = element('div', { role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'reset-title', 'aria-describedby': 'reset-body' },
+        '<h2 id="reset-title">Reset layout to the defaults?</h2><p id="reset-body"></p><div class="dialog-buttons"></div>')
+    const cancel = element('button', { type: 'button', class: 'cancel' }, 'Cancel')
+    const confirm = element('button', { type: 'button', class: 'confirm' }, 'Reset')
+    dialog.querySelector('.dialog-buttons')!.append(cancel, confirm)
+    resetDialog.append(dialog)
+    resetDialog.hidden = true
+    const closeReset = (): void => {
+        resetDialog.hidden = true
+        resetButton.focus()
+    }
+    resetButton.addEventListener('click', () => {
+        dialog.querySelector('p')!.textContent = `Size, spacing and margins on this ${options.wide() ? 'computer' : 'phone'} go back to the defaults. Your theme and font stay as they are.`
+        resetDialog.hidden = false
+        cancel.focus()
+    })
+    cancel.addEventListener('click', closeReset)
+    resetDialog.addEventListener('click', event => {
+        if (event.target === resetDialog) closeReset()
+    })
+    confirm.addEventListener('click', () => {
+        choose(resetLayout(settings))
+        closeReset()
+    })
+
+    prefsBody.append(themes.box, fonts.box, steppers, margins, checks, resetButton)
     const fillPrefs = (): void => {
+        const fixed = options.fixedLayout
+        const own = settings.bookLayout
         for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === settings.theme))
-        for (const button of fontButtons) button.setAttribute('aria-pressed', String(button.dataset.font === settings.font))
-        sizeValue.textContent = String(settings.size)
-        smaller.disabled = options.fixedLayout || settings.size <= SIZE.min
-        larger.disabled = options.fixedLayout || settings.size >= SIZE.max
+        for (const button of fontButtons) {
+            button.setAttribute('aria-pressed', String(button.dataset.font === settings.font))
+            button.disabled = fixed || own
+        }
+        size.value.textContent = String(settings.size)
+        smaller.disabled = fixed || settings.size <= SIZE.min
+        larger.disabled = fixed || settings.size >= SIZE.max
+        for (const { setting, range, read, down, value, up } of spacings) {
+            value.textContent = read(settings[setting])
+            down.disabled = fixed || own || settings[setting] <= range.min
+            up.disabled = fixed || own || settings[setting] >= range.max
+        }
+        const shown = marginsFor(settings, options.wide())
+        for (const { side, down, value, up } of marginSteppers) {
+            value.textContent = String(shown[side])
+            down.disabled = fixed || shown[side] <= MARGIN.min
+            up.disabled = fixed || shown[side] >= MARGIN.max
+        }
+        for (const { setting, box } of checkboxes) {
+            box.checked = settings[setting]
+            box.disabled = fixed || (own && setting !== 'bookLayout')
+        }
     }
     const choose = (changed: Partial<Settings>): void => {
         settings = { ...settings, ...changed }
@@ -201,7 +322,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     }
     fillPrefs()
 
-    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs)
+    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, resetDialog)
 
     let state: ControlsState = HIDDEN
     const show = (): void => {
@@ -241,7 +362,9 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     prefsBackdrop.addEventListener('click', () => apply('outside'))
     prefsClose.addEventListener('click', () => apply('outside'))
     document.addEventListener('keydown', event => {
-        if (event.key === 'Escape' && (state.more || state.contents || state.prefs)) apply('outside')
+        if (event.key !== 'Escape') return
+        if (!resetDialog.hidden) closeReset()
+        else if (state.more || state.contents || state.prefs) apply('outside')
     })
 
     // The percent follows the slider while it moves; the book moves on release.

@@ -139,14 +139,17 @@ try {
     // The drag runs on the first spread, where both columns hold text. On the
     // chapter's last spread the right column is empty, and WebKit maps a drag
     // into it to an earlier place in the text, so foliate-js pages back to
-    // follow the selection; that is not a click.
+    // follow the selection; that is not a click. The drag ends on the text,
+    // inside the right edge's share of the page but short of the right margin:
+    // dragged on into the margin, a selection runs on into the next page's
+    // columns, and foliate-js pages over to follow it, which is not a click either.
     await turnView(page, 'prev')
     await pause(200)
     await expectTurn(page, 'a drag that selects text and ends on the right edge', null, async () => {
         await page.mouse.move(rect.x + rect.width * 0.3, middle.y)
         await page.mouse.down()
         for (let step = 1; step <= 10; step++) {
-            await page.mouse.move(rect.x + rect.width * (0.3 + 0.062 * step), middle.y)
+            await page.mouse.move(rect.x + rect.width * (0.3 + 0.055 * step), middle.y)
             await pause(20)
         }
         await page.mouse.up()

@@ -420,6 +420,165 @@ body[data-state="rendered"] {
   text-align: center;
 }
 
+#prefs .steppers {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+#prefs .margins {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 20px;
+}
+
+#prefs .margins .group-label {
+  padding: 0;
+}
+
+#prefs .margin-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 16px;
+}
+
+#prefs .margin {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+
+#prefs .margin .stepper-controls {
+  justify-content: space-between;
+}
+
+#prefs .margin .step {
+  width: 44px;
+}
+
+#prefs .margin .value {
+  width: auto;
+  font-size: 15px;
+}
+
+#prefs .checks {
+  display: flex;
+  flex-direction: column;
+  margin: 0 20px;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+}
+
+#prefs .checks label {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-height: 48px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#prefs .checks input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: #00a4dc;
+}
+
+#prefs .checks label:has(input:disabled) {
+  cursor: default;
+  opacity: .38;
+}
+
+#prefs .reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 48px;
+  margin: 0 20px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 4px;
+  font-size: 15px;
+}
+
+#prefs .reset svg {
+  width: 20px;
+  height: 20px;
+}
+
+/* Reset's question, over everything. */
+#reset-dialog {
+  position: fixed;
+  z-index: 8;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 24px;
+  background: rgba(0, 0, 0, .6);
+}
+
+#reset-dialog [role="alertdialog"] {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 400px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 24px;
+  border-radius: 8px;
+  background: #202020;
+  color: rgba(255, 255, 255, .87);
+}
+
+#reset-dialog h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+#reset-dialog p {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .7);
+}
+
+#reset-dialog .dialog-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+#reset-dialog button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 4px;
+  background: #424242;
+  font-size: 15px;
+}
+
+#reset-dialog button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
+}
+
+#reset-dialog .confirm {
+  padding: 0 20px;
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+  font-weight: 600;
+}
+
 @media (min-width: 600px) {
   #contents-backdrop,
 #prefs-backdrop {

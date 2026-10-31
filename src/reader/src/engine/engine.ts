@@ -3,6 +3,7 @@ import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
 import type { TocEntry } from '../controls/contents'
 import type { Moved, StartAt } from '../position/position'
+import type { Margins } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { guardSelectionDrag } from './selection'
 
@@ -18,7 +19,7 @@ interface FoliateView extends HTMLElement {
     prev(): Promise<void>
     goLeft(): Promise<void>
     goRight(): Promise<void>
-    renderer: HTMLElement & { setStyles?(styles: string): void }
+    renderer: HTMLElement & { setStyles?(styles: string): void, render?(): void }
     isFixedLayout: boolean
     lastLocation?: Location
 }
@@ -87,7 +88,18 @@ export interface OpenBook {
      * sections load; the page lays out again around the place being read.
      */
     setStyles(styles: string): void
+    /**
+     * Sets the space between the reading area's edges and a reflowable
+     * book's text; the page lays out again around the place being read.
+     */
+    setMargins(margins: Margins): void
 }
+
+// foliate-js's widest column: a text area wider than this, in landscape, shows two.
+const COLUMN_WIDTH = 720
+// The paginator's gap in px: the least space at the sides, and between two columns.
+const ONE_COLUMN_GAP = 4
+const TWO_COLUMN_GAP = 48
 
 // The paginator's reasons for re-placing the current position rather than moving.
 const NOT_MOVES = new Set(['anchor', 'selection'])
@@ -100,7 +112,8 @@ const NOT_MOVES = new Set(['anchor', 'selection'])
  * and `relocate`. `onMenu` is called for a tap or click in the middle of the
  * page, which shows or hides the reader's controls, and `onTurn` whenever the
  * reader turns the page: a key, a click or tap on an edge, the wheel or a swipe.
- * `styles` is the stylesheet a reflowable book's sections start with.
+ * `styles` is the stylesheet a reflowable book's sections start with, and
+ * `margins` the space around its text.
  */
 export const openBook = async (
     container: HTMLElement,
@@ -110,6 +123,7 @@ export const openBook = async (
     onMenu: () => void = () => {},
     onTurn: () => void = () => {},
     styles = '',
+    margins: Margins | null = null,
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
     // Keys, edge clicks and the wheel turn pages on a desktop, and a click in
@@ -147,6 +161,36 @@ export const openBook = async (
         if (!view.isFixedLayout) view.renderer.setStyles?.(styles)
     }
     setStyles(styles)
+    // Margins are padding on the container, so the paginator keeps none of
+    // its own above and below. Its gap puts the same space between columns
+    // and at the outer edges, which comes off the side padding. The gap is
+    // never 0: a justified line reaches its column's edge, and with no gap
+    // foliate-js counts it as shown on the next page too, so that page's
+    // place would start on the one before.
+    let shownMargins = margins
+    const layOut = (): void => {
+        if (view.isFixedLayout || !shownMargins) return
+        const { width: outerWidth, height: outerHeight } = container.getBoundingClientRect()
+        if (!outerWidth) return
+        const { left, right, top, bottom } = shownMargins
+        const twoColumns = outerWidth - left - right > COLUMN_WIDTH && outerWidth - left - right > outerHeight - top - bottom
+        const gap = twoColumns ? TWO_COLUMN_GAP : ONE_COLUMN_GAP
+        const padLeft = Math.max(0, left - gap)
+        const padRight = Math.max(0, right - gap)
+        container.style.padding = `${top}px ${padRight}px ${bottom}px ${padLeft}px`
+        const share = `${(gap / (outerWidth - padLeft - padRight) * 100).toFixed(4)}%`
+        if (view.renderer.getAttribute('gap') === share) return
+        view.renderer.setAttribute('gap', share)
+        view.renderer.render?.()
+    }
+    const setMargins = (margins: Margins): void => {
+        shownMargins = margins
+        layOut()
+    }
+    if (!view.isFixedLayout) view.renderer.setAttribute('margin', '0px')
+    layOut()
+    // The container is hidden until the first page shows, and resizes with the window.
+    new ResizeObserver(layOut).observe(container)
     // The paginator can place a position only once it knows the page count,
     // which the first render works out; placed any earlier, the view stays on
     // its blank lead page. So open at the text start, then move to the saved
@@ -186,6 +230,7 @@ export const openBook = async (
         },
         fixedLayout: view.isFixedLayout,
         setStyles,
+        setMargins,
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()
             else await view.goToFraction(fraction)

@@ -10,7 +10,7 @@ import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBot
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 import { fontFaces } from './settings/fonts'
-import { bookStyles, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
+import { bookStyles, marginsFor, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -53,6 +53,8 @@ const start = async (): Promise<void> => {
     fontStyle.textContent = faces
     document.head.append(fontStyle)
     themePage(settings)
+    // A phone or a wider screen, for the margins the reader has not changed.
+    const wide = matchMedia('(min-width: 600px)')
 
     const overlay = debugRequested(location.search) ? new DebugOverlay(document.body) : null
     show('loading', 'Loading the book…')
@@ -72,7 +74,7 @@ const start = async (): Promise<void> => {
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
         const opened = await openBook(book, file, view => overlay?.timeTurns(view), start,
-            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces))
+            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces), marginsFor(settings, wide.matches))
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -95,13 +97,17 @@ const start = async (): Promise<void> => {
             choose: href => opened.goTo(href),
             settings,
             fixedLayout: opened.fixedLayout,
+            wide: () => wide.matches,
             change(changed) {
+                const restyle = bookStyles(changed, faces) !== bookStyles(settings, faces)
                 settings = changed
                 writeSettings(localStorage, settings)
                 themePage(settings)
-                opened.setStyles(bookStyles(settings, faces))
+                if (restyle) opened.setStyles(bookStyles(settings, faces))
+                opened.setMargins(marginsFor(settings, wide.matches))
             },
         })
+        wide.addEventListener('change', () => opened.setMargins(marginsFor(settings, wide.matches)))
         const shown = controls
         const place = opened.place()
         shown.locate(place.chapter, place.fraction)
