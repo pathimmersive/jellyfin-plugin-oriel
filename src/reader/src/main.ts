@@ -1,6 +1,7 @@
 import './reader.css'
 import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
+import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
@@ -72,6 +73,8 @@ const start = async (): Promise<void> => {
             detailsUrl: `${basePath}/web/#/details?id=${encodeURIComponent(itemId)}`,
             dataUrl: `${basePath}/Oriel/data.html?id=${encodeURIComponent(itemId)}`,
             seek: fraction => opened.seek(fraction),
+            contents: () => contentsRows(opened.contents, href => opened.fractionOf(href), opened.place().href),
+            choose: href => opened.goTo(href),
         })
         const shown = controls
         const place = opened.place()
