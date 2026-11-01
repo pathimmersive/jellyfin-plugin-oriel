@@ -56,6 +56,8 @@ try {
     const signedIn = await browser.newContext()
     await signedIn.addInitScript(value => {
         localStorage.setItem('jellyfin_credentials', value)
+        // The reading gestures hint was seen on this device before.
+        localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
     }, credentials)
     const page = await signedIn.newPage()
 

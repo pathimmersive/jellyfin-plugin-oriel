@@ -165,6 +165,15 @@ describe('attachPageInput', () => {
         expect(event.defaultPrevented).toBe(true)
     })
 
+    it('leaves Space and Enter on a button or link to press it', () => {
+        const { turns, fire } = page()
+        const button = { closest: (selector: string) => selector.includes('button') ? {} : null }
+        fire('keydown', { ...key(' '), target: button })
+        fire('keydown', { ...key('Enter'), target: button })
+        fire('keydown', { ...key('ArrowRight'), target: button })
+        expect(turns).toEqual(['right'])
+    })
+
     it('leaves other keys, and keys typed into a field, alone', () => {
         const { turns, fire } = page()
         expect(fire('keydown', key('a')).defaultPrevented).toBe(false)

@@ -103,6 +103,8 @@ const start = async (): Promise<void> => {
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,
+            touch: () => matchMedia('(pointer: coarse)').matches,
+            storage: localStorage,
             change(changed) {
                 const restyle = bookStyles(changed, faces) !== bookStyles(settings, faces)
                 settings = changed

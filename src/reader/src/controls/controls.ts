@@ -1,5 +1,6 @@
 import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { ContentsRow } from './contents'
+import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
 
@@ -23,6 +24,10 @@ export interface ControlsOptions {
     fixedLayout: boolean
     /** True on a screen wider than a phone's, whose margins start wider. */
     wide(): boolean
+    /** True on a touch screen (a coarse pointer), whose reading gestures are taps and swipes. */
+    touch(): boolean
+    /** Where this device remembers the reading gestures hints it has dismissed. */
+    storage: Pick<Storage, 'getItem' | 'setItem'>
     /** Applies and keeps settings chosen in Preferences. */
     change(settings: Settings): void
 }
@@ -54,6 +59,7 @@ const ICONS = {
     up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z',
     reset: 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
     toEnd: 'M5.59 7.41L10.18 12l-4.59 4.59L7 18l6-6-6-6zM16 6h2v12h-2z',
+    gesture: 'M9 11.24V7.5C9 6.12 10.12 5 11.5 5S14 6.12 14 7.5v3.74c1.21-.81 2-2.18 2-3.74C16 5.01 13.99 3 11.5 3S7 5.01 7 7.5c0 1.56.79 2.93 2 3.74zm9.84 4.63l-4.54-2.26c-.17-.07-.35-.11-.54-.11H13v-6c0-.83-.67-1.5-1.5-1.5S10 6.67 10 7.5v10.74l-3.43-.72c-.08-.01-.15-.03-.24-.03-.31 0-.59.13-.79.33l-.79.8 4.94 4.94c.27.27.65.44 1.06.44h6.79c.75 0 1.33-.55 1.44-1.28l.75-5.27c.01-.07.02-.14.02-.2 0-.62-.38-1.16-.91-1.38z',
     slide: 'M4 6h2v12H4zm4 0h12v12H8z',
     scroll: 'M12 4l-4 4h3v8H8l4 4 4-4h-3V8h3z',
     fade: 'M12 3a9 9 0 100 18 9 9 0 000-18zm0 16V5a7 7 0 010 14z',
@@ -171,7 +177,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         a.querySelector('span')!.textContent = name
         return a
     }
-    more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
+    const showGestures = element('button', { type: 'button' }, `${icon(ICONS.gesture)}<span>Show reading gestures</span>`)
+    more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
 
     // Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen.
     const contentsBackdrop = element('div', { id: 'contents-backdrop', 'data-controls': '' })
@@ -375,13 +382,25 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         }
     }
     const choose = (changed: Partial<Settings>): void => {
+        // The first choice of Scroll shows its gestures, once.
+        const scrolling = changed.pageTurn === 'scroll' && settings.pageTurn !== 'scroll'
         settings = { ...settings, ...changed }
+        if (scrolling && hintDue(readHintsSeen(options.storage), 'scroll')) hint.show('scroll')
         options.change(settings)
         fillPrefs()
     }
     fillPrefs()
 
     root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, resetDialog)
+
+    // The reading gestures hint, over everything: by itself the first time
+    // this device opens a book, and from More at any time.
+    const hint = createHint(root, options.touch, kind => sawHint(options.storage, kind))
+    const showHint = (): void => hint.show(hintKind(settings.pageTurn, options.touch()))
+    showGestures.addEventListener('click', () => {
+        apply('outside')
+        showHint()
+    })
 
     let state: ControlsState = HIDDEN
     const show = (): void => {
@@ -411,6 +430,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         if (openingPrefs) prefsClose.focus()
     }
     show()
+    if (hintDue(readHintsSeen(options.storage), 'open')) showHint()
 
     moreButton.addEventListener('click', () => apply('more'))
     backdrop.addEventListener('click', () => apply('outside'))
@@ -422,7 +442,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     prefsClose.addEventListener('click', () => apply('outside'))
     document.addEventListener('keydown', event => {
         if (event.key !== 'Escape') return
-        if (!resetDialog.hidden) closeReset()
+        if (hint.shown) hint.close()
+        else if (!resetDialog.hidden) closeReset()
         else if (state.more || state.contents || state.prefs) apply('outside')
     })
 

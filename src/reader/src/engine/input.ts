@@ -156,6 +156,8 @@ export const attachPageInput = (
     if (!win) return
     win.addEventListener('keydown', event => {
         if (event.defaultPrevented || isEditable(event.target)) return
+        // Space or Enter on a button or link presses it rather than turning the page.
+        if ((event.key === ' ' || event.key === 'Enter') && isControl(event.target)) return
         const wanted = keyTurn(event, scroll.active())
         if (!wanted) return
         event.preventDefault()
@@ -252,6 +254,9 @@ const NO_SCROLL: ScrollInput = { active: () => false, edges: () => ({ start: fal
 
 /** How far, in pixels, a drag must go on past a section's edge to turn to the next or previous section. */
 const DRAG_ON = 40
+
+const isControl = (target: EventTarget | null): boolean =>
+    !!(target as Partial<Element> | null)?.closest?.('button, a[href]')
 
 const isEditable = (target: EventTarget | null): boolean => {
     const element = target as { isContentEditable?: boolean, tagName?: string } | null
