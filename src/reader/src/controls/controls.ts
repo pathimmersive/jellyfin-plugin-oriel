@@ -1,5 +1,6 @@
-import { FONTS, type FontName, INDENT, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { FONTS, type FontName, INDENT, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { ContentsRow } from './contents'
+import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
 
 /** What the controls show and where their links go. */
@@ -32,8 +33,12 @@ export interface Controls {
     middle(): void
     /** A page turned by the reader. */
     turned(): void
-    /** The place now shown: its chapter's name (empty for none) and the fraction of the book. */
-    locate(chapter: string, fraction: number): void
+    /**
+     * The place now shown: its chapter's name (empty for none), the fraction
+     * of the book, the progress to show, and the pages left in the chapter
+     * (null for a book without pages).
+     */
+    locate(chapter: string, fraction: number, progress: ProgressShown, left: number | null): void
 }
 
 // Material icons, as the canvas draws them.
@@ -48,7 +53,11 @@ const ICONS = {
     down: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
     up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z',
     reset: 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
+    toEnd: 'M5.59 7.41L10.18 12l-4.59 4.59L7 18l6-6-6-6zM16 6h2v12h-2z',
 }
+
+// The Progress choices: the setting and its name.
+const PROGRESS_CHOICES: [Progress, string][] = [['percent', 'Percentage'], ['pages', 'Pages']]
 
 // The spacing steppers: the setting, its name, its range and how its value reads.
 type Spacing = 'lineSpacing' | 'paragraphSpacing' | 'indent'
@@ -94,15 +103,28 @@ const stepButton = (label: string, path: string): HTMLButtonElement =>
 const closeButton = (): HTMLButtonElement =>
     element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Close' }, icon(ICONS.close))
 
-const percent = (fraction: number): string => `${Math.round(Math.min(Math.max(fraction, 0), 1) * 100)}%`
+interface PlaceRow {
+    row: HTMLElement
+    chapter: HTMLElement
+    counting: HTMLElement
+    progress: HTMLElement
+    left: HTMLElement
+}
 
-// The chapter and the percent read, as both footers show them.
-const placeRow = (): { row: HTMLElement, chapter: HTMLElement, progress: HTMLElement } => {
+// The chapter, the progress and the pages left in the chapter, as both footers show them.
+const placeRow = (): PlaceRow => {
     const row = element('div', { class: 'place' })
     const chapter = element('span', { class: 'chapter' })
+    const counting = element('span', { class: 'counting' })
+    counting.textContent = 'Counting pages'
+    counting.hidden = true
     const progress = element('span', { class: 'progress' })
-    row.append(chapter, progress)
-    return { row, chapter, progress }
+    const left = element('span', { class: 'left', role: 'img' }, `<span class="count"></span>${icon(ICONS.toEnd)}`)
+    left.hidden = true
+    const status = element('span', { class: 'status' })
+    status.append(counting, progress, left)
+    row.append(chapter, status)
+    return { row, chapter, counting, progress, left }
 }
 
 /**
@@ -159,7 +181,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         for (const row of rows) {
             const entry = element(row.href ? 'a' : 'span', { class: 'entry', style: `--depth: ${row.depth}` }, '<span class="label"></span><span class="where"></span>')
             entry.querySelector('.label')!.textContent = row.label
-            entry.querySelector('.where')!.textContent = row.percent
+            entry.querySelector('.where')!.textContent = row.where
             if (row.href) {
                 entry.setAttribute('href', '#')
                 entry.addEventListener('click', event => {
@@ -287,7 +309,19 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         closeReset()
     })
 
-    prefsBody.append(themes.box, fonts.box, steppers, margins, checks, resetButton)
+    // Progress: the percent read, or page / total.
+    const progressRow = element('div', { class: 'progress-row' }, '<span class="stepper-name">Progress</span>')
+    const progressGroup = element('div', { role: 'radiogroup', 'aria-label': 'Progress', class: 'segments' })
+    progressRow.append(progressGroup)
+    const progressButtons = PROGRESS_CHOICES.map(([setting, name]) => {
+        const button = element('button', { type: 'button', role: 'radio', 'aria-checked': 'false' })
+        button.textContent = name
+        button.addEventListener('click', () => choose({ progress: setting }))
+        progressGroup.append(button)
+        return { setting, button }
+    })
+
+    prefsBody.append(themes.box, fonts.box, steppers, margins, progressRow, checks, resetButton)
     const fillPrefs = (): void => {
         const fixed = options.fixedLayout
         const own = settings.bookLayout
@@ -310,6 +344,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             down.disabled = fixed || shown[side] <= MARGIN.min
             up.disabled = fixed || shown[side] >= MARGIN.max
         }
+        for (const { setting, button } of progressButtons) button.setAttribute('aria-checked', String(settings.progress === setting))
         for (const { setting, box } of checkboxes) {
             box.checked = settings[setting]
             box.disabled = fixed || (own && setting !== 'bookLayout')
@@ -374,10 +409,16 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     return {
         middle: () => apply('middle'),
         turned: () => apply('turned'),
-        locate(chapter, fraction) {
+        locate(chapter, fraction, progress, left) {
             for (const row of [reading, place]) {
                 row.chapter.textContent = chapter
-                row.progress.textContent = percent(fraction)
+                row.counting.hidden = !progress.counting
+                row.progress.textContent = progress.text
+                row.left.hidden = left === null
+                if (left !== null) {
+                    row.left.querySelector('.count')!.textContent = String(left)
+                    row.left.setAttribute('aria-label', pagesLeftName(left))
+                }
             }
             slider.value = String(fraction * 100)
         },

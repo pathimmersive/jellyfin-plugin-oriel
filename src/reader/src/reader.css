@@ -49,8 +49,31 @@ body[data-state="rendered"] {
   text-overflow: ellipsis;
 }
 
-.place .progress {
+.place .status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   white-space: nowrap;
+}
+
+.place .counting {
+  opacity: .8;
+}
+
+/* The pages left in the chapter: the count, then an end-of-chapter mark. */
+.place .left {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  line-height: 1;
+}
+
+.place .left svg {
+  display: block;
+  width: 16px;
+  height: 16px;
+  transform: translateY(1px);
 }
 
 #reading-footer {
@@ -461,6 +484,38 @@ body[data-state="rendered"] {
 #prefs .margin .value {
   width: auto;
   font-size: 15px;
+}
+
+#prefs .progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 20px;
+  font-size: 15px;
+}
+
+#prefs .segments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  width: 224px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #424242;
+}
+
+#prefs .segments button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 44px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+#prefs .segments button[aria-checked="true"] {
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
 }
 
 #prefs .checks {

@@ -12,8 +12,8 @@ export interface ContentsRow {
     href: string
     /** 0 for a top-level entry, one more for each level below. */
     depth: number
-    /** The percent of the book where the entry starts, or empty when unknown. */
-    percent: string
+    /** Where the entry starts: its page, else the percent of the book; empty when unknown. */
+    where: string
     /** Whether this is the entry being read. */
     current: boolean
 }
@@ -21,24 +21,27 @@ export interface ContentsRow {
 /**
  * The Contents panel's rows for a book's contents: every entry in order, each
  * sub-entry right after its parent and one level deeper. `fractionOf` gives
- * the fraction of the book where an entry's link leads, and `currentHref` is
- * the link of the entry being read.
+ * the fraction of the book where an entry's link leads, `currentHref` is
+ * the link of the entry being read, and `pageOf`, when pages are shown and
+ * counted, gives the page an entry's link leads to.
  */
 export const contentsRows = (
     toc: TocEntry[],
     fractionOf: (href: string) => number | null,
     currentHref: string | null,
+    pageOf: ((href: string) => number | null) | null = null,
 ): ContentsRow[] => {
     const rows: ContentsRow[] = []
     const visit = (entries: TocEntry[], depth: number): void => {
         for (const entry of entries) {
             const href = entry.href ?? ''
             const fraction = href ? fractionOf(href) : null
+            const page = href && pageOf ? pageOf(href) : null
             rows.push({
                 label: (entry.label ?? '').trim(),
                 href,
                 depth,
-                percent: fraction === null ? '' : `${Math.round(fraction * 100)}%`,
+                where: page !== null ? String(page) : fraction === null ? '' : `${Math.round(fraction * 100)}%`,
                 current: !!href && href === currentHref,
             })
             if (entry.subitems?.length) visit(entry.subitems, depth + 1)

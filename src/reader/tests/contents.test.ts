@@ -19,7 +19,12 @@ describe('contentsRows', () => {
     })
 
     it('gives each entry the percent of the book where its section starts', () => {
-        expect(contentsRows(toc, fractionOf, null).map(row => row.percent)).toEqual(['0%', '25%', '25%', '25%', '50%'])
+        expect(contentsRows(toc, fractionOf, null).map(row => row.where)).toEqual(['0%', '25%', '25%', '25%', '50%'])
+    })
+
+    it('gives each entry its start page when pages are counted, and the percent where a page is unknown', () => {
+        const pages: Record<string, number> = { 'ch1.xhtml': 1, 'ch2.xhtml': 9, 'ch2.xhtml#part': 12 }
+        expect(contentsRows(toc, fractionOf, null, href => pages[href] ?? null).map(row => row.where)).toEqual(['1', '9', '12', '25%', '50%'])
     })
 
     it('marks the entry being read, and only that one', () => {
@@ -29,7 +34,7 @@ describe('contentsRows', () => {
 
     it('keeps an entry with no link or no known place, without a percent', () => {
         const rows = contentsRows([{ label: 'Part One' }, { label: 'Elsewhere', href: 'notes.xhtml' }], fractionOf, null)
-        expect(rows.map(row => [row.label, row.href, row.percent])).toEqual([['Part One', '', ''], ['Elsewhere', 'notes.xhtml', '']])
+        expect(rows.map(row => [row.label, row.href, row.where])).toEqual([['Part One', '', ''], ['Elsewhere', 'notes.xhtml', '']])
     })
 
     it('gives nothing for a book with no contents', () => {

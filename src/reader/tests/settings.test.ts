@@ -14,6 +14,7 @@ const CHOSEN: Settings = {
     justify: false,
     hyphenate: false,
     bookLayout: true,
+    progress: 'pages',
 }
 
 describe('readSettings', () => {
@@ -22,7 +23,7 @@ describe('readSettings', () => {
         expect(DEFAULTS).toEqual({
             theme: 'light', font: 'Default', size: 18,
             lineSpacing: 1.5, paragraphSpacing: 0, indent: 1.4, margins: null,
-            justify: true, hyphenate: true, bookLayout: false,
+            justify: true, hyphenate: true, bookLayout: false, progress: 'percent',
         })
     })
 
@@ -42,6 +43,7 @@ describe('readSettings', () => {
         expect(readSettings(store('{"lineSpacing":0.9,"paragraphSpacing":2.1,"indent":-0.1}'))).toEqual(DEFAULTS)
         expect(readSettings(store('{"lineSpacing":1.55,"indent":"2"}'))).toEqual(DEFAULTS)
         expect(readSettings(store('{"justify":"yes","hyphenate":1,"bookLayout":null}'))).toEqual(DEFAULTS)
+        expect(readSettings(store('{"progress":"chapters"}'))).toEqual(DEFAULTS)
     })
 
     it('keeps margins only when all four are whole numbers from 0 to 200', () => {
@@ -105,8 +107,8 @@ describe('marginsFor', () => {
 })
 
 describe('resetLayout', () => {
-    it('resets size, spacing, margins and checkboxes and keeps the theme and font', () => {
-        expect(resetLayout(CHOSEN)).toEqual({ ...DEFAULTS, theme: 'dark', font: 'Noto Sans' })
+    it('resets size, spacing, margins and checkboxes and keeps the theme, font and progress', () => {
+        expect(resetLayout(CHOSEN)).toEqual({ ...DEFAULTS, theme: 'dark', font: 'Noto Sans', progress: 'pages' })
     })
 })
 

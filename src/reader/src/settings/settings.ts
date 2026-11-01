@@ -25,6 +25,11 @@ export const FONTS = {
 
 export type FontName = keyof typeof FONTS
 
+/** How the footers show progress: the percent read, or page / total. */
+export const PROGRESS = ['percent', 'pages'] as const
+
+export type Progress = typeof PROGRESS[number]
+
 /** A stepped value's limits, step and default. */
 export interface Range {
     min: number
@@ -68,6 +73,7 @@ export interface Settings {
     hyphenate: boolean
     /** The book's own font, spacing, indent, alignment and hyphenation over Oriel's. */
     bookLayout: boolean
+    progress: Progress
 }
 
 export const DEFAULTS: Settings = {
@@ -81,6 +87,7 @@ export const DEFAULTS: Settings = {
     justify: true,
     hyphenate: true,
     bookLayout: false,
+    progress: 'percent',
 }
 
 const KEY = 'oriel-settings'
@@ -98,6 +105,7 @@ const isMargin = (value: unknown): value is number =>
 const isMargins = (value: unknown): value is Margins =>
     !!value && typeof value === 'object' && SIDES.every(side => isMargin((value as Record<string, unknown>)[side]))
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
+const isProgress = (value: unknown): value is Progress => (PROGRESS as readonly unknown[]).includes(value)
 
 /** The settings kept in `storage`; anything missing or not a valid value is the default. */
 export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
@@ -122,6 +130,7 @@ export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
         justify: pick('justify', isBoolean),
         hyphenate: pick('hyphenate', isBoolean),
         bookLayout: pick('bookLayout', isBoolean),
+        progress: pick('progress', isProgress),
     }
 }
 
@@ -145,9 +154,9 @@ export const stepSize = (size: number, step: -1 | 1): number => stepIn(SIZE, siz
 export const marginsFor = (settings: Settings, wide: boolean): Margins =>
     settings.margins ?? (wide ? WIDE_MARGINS : PHONE_MARGINS)
 
-/** Size, spacing, margins and checkboxes back to the defaults; theme and font kept. */
+/** Size, spacing, margins and checkboxes back to the defaults; theme, font and progress kept. */
 export const resetLayout = (settings: Settings): Settings =>
-    ({ ...DEFAULTS, theme: settings.theme, font: settings.font })
+    ({ ...DEFAULTS, theme: settings.theme, font: settings.font, progress: settings.progress })
 
 /**
  * The stylesheet foliate-js puts in each section of a reflowable book:
