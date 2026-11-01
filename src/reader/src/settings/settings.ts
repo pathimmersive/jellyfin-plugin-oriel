@@ -30,6 +30,11 @@ export const PROGRESS = ['percent', 'pages'] as const
 
 export type Progress = typeof PROGRESS[number]
 
+/** How pages turn: slide across, scroll as one column, fade, or jump. */
+export const PAGE_TURNS = ['slide', 'scroll', 'fade', 'none'] as const
+
+export type PageTurn = typeof PAGE_TURNS[number]
+
 /** A stepped value's limits, step and default. */
 export interface Range {
     min: number
@@ -74,6 +79,7 @@ export interface Settings {
     /** The book's own font, spacing, indent, alignment and hyphenation over Oriel's. */
     bookLayout: boolean
     progress: Progress
+    pageTurn: PageTurn
 }
 
 export const DEFAULTS: Settings = {
@@ -88,6 +94,7 @@ export const DEFAULTS: Settings = {
     hyphenate: true,
     bookLayout: false,
     progress: 'percent',
+    pageTurn: 'slide',
 }
 
 const KEY = 'oriel-settings'
@@ -106,6 +113,7 @@ const isMargins = (value: unknown): value is Margins =>
     !!value && typeof value === 'object' && SIDES.every(side => isMargin((value as Record<string, unknown>)[side]))
 const isBoolean = (value: unknown): value is boolean => typeof value === 'boolean'
 const isProgress = (value: unknown): value is Progress => (PROGRESS as readonly unknown[]).includes(value)
+const isPageTurn = (value: unknown): value is PageTurn => (PAGE_TURNS as readonly unknown[]).includes(value)
 
 /** The settings kept in `storage`; anything missing or not a valid value is the default. */
 export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
@@ -131,6 +139,7 @@ export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
         hyphenate: pick('hyphenate', isBoolean),
         bookLayout: pick('bookLayout', isBoolean),
         progress: pick('progress', isProgress),
+        pageTurn: pick('pageTurn', isPageTurn),
     }
 }
 
@@ -154,7 +163,7 @@ export const stepSize = (size: number, step: -1 | 1): number => stepIn(SIZE, siz
 export const marginsFor = (settings: Settings, wide: boolean): Margins =>
     settings.margins ?? (wide ? WIDE_MARGINS : PHONE_MARGINS)
 
-/** Size, spacing, margins and checkboxes back to the defaults; theme, font and progress kept. */
+/** Size, spacing, margins, page turn and checkboxes back to the defaults; theme, font and progress kept. */
 export const resetLayout = (settings: Settings): Settings =>
     ({ ...DEFAULTS, theme: settings.theme, font: settings.font, progress: settings.progress })
 

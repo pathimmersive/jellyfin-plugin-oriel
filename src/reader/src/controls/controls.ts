@@ -1,4 +1,4 @@
-import { FONTS, type FontName, INDENT, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { ContentsRow } from './contents'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
@@ -54,7 +54,19 @@ const ICONS = {
     up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z',
     reset: 'M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z',
     toEnd: 'M5.59 7.41L10.18 12l-4.59 4.59L7 18l6-6-6-6zM16 6h2v12h-2z',
+    slide: 'M4 6h2v12H4zm4 0h12v12H8z',
+    scroll: 'M12 4l-4 4h3v8H8l4 4 4-4h-3V8h3z',
+    fade: 'M12 3a9 9 0 100 18 9 9 0 000-18zm0 16V5a7 7 0 010 14z',
+    none: 'M6 5h12v14H6z',
 }
+
+// The page turns: the setting, its name and its icon, as the canvas draws them.
+const PAGE_TURN_CHOICES: [PageTurn, string, keyof typeof ICONS][] = [
+    ['slide', 'Slide', 'slide'],
+    ['scroll', 'Scroll', 'scroll'],
+    ['fade', 'Fade', 'fade'],
+    ['none', 'None', 'none'],
+]
 
 // The Progress choices: the setting and its name.
 const PROGRESS_CHOICES: [Progress, string][] = [['percent', 'Percentage'], ['pages', 'Pages']]
@@ -296,7 +308,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         resetButton.focus()
     }
     resetButton.addEventListener('click', () => {
-        dialog.querySelector('p')!.textContent = `Size, spacing and margins on this ${options.wide() ? 'computer' : 'phone'} go back to the defaults. Your theme and font stay as they are.`
+        dialog.querySelector('p')!.textContent = `Size, spacing, margins and page turn on this ${options.wide() ? 'computer' : 'phone'} go back to the defaults. Your theme and font stay as they are.`
         resetDialog.hidden = false
         cancel.focus()
     })
@@ -307,6 +319,17 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     confirm.addEventListener('click', () => {
         choose(resetLayout(settings))
         closeReset()
+    })
+
+    // Page turn: how pages turn.
+    const pageTurns = group('Page turn')
+    const pageTurnButtons = PAGE_TURN_CHOICES.map(([setting, name, path]) => {
+        const button = element('button', { type: 'button', class: 'page-turn', 'aria-pressed': 'false' }, `${icon(ICONS[path])}<span></span>`)
+        button.querySelector('span')!.textContent = name
+        button.disabled = options.fixedLayout
+        button.addEventListener('click', () => choose({ pageTurn: setting }))
+        pageTurns.row.append(button)
+        return { setting, button }
     })
 
     // Progress: the percent read, or page / total.
@@ -321,7 +344,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return { setting, button }
     })
 
-    prefsBody.append(themes.box, fonts.box, steppers, margins, progressRow, checks, resetButton)
+    prefsBody.append(themes.box, fonts.box, steppers, margins, pageTurns.box, progressRow, checks, resetButton)
     const fillPrefs = (): void => {
         const fixed = options.fixedLayout
         const own = settings.bookLayout
@@ -344,6 +367,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             down.disabled = fixed || shown[side] <= MARGIN.min
             up.disabled = fixed || shown[side] >= MARGIN.max
         }
+        for (const { setting, button } of pageTurnButtons) button.setAttribute('aria-pressed', String(settings.pageTurn === setting))
         for (const { setting, button } of progressButtons) button.setAttribute('aria-checked', String(settings.progress === setting))
         for (const { setting, box } of checkboxes) {
             box.checked = settings[setting]

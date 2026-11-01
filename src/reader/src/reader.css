@@ -486,6 +486,30 @@ body[data-state="rendered"] {
   font-size: 15px;
 }
 
+#prefs .page-turn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font-size: 15px;
+  white-space: nowrap;
+}
+
+#prefs .page-turn svg {
+  width: 20px;
+  height: 20px;
+}
+
+#prefs .page-turn[aria-pressed="true"] {
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+}
+
 #prefs .progress-row {
   display: flex;
   align-items: center;

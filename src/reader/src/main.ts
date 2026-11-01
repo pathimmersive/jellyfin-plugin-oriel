@@ -75,7 +75,7 @@ const start = async (): Promise<void> => {
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
         const opened = await openBook(book, file, view => overlay?.timeTurns(view), start,
-            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces), marginsFor(settings, wide.matches))
+            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces), marginsFor(settings, wide.matches), settings.pageTurn)
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -110,6 +110,7 @@ const start = async (): Promise<void> => {
                 themePage(settings)
                 if (restyle) opened.setStyles(bookStyles(settings, faces))
                 opened.setMargins(marginsFor(settings, wide.matches))
+                opened.setPageTurn(settings.pageTurn)
                 recount()
             },
         })
