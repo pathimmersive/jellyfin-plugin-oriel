@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { attachPageInput, clickTarget, keyTurn, type Turn, wheelGesture } from '../src/engine/input'
+import { attachPageInput, clickTarget, type Edges, keyTurn, scrollTarget, type Turn, wheelGesture } from '../src/engine/input'
 
 const key = (key: string, mods: Partial<{ shiftKey: boolean, ctrlKey: boolean, altKey: boolean, metaKey: boolean }> = {}) =>
     ({ key, shiftKey: false, ctrlKey: false, altKey: false, metaKey: false, ...mods })
@@ -122,8 +122,9 @@ describe('wheelGesture', () => {
     })
 })
 
-// A document whose window is a plain EventTarget, with events built by hand.
-const page = (selected = false) => {
+// A document whose window is a plain EventTarget, with events built by hand;
+// with `edges`, in Scroll mode, at those edges of its section.
+const page = (selected = false, edges: Edges | null = null) => {
     const window = new EventTarget()
     const turns: Turn[] = []
     let menus = 0
@@ -131,11 +132,12 @@ const page = (selected = false) => {
     const time = clock()
     attachPageInput(
         { defaultView: window as unknown as Window, getSelection: () => ({ isCollapsed: !selected }) },
-        () => ({ left: 0, width: 1000 }),
+        () => ({ left: 0, width: 1000, top: 0, height: 600 }),
         wheelGesture(time.now),
         turn => turns.push(turn),
         () => { menus++ },
         () => { swipes++ },
+        { active: () => edges !== null, edges: () => edges ?? { start: false, end: false } },
     )
     const fire = (type: string, fields: Record<string, unknown>) => {
         const event = new Event(type, { cancelable: true })
@@ -143,15 +145,14 @@ const page = (selected = false) => {
         window.dispatchEvent(event)
         return event
     }
-    const click = (x: number, fields: Record<string, unknown> = {}, downX = x, pointerType = 'mouse') => {
-        fire('pointerdown', { button: 0, clientX: downX, clientY: 300, pointerType })
-        return fire('click', { button: 0, clientX: x, clientY: 300, target: null, ...fields })
+    const click = (x: number, fields: Record<string, unknown> = {}, downX = x, pointerType = 'mouse', y = 300) => {
+        fire('pointerdown', { button: 0, clientX: downX, clientY: y, pointerType })
+        return fire('click', { button: 0, clientX: x, clientY: y, target: null, ...fields })
     }
-    // A finger down at `x`, then up at `upX` after `ms`.
-    const tap = (x: number, { upX = x, ms = 80, target = null as unknown }: { upX?: number, ms?: number, target?: unknown } = {}) => {
-        const at = (clientX: number) => [{ clientX, clientY: 300 }]
-        fire('touchstart', { touches: at(x), timeStamp: 1000 })
-        return fire('touchend', { touches: [], changedTouches: at(upX), timeStamp: 1000 + ms, target })
+    // A finger down at `x`, `y`, then up at `upX`, `upY` after `ms`.
+    const tap = (x: number, { upX = x, ms = 80, target = null as unknown, y = 300, upY = y }: { upX?: number, ms?: number, target?: unknown, y?: number, upY?: number } = {}) => {
+        fire('touchstart', { touches: [{ clientX: x, clientY: y }], timeStamp: 1000 })
+        return fire('touchend', { touches: [], changedTouches: [{ clientX: upX, clientY: upY }], timeStamp: 1000 + ms, target })
     }
     return { turns, menus: () => menus, swipes: () => swipes, fire, click, tap, time }
 }
@@ -252,5 +253,56 @@ describe('attachPageInput', () => {
 
     it('does nothing for a document without a window', () => {
         expect(() => attachPageInput({ defaultView: null, getSelection: () => null }, () => null, wheelGesture(), () => {}, () => {})).not.toThrow()
+    })
+})
+
+describe('scrollTarget', () => {
+    it('scrolls up on the top 30% of the page, down on the bottom 30%, and shows the controls between', () => {
+        expect(scrollTarget(50, 0, 600)).toBe('prev')
+        expect(scrollTarget(560, 0, 600)).toBe('next')
+        expect(scrollTarget(300, 0, 600)).toBe('menu')
+        expect(scrollTarget(700, 0, 600)).toBeNull()
+        expect(scrollTarget(10, 0, 0)).toBeNull()
+    })
+})
+
+describe('Scroll mode', () => {
+    it('scrolls a screen with the up and down arrows, which are left alone when paged', () => {
+        expect(keyTurn(key('ArrowDown'), true)).toBe('next')
+        expect(keyTurn(key('ArrowUp'), true)).toBe('prev')
+        expect(keyTurn(key('ArrowDown'))).toBeNull()
+        expect(keyTurn(key('ArrowUp', { shiftKey: true }), true)).toBeNull()
+    })
+
+    it('acts on a click or tap by its height', () => {
+        const { turns, menus, click, tap } = page(false, { start: false, end: false })
+        click(500, {}, 500, 'mouse', 560)
+        click(500, {}, 500, 'mouse', 40)
+        tap(50, { y: 300 })
+        expect(turns).toEqual(['next', 'prev'])
+        expect(menus()).toBe(1)
+    })
+
+    it('leaves the wheel to the browser, and goes on past the end of the section', () => {
+        const middle = page(false, { start: false, end: false })
+        const wheel = middle.fire('wheel', { deltaX: 0, deltaY: 120, deltaMode: 0 })
+        expect(wheel.defaultPrevented).toBe(false)
+        expect(middle.turns).toEqual([])
+        const end = page(false, { start: false, end: true })
+        end.fire('wheel', { deltaX: 0, deltaY: 120, deltaMode: 0 })
+        end.fire('wheel', { deltaX: 0, deltaY: -120, deltaMode: 0 })
+        expect(end.turns).toEqual(['next'])
+    })
+
+    it('goes on to the next section on a drag up from its end, and back on a drag down from its start', () => {
+        const end = page(false, { start: false, end: true })
+        end.tap(500, { y: 400, upY: 200 })
+        expect(end.turns).toEqual(['next'])
+        const start = page(false, { start: true, end: false })
+        start.tap(500, { y: 200, upY: 400 })
+        expect(start.turns).toEqual(['prev'])
+        const middle = page(false, { start: false, end: false })
+        middle.tap(500, { y: 400, upY: 200 })
+        expect(middle.turns).toEqual([])
     })
 })

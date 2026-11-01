@@ -18,9 +18,12 @@ export interface KeyInput {
  * Ctrl, Alt or Meta is a browser shortcut, and Shift with an arrow extends a
  * selection.
  */
-export const keyTurn = (event: KeyInput): Turn | null => {
+export const keyTurn = (event: KeyInput, scrolling = false): Turn | null => {
     if (event.ctrlKey || event.altKey || event.metaKey) return null
     switch (event.key) {
+        // In Scroll mode the up and down arrows scroll a screen.
+        case 'ArrowDown': return scrolling && !event.shiftKey ? 'next' : null
+        case 'ArrowUp': return scrolling && !event.shiftKey ? 'prev' : null
         case 'ArrowRight': return event.shiftKey ? null : 'right'
         case 'ArrowLeft': return event.shiftKey ? null : 'left'
         case ' ': return event.shiftKey ? 'prev' : 'next'
@@ -48,6 +51,24 @@ export const clickTarget = (x: number, left: number, width: number, touch: boole
     const edge = touch ? TOUCH_EDGE : EDGE
     if (share < edge) return 'left'
     if (share > 1 - edge) return 'right'
+    return 'menu'
+}
+
+/** The share of the page's height at the top and at the bottom where a click or tap scrolls a screen in Scroll mode. */
+export const SCROLL_EDGE = 0.3
+
+/**
+ * What a click or tap at `y` on a page `height` tall starting at `top` asks
+ * for in Scroll mode: the top 30% scrolls up a screen (prev), the bottom 30%
+ * down a screen (next), and the middle shows or hides the controls ('menu').
+ * Anywhere outside the page asks for nothing.
+ */
+export const scrollTarget = (y: number, top: number, height: number): Turn | 'menu' | null => {
+    if (height <= 0) return null
+    const share = (y - top) / height
+    if (share < 0 || share > 1) return null
+    if (share < SCROLL_EDGE) return 'prev'
+    if (share > 1 - SCROLL_EDGE) return 'next'
     return 'menu'
 }
 
@@ -117,21 +138,25 @@ export const TAP_MS = 500
  * swipe, which the paginator turns on its own. A click on a link or a control, a
  * click after a drag, and a click that leaves text selected do neither; nor
  * does a key typed into an editable field. Handled keys and wheel events are
- * cancelled, so the browser does not also scroll.
+ * cancelled, so the browser does not also scroll. While `scroll` is active
+ * (Scroll mode), clicks and taps act by height (scrollTarget), the wheel and
+ * a drag scroll the book as the browser does, and a wheel gesture or a drag
+ * on past the start or end of the section turns to the one before or after.
  */
 export const attachPageInput = (
     doc: PageDocument,
-    area: () => { left: number, width: number } | null,
+    area: () => { left: number, width: number, top: number, height: number } | null,
     gesture: (event: WheelInput) => Turn | null,
     turn: (turn: Turn) => void,
     menu: () => void,
     swiped: () => void = () => {},
+    scroll: ScrollInput = NO_SCROLL,
 ): void => {
     const win = doc.defaultView
     if (!win) return
     win.addEventListener('keydown', event => {
         if (event.defaultPrevented || isEditable(event.target)) return
-        const wanted = keyTurn(event)
+        const wanted = keyTurn(event, scroll.active())
         if (!wanted) return
         event.preventDefault()
         turn(wanted)
@@ -139,12 +164,14 @@ export const attachPageInput = (
 
     // A click or tap at `x` turns at the edges and shows the controls in the
     // middle, unless it lands on a link or a control or leaves text selected.
-    const act = (target: EventTarget | null, x: number, touch: boolean): void => {
+    const act = (target: EventTarget | null, x: number, y: number, touch: boolean): void => {
         if ((target as Partial<Element> | null)?.closest?.('a[href], button, input, [data-controls]')) return
         const selection = doc.getSelection()
         if (selection && !selection.isCollapsed) return
         const bounds = area()
-        const wanted = bounds && clickTarget(x, bounds.left, bounds.width, touch)
+        const wanted = bounds && (scroll.active()
+            ? scrollTarget(y, bounds.top, bounds.height)
+            : clickTarget(x, bounds.left, bounds.width, touch))
         if (wanted === 'menu') menu()
         else if (wanted) turn(wanted)
     }
@@ -161,21 +188,28 @@ export const attachPageInput = (
         down = null
         if (event.button !== 0 || event.defaultPrevented || !start) return
         if (Math.hypot(event.clientX - start.x, event.clientY - start.y) > CLICK_SLOP) return
-        act(event.target, event.clientX, false)
+        act(event.target, event.clientX, event.clientY, false)
     })
 
     // Taps: one finger, lifted within TAP_MS without moving. A longer press
     // selects text, and a move is a swipe, which the paginator turns.
-    let touched: { x: number, y: number, time: number } | null = null
+    let touched: { x: number, y: number, time: number, edges: Edges } | null = null
     win.addEventListener('touchstart', event => {
         const touch = event.touches.length === 1 ? event.touches[0] : null
-        touched = touch ? { x: touch.clientX, y: touch.clientY, time: event.timeStamp } : null
+        touched = touch ? { x: touch.clientX, y: touch.clientY, time: event.timeStamp, edges: scroll.edges() } : null
     })
     win.addEventListener('touchend', event => {
         const start = touched
         touched = null
         const touch = event.changedTouches[0]
         if (!start || !touch) return
+        if (scroll.active()) {
+            // A drag on past the section's end, from its end, goes on to the next; and back from its start.
+            const dragged = start.y - touch.clientY
+            const edges = scroll.edges()
+            if (dragged > DRAG_ON && start.edges.end && edges.end) turn('next')
+            else if (dragged < -DRAG_ON && start.edges.start && edges.start) turn('prev')
+        }
         if (Math.hypot(touch.clientX - start.x, touch.clientY - start.y) > CLICK_SLOP) {
             // A drag that leaves text selected is a selection, not a swipe.
             const selection = doc.getSelection()
@@ -183,16 +217,41 @@ export const attachPageInput = (
             return
         }
         if (event.timeStamp - start.time > TAP_MS) return
-        act(event.target, touch.clientX, true)
+        act(event.target, touch.clientX, touch.clientY, true)
     })
 
     win.addEventListener('wheel', event => {
         if (event.ctrlKey) return // pinch-zoom on a trackpad, and Ctrl+wheel zoom
+        if (scroll.active()) {
+            // The browser scrolls the book; at the section's end the gesture goes on to the next.
+            const edges = scroll.edges()
+            const onward = (event.deltaY > 0 && edges.end) || (event.deltaY < 0 && edges.start)
+            const wanted = gesture(event)
+            if (onward && (wanted === 'next' || wanted === 'prev')) turn(wanted)
+            return
+        }
         event.preventDefault()
         const wanted = gesture(event)
         if (wanted) turn(wanted)
     }, { passive: false })
 }
+
+/** Whether the book is at the start or the end of the section, as Scroll mode scrolls it. */
+export interface Edges {
+    start: boolean
+    end: boolean
+}
+
+/** Scroll mode, as the page input sees it: whether it is on, and whether the book is at an edge of its section. */
+export interface ScrollInput {
+    active(): boolean
+    edges(): Edges
+}
+
+const NO_SCROLL: ScrollInput = { active: () => false, edges: () => ({ start: false, end: false }) }
+
+/** How far, in pixels, a drag must go on past a section's edge to turn to the next or previous section. */
+const DRAG_ON = 40
 
 const isEditable = (target: EventTarget | null): boolean => {
     const element = target as { isContentEditable?: boolean, tagName?: string } | null

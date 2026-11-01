@@ -1,13 +1,13 @@
 // A click with the mouse, or with `touch` a tap, at a share of the book's
-// width, halfway down. A tap is a touchstart and touchend built by hand in the
+// width and, `down`, of its height (halfway unless given). A tap is a touchstart and touchend built by hand in the
 // frame showing the page, as iOS sends them: Playwright's touchscreen does not
 // reach into frames, and desktop WebKit has no Touch constructor. Returns false
 // when no frame shows the page.
-export const press = async (page, share, touch) => {
+export const press = async (page, share, touch, down = 0.5) => {
     const rect = await page.locator('#book').boundingBox()
     if (!rect) return false
     const x = rect.x + rect.width * share
-    const y = rect.y + rect.height / 2
+    const y = rect.y + rect.height * down
     if (!touch) {
         await page.mouse.click(x, y)
         return true

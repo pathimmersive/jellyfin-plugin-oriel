@@ -4,7 +4,7 @@ import '../../vendor/foliate-js/view.js'
 import type { TocEntry } from '../controls/contents'
 import type { PageCount, PagesShown } from '../controls/progress'
 import type { Moved, StartAt } from '../position/position'
-import type { Margins } from '../settings/settings'
+import type { Margins, PageTurn } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { columnLayout, countPages } from './pages'
 import { guardSelectionDrag } from './selection'
@@ -27,6 +27,9 @@ interface FoliateView extends HTMLElement {
         getContents?(): { doc: Document, index: number }[]
         readonly page?: number
         readonly size?: number
+        readonly start?: number
+        readonly end?: number
+        readonly viewSize?: number
     }
     isFixedLayout: boolean
     lastLocation?: Location
@@ -103,6 +106,8 @@ export interface OpenBook {
      * book's text; the page lays out again around the place being read.
      */
     setMargins(margins: Margins): void
+    /** Sets how pages turn, keeping the place being read; comics and PDFs keep their own. */
+    setPageTurn(pageTurn: PageTurn): void
     /**
      * The layout pages are counted for: the stylesheet, the page size and the
      * gap. A count made for one layout holds for another with the same text.
@@ -132,8 +137,8 @@ const NOT_MOVES = new Set(['anchor', 'selection'])
  * and `relocate`. `onMenu` is called for a tap or click in the middle of the
  * page, which shows or hides the reader's controls, and `onTurn` whenever the
  * reader turns the page: a key, a click or tap on an edge, the wheel or a swipe.
- * `styles` is the stylesheet a reflowable book's sections start with, and
- * `margins` the space around its text.
+ * `styles` is the stylesheet a reflowable book's sections start with,
+ * `margins` the space around its text, and `pageTurn` how its pages turn.
  */
 export const openBook = async (
     container: HTMLElement,
@@ -144,6 +149,7 @@ export const openBook = async (
     onTurn: () => void = () => {},
     styles = '',
     margins: Margins | null = null,
+    pageTurn: PageTurn = 'none',
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
     // Keys, edge clicks and the wheel turn pages on a desktop, and a click in
@@ -151,13 +157,26 @@ export const openBook = async (
     // the book land in each section's own document and do not reach this
     // page, so every section document gets the same listeners as this page,
     // sharing one wheel gesture.
+    let turning = pageTurn
+    const scrolling = (): boolean => turning === 'scroll' && !view.isFixedLayout
     const turn = (turn: Turn): void => {
         onTurn()
-        void { next: () => view.next(), prev: () => view.prev(), left: () => view.goLeft(), right: () => view.goRight() }[turn]()
+        const go = { next: () => view.next(), prev: () => view.prev(), left: () => view.goLeft(), right: () => view.goRight() }[turn]
+        if (turning !== 'fade' || view.isFixedLayout) void go()
+        else void fade(view, go)
+    }
+    // In Scroll mode: whether the book is at the start or the end of its section.
+    const scroll = {
+        active: scrolling,
+        edges: () => ({
+            start: (view.renderer.start ?? 0) <= 1,
+            end: (view.renderer.viewSize ?? 0) - (view.renderer.end ?? 0) <= 2,
+        }),
     }
     const gesture = wheelGesture()
     const page = (): DOMRect => container.getBoundingClientRect()
-    attachPageInput(document, () => ({ left: page().left, width: page().width }), gesture, turn, onMenu, onTurn)
+    attachPageInput(document, () => ({ left: page().left, width: page().width, top: page().top, height: page().height }),
+        gesture, turn, onMenu, onTurn, scroll)
     view.addEventListener('load', event => {
         const doc = (event as CustomEvent<{ doc: Document }>).detail.doc
         guardSelectionDrag(doc)
@@ -169,13 +188,25 @@ export const openBook = async (
             const frame = element?.getBoundingClientRect()
             if (!element || !frame) return null
             const scale = element.offsetWidth > 0 ? frame.width / element.offsetWidth : 1
-            return { left: (page().left - frame.left) / scale, width: page().width / scale }
-        }, gesture, turn, onMenu, onTurn)
+            return {
+                left: (page().left - frame.left) / scale,
+                width: page().width / scale,
+                top: (page().top - frame.top) / scale,
+                height: page().height / scale,
+            }
+        }, gesture, turn, onMenu, onTurn, scroll)
     })
     onView?.(view)
     container.replaceChildren(view)
     await view.open(file)
-    view.renderer.setAttribute('flow', 'paginated')
+    // Slide animates a turn; Scroll lays the book out as one vertical column.
+    const applyPageTurn = (): void => {
+        if (view.isFixedLayout) return
+        view.renderer.toggleAttribute('animated', turning === 'slide')
+        const flow = turning === 'scroll' ? 'scrolled' : 'paginated'
+        if (view.renderer.getAttribute('flow') !== flow) view.renderer.setAttribute('flow', flow)
+    }
+    applyPageTurn()
     // Before the first render, so the first page shows in the reader's settings.
     let shownStyles = styles
     const setStyles = (styles: string): void => {
@@ -246,9 +277,15 @@ export const openBook = async (
     const pagesShown = (): PagesShown | null => {
         const contents = view.isFixedLayout ? undefined : view.renderer.getContents?.()[0]
         if (!contents?.doc || !view.renderer.size) return null
-        const layout = columnLayout(contents.doc, view.renderer.size)
-        const first = Math.min(layout.columns - 1, Math.max(0, ((view.renderer.page ?? 1) - 1) * layout.perScreen))
-        const last = Math.min(layout.columns - 1, first + layout.perScreen - 1)
+        const layout = columnLayout(contents.doc, view.renderer.size, scrolling())
+        // Scrolled, a page is a screen, and the screens shown run from the one
+        // at the top to the one at the bottom; paged, there is a blank page
+        // before the text.
+        const start = view.renderer.start ?? 0
+        const size = view.renderer.size
+        const page = scrolling() ? Math.floor((start + 1) / size) : ((view.renderer.page ?? 1) - 1) * layout.perScreen
+        const first = Math.min(layout.columns - 1, Math.max(0, page))
+        const last = Math.min(layout.columns - 1, scrolling() ? Math.floor((start + size - 1) / size) : first + layout.perScreen - 1)
         let chapterLast = layout.columns - 1
         for (const href of hrefs) {
             const target = resolve(href)
@@ -292,11 +329,15 @@ export const openBook = async (
         fixedLayout: view.isFixedLayout,
         setStyles,
         setMargins,
+        setPageTurn(pageTurn) {
+            turning = pageTurn
+            applyPageTurn()
+        },
         layout() {
             // The container may have been hidden when the margins were last set.
             layOut()
             const { width, height } = view.renderer.getBoundingClientRect()
-            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
+            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
         },
         async count(cancelled) {
             if (view.isFixedLayout) return null
@@ -324,6 +365,21 @@ export const openBook = async (
         },
     }
     return opened
+}
+
+// How long a Fade turn takes to fade out, and again to fade back in.
+const FADE_MS = 150
+
+// Fades the book out, turns with `go`, and fades it back in.
+const fade = async (view: HTMLElement, go: () => Promise<unknown>): Promise<void> => {
+    view.style.transition = `opacity ${FADE_MS}ms ease`
+    view.style.opacity = '0'
+    await new Promise(resolve => setTimeout(resolve, FADE_MS))
+    try {
+        await go()
+    } finally {
+        view.style.opacity = '1'
+    }
 }
 
 // A book's title as foliate-js gives it: a string, or a map of language to string.

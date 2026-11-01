@@ -371,7 +371,7 @@ try {
     if (heading !== 'Reset layout to the defaults?') fail(`the reset dialog is titled '${heading}'`)
     const body = (await dialog.locator('p').innerText()).trim()
     const device = setup.touch ? 'phone' : 'computer'
-    if (body !== `Size, spacing and margins on this ${device} go back to the defaults. Your theme and font stay as they are.`) fail(`the reset dialog says '${body}'`)
+    if (body !== `Size, spacing, margins and page turn on this ${device} go back to the defaults. Your theme and font stay as they are.`) fail(`the reset dialog says '${body}'`)
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     await pause(300)
     if (await dialog.isVisible()) fail('Cancel did not close the reset dialog')

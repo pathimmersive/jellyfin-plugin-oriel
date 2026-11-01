@@ -1,7 +1,10 @@
 // Pages as foliate-js's paginator lays them out: one column of text is a page.
 import type { PageCount } from '../controls/progress'
 
-/** A section document laid out in columns, as the paginator lays it out on a screen `size` wide. */
+/**
+ * A section document laid out in columns, as the paginator lays it out on a
+ * screen `size` wide; or, `scrolled`, as one column cut into screens `size` tall.
+ */
 export interface ColumnLayout {
     /** Columns side by side on one screen: 1, or 2 on a wide one. */
     perScreen: number
@@ -11,8 +14,22 @@ export interface ColumnLayout {
     place(target: Element | Range): { column: number, atTop: boolean }
 }
 
-export const columnLayout = (doc: Document, size: number): ColumnLayout => {
+export const columnLayout = (doc: Document, size: number, scrolled = false): ColumnLayout => {
     const root = doc.documentElement
+    if (scrolled) {
+        const top = root.getBoundingClientRect().top
+        const content = doc.createRange()
+        content.selectNodeContents(doc.body)
+        return {
+            perScreen: 1,
+            columns: Math.max(1, Math.ceil((content.getBoundingClientRect().bottom - top) / size - 0.01)),
+            place(target) {
+                const offset = target.getBoundingClientRect().top - top
+                const column = Math.max(0, Math.floor(offset / size))
+                return { column, atTop: offset - column * size <= 1 }
+            },
+        }
+    }
     const style = doc.defaultView!.getComputedStyle(root)
     const perScreen = Math.max(1, Math.round(size / (parseFloat(style.columnWidth) + parseFloat(style.columnGap))))
     const slot = size / perScreen
@@ -109,7 +126,7 @@ export const countPages = async (
             await doc.fonts.ready
             await new Promise(resolve => requestAnimationFrame(resolve))
             if (cancelled()) return null
-            const layout = columnLayout(doc, counter.size)
+            const layout = columnLayout(doc, counter.size, counter.getAttribute('flow') === 'scrolled')
             for (const { href, target } of links) {
                 if (target?.index !== index) continue
                 const node = target.anchor?.(doc)
