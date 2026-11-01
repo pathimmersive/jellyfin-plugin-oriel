@@ -239,6 +239,14 @@ check_preferences_in_browser() {
     done
 }
 
+check_pages_in_browser() {
+    local browser
+    for browser in webkit chromium; do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/pages.e2e.mjs" || fail "pages in $browser at $1"
+    done
+}
+
 # A plugin is loaded and Active.
 check_plugin_active() {
     local prefix="$1" name="$2"
@@ -649,10 +657,11 @@ for other_id in "$cbz_id" "$mobi_id" "$azw3_id" "$pdf_id"; do
 done
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
-# Last here, because their slider, Contents and Preferences move the test EPUB.
+# Last here, because their slider, Contents, Preferences and pages move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"
 check_preferences_in_browser "$base"
+check_pages_in_browser "$base"
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
@@ -679,6 +688,7 @@ check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
 check_controls_in_browser "http://127.0.0.1:$port/jf"
 check_contents_in_browser "http://127.0.0.1:$port/jf"
 check_preferences_in_browser "http://127.0.0.1:$port/jf"
+check_pages_in_browser "http://127.0.0.1:$port/jf"
 
 # --- install from a plugin repository --------------------------------------
 

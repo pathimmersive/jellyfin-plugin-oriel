@@ -3,6 +3,7 @@ import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, read
 import { serverBasePath } from './base'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
+import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
@@ -93,7 +94,11 @@ const start = async (): Promise<void> => {
             detailsUrl: `${basePath}/web/#/details?id=${encodeURIComponent(itemId)}`,
             dataUrl: `${basePath}/Oriel/data.html?id=${encodeURIComponent(itemId)}`,
             seek: fraction => opened.seek(fraction),
-            contents: () => contentsRows(opened.contents, href => opened.fractionOf(href), opened.place().href),
+            contents: () => {
+                const counted = settings.progress === 'pages' ? count : null
+                return contentsRows(opened.contents, href => opened.fractionOf(href), opened.place().href,
+                    counted && (href => counted.entries[href] ?? null))
+            },
             choose: href => opened.goTo(href),
             settings,
             fixedLayout: opened.fixedLayout,
@@ -105,13 +110,51 @@ const start = async (): Promise<void> => {
                 themePage(settings)
                 if (restyle) opened.setStyles(bookStyles(settings, faces))
                 opened.setMargins(marginsFor(settings, wide.matches))
+                recount()
             },
         })
         wide.addEventListener('change', () => opened.setMargins(marginsFor(settings, wide.matches)))
         const shown = controls
-        const place = opened.place()
-        shown.locate(place.chapter, place.fraction)
-        opened.onPlace(({ chapter, fraction }) => shown.locate(chapter, fraction))
+        const showPlace = (): void => {
+            const { chapter, fraction, pages } = opened.place()
+            shown.locate(chapter, fraction, progressShown(settings.progress, fraction, count, pages), pages?.left ?? null)
+        }
+        opened.onPlace(showPlace)
+
+        // Pages mode counts the book for its layout, in the background; a
+        // count kept from before for the same layout is used at once.
+        let count: PageCount | null = null
+        let counting: { cancelled: boolean } | null = null
+        let countedFor = ''
+        function recount(): void {
+            const key = settings.progress === 'pages' && !opened.fixedLayout ? layoutKey(opened.layout()) : ''
+            if (key === countedFor && (count || counting)) return
+            if (counting) counting.cancelled = true
+            counting = null
+            count = null
+            countedFor = key
+            if (key) {
+                count = readCount(localStorage, itemId!, key)
+                if (!count) {
+                    const run = { cancelled: false }
+                    counting = run
+                    void opened.count(() => run.cancelled).then(result => {
+                        if (run.cancelled || !result) return
+                        counting = null
+                        count = result
+                        writeCount(localStorage, itemId!, key, result)
+                        showPlace()
+                    }).catch(error => console.error('counting pages', error))
+                }
+            }
+            showPlace()
+        }
+        recount()
+        let resized = 0
+        window.addEventListener('resize', () => {
+            clearTimeout(resized)
+            resized = window.setTimeout(recount, 500)
+        })
 
         // Save the exact position to Oriel's store and the approximate one to
         // Jellyfin, so Resume, Continue Reading and the built-in reader pick up

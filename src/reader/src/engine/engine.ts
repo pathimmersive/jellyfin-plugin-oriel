@@ -2,9 +2,11 @@
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
 import type { TocEntry } from '../controls/contents'
+import type { PageCount, PagesShown } from '../controls/progress'
 import type { Moved, StartAt } from '../position/position'
 import type { Margins } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
+import { columnLayout, countPages } from './pages'
 import { guardSelectionDrag } from './selection'
 
 interface FoliateView extends HTMLElement {
@@ -13,13 +15,19 @@ interface FoliateView extends HTMLElement {
     goTo(target: string): Promise<unknown>
     goToFraction(fraction: number): Promise<void>
     goToTextStart(): Promise<void>
-    resolveNavigation(target: string): { index?: unknown } | undefined
-    book: { sections: unknown[], metadata?: { title?: unknown }, toc?: TocEntry[] }
+    resolveNavigation(target: string): { index?: unknown, anchor?: (doc: Document) => Element | Range | null } | undefined
+    book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
     next(): Promise<void>
     prev(): Promise<void>
     goLeft(): Promise<void>
     goRight(): Promise<void>
-    renderer: HTMLElement & { setStyles?(styles: string): void, render?(): void }
+    renderer: HTMLElement & {
+        setStyles?(styles: string): void
+        render?(): void
+        getContents?(): { doc: Document, index: number }[]
+        readonly page?: number
+        readonly size?: number
+    }
     isFixedLayout: boolean
     lastLocation?: Location
 }
@@ -33,12 +41,14 @@ interface Location {
 
 /**
  * The place shown: its chapter's name (empty for none), the link of its
- * contents entry (null for none) and the fraction of the book.
+ * contents entry (null for none), the fraction of the book, and where it is
+ * in pages (null for comics and PDFs, which have no columns of text).
  */
 export interface Place {
     chapter: string
     href: string | null
     fraction: number
+    pages: PagesShown | null
 }
 
 export interface OpenBook {
@@ -93,6 +103,16 @@ export interface OpenBook {
      * book's text; the page lays out again around the place being read.
      */
     setMargins(margins: Margins): void
+    /**
+     * The layout pages are counted for: the stylesheet, the page size and the
+     * gap. A count made for one layout holds for another with the same text.
+     */
+    layout(): string
+    /**
+     * Counts the pages of a reflowable book in its current layout, in the
+     * background; null for a fixed layout, or when `cancelled` turns true first.
+     */
+    count(cancelled: () => boolean): Promise<PageCount | null>
 }
 
 // foliate-js's widest column: a text area wider than this, in landscape, shows two.
@@ -157,7 +177,9 @@ export const openBook = async (
     await view.open(file)
     view.renderer.setAttribute('flow', 'paginated')
     // Before the first render, so the first page shows in the reader's settings.
+    let shownStyles = styles
     const setStyles = (styles: string): void => {
+        shownStyles = styles
         if (!view.isFixedLayout) view.renderer.setStyles?.(styles)
     }
     setStyles(styles)
@@ -202,10 +224,49 @@ export const openBook = async (
     // A CFI that names no section, or that the view could not go to, leaves
     // nothing sensible on screen: go back to the start of the text.
     if (!placed) await view.goToTextStart()
+    // Every contents link, and what each leads to.
+    const hrefs: string[] = []
+    const gather = (entries: TocEntry[]): void => {
+        for (const entry of entries) {
+            if (entry.href) hrefs.push(entry.href)
+            if (entry.subitems) gather(entry.subitems)
+        }
+    }
+    gather(view.book.toc ?? [])
+    const resolve = (href: string): { index: number, anchor?: (doc: Document) => Element | Range | null } | null => {
+        try {
+            const resolved = view.resolveNavigation(href)
+            return typeof resolved?.index === 'number' ? { index: resolved.index, anchor: resolved.anchor } : null
+        } catch {
+            return null
+        }
+    }
+    // The section shown in pages: the pages on screen and the pages left
+    // before the next contents entry in the section, or else its end.
+    const pagesShown = (): PagesShown | null => {
+        const contents = view.isFixedLayout ? undefined : view.renderer.getContents?.()[0]
+        if (!contents?.doc || !view.renderer.size) return null
+        const layout = columnLayout(contents.doc, view.renderer.size)
+        const first = Math.min(layout.columns - 1, Math.max(0, ((view.renderer.page ?? 1) - 1) * layout.perScreen))
+        const last = Math.min(layout.columns - 1, first + layout.perScreen - 1)
+        let chapterLast = layout.columns - 1
+        for (const href of hrefs) {
+            const target = resolve(href)
+            if (target?.index !== contents.index) continue
+            const node = target.anchor?.(contents.doc)
+            if (!node) continue
+            const { column, atTop } = layout.place(node)
+            // An entry starting at the top of the first page shown is the chapter being read.
+            if (column < first || (column === first && atTop)) continue
+            chapterLast = Math.min(chapterLast, atTop ? column - 1 : column)
+        }
+        return { section: contents.index, first, last, left: Math.max(0, chapterLast - last) }
+    }
     const place = (): Place => ({
         chapter: view.lastLocation?.tocItem?.label?.trim() ?? '',
         href: view.lastLocation?.tocItem?.href ?? null,
         fraction: view.lastLocation?.fraction ?? 0,
+        pages: pagesShown(),
     })
     // Where each section starts, as foliate-js measures progress through the book.
     const sectionStarts: number[] = new SectionProgress(view.book.sections, 1500, 1600).sectionFractions
@@ -231,6 +292,18 @@ export const openBook = async (
         fixedLayout: view.isFixedLayout,
         setStyles,
         setMargins,
+        layout() {
+            // The container may have been hidden when the margins were last set.
+            layOut()
+            const { width, height } = view.renderer.getBoundingClientRect()
+            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
+        },
+        async count(cancelled) {
+            if (view.isFixedLayout) return null
+            layOut()
+            return countPages(view.renderer, view.book, shownStyles, hrefs, resolve,
+                () => view.renderer.getContents?.()[0]?.index ?? -1, cancelled)
+        },
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()
             else await view.goToFraction(fraction)
