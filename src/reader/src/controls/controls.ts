@@ -1,4 +1,5 @@
 import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
 import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
@@ -21,6 +22,8 @@ export interface ControlsOptions {
     choose(href: string): Promise<void>
     /** Search in this book, for a book with text; null for comics and PDFs. */
     search: BookSearch | null
+    /** The book's bookmarks. */
+    bookmarks: Bookmarks
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -67,6 +70,9 @@ const ICONS = {
     scroll: 'M12 4l-4 4h3v8H8l4 4 4-4h-3V8h3z',
     fade: 'M12 3a9 9 0 100 18 9 9 0 000-18zm0 16V5a7 7 0 010 14z',
     none: 'M6 5h12v14H6z',
+    bookmarkOff: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z',
+    bookmarkOn: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z',
+    trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
 }
 
@@ -131,9 +137,10 @@ interface PlaceRow {
     counting: HTMLElement
     progress: HTMLElement
     left: HTMLElement
+    bookmark: HTMLButtonElement
 }
 
-// The chapter, the progress and the pages left in the chapter, as both footers show them.
+// The chapter, the progress, the pages left in the chapter and the bookmark, as both footers show them.
 const placeRow = (): PlaceRow => {
     const row = element('div', { class: 'place' })
     const chapter = element('span', { class: 'chapter' })
@@ -145,8 +152,9 @@ const placeRow = (): PlaceRow => {
     left.hidden = true
     const status = element('span', { class: 'status' })
     status.append(counting, progress, left)
-    row.append(chapter, status)
-    return { row, chapter, counting, progress, left }
+    const bookmark = element('button', { type: 'button', class: 'bookmark', 'aria-pressed': 'false', 'aria-label': 'Bookmark this page' }, icon(ICONS.bookmarkOff))
+    row.append(chapter, status, bookmark)
+    return { row, chapter, counting, progress, left, bookmark }
 }
 
 /**
@@ -186,7 +194,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     if (options.search) more.append(searchItem)
     more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
 
-    // Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen.
+    // Contents: a sheet over a dimmed page on a phone, a panel beside the page
+    // on a wider screen, with a tab for the book's contents and one for its bookmarks.
     const contentsBackdrop = element('div', { id: 'contents-backdrop', 'data-controls': '' })
     const contents = element('section', { id: 'contents', 'data-controls': '', 'aria-label': 'Contents' })
     const contentsTitle = element('h2')
@@ -194,8 +203,18 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const close = closeButton()
     const contentsHeader = element('div', { class: 'panel-header' })
     contentsHeader.append(contentsTitle, close)
-    const contentsBody = element('div', { class: 'panel-body' })
-    contents.append(contentsHeader, contentsBody)
+    const contentsBody = element('div', { class: 'panel-body', id: 'contents-list', role: 'tabpanel', 'aria-labelledby': 'tab-contents' })
+    const bookmarksBody = element('div', { class: 'panel-body bookmarks', id: 'bookmarks-list', role: 'tabpanel', 'aria-labelledby': 'tab-bookmarks' })
+    const tabList = element('div', { role: 'tablist', class: 'tabs' })
+    const tabs = ([['contents', 'Contents', contentsBody], ['bookmarks', 'Bookmarks', bookmarksBody]] as const).map(([name, label, body]) => {
+        const tab = element('button', { type: 'button', role: 'tab', id: `tab-${name}`, 'aria-controls': body.id, 'aria-selected': 'false' })
+        tab.textContent = label
+        tab.addEventListener('click', () => chooseTab(name))
+        tabList.append(tab)
+        return { name, tab, body }
+    })
+    let tabShown: 'contents' | 'bookmarks' = 'contents'
+    contents.append(contentsHeader, tabList, contentsBody, bookmarksBody)
     const fillContents = (): void => {
         const rows = options.contents()
         if (!rows.length) {
@@ -221,6 +240,47 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             list.append(item)
         }
         contentsBody.replaceChildren(list)
+    }
+    const fillBookmarks = (): void => {
+        const rows = options.bookmarks.rows()
+        if (!rows.length) {
+            bookmarksBody.replaceChildren(element('div', { class: 'empty' },
+                `${icon(ICONS.bookmarkOff)}<p>No bookmarks in this book yet.</p><p class="hint">Tap the bookmark beside the progress to mark a page.</p>`))
+            return
+        }
+        const list = element('ul')
+        for (const row of rows) {
+            const item = element('li')
+            const entry = element('a', { href: '#', class: 'entry' }, '<span class="text"></span><span class="where"></span>')
+            entry.querySelector('.text')!.textContent = row.text
+            entry.querySelector('.where')!.textContent = row.where
+            entry.addEventListener('click', event => {
+                event.preventDefault()
+                apply('chosen')
+                void options.bookmarks.go(row.id)
+            })
+            const remove = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Remove this bookmark' }, icon(ICONS.trash))
+            remove.addEventListener('click', () => { void options.bookmarks.remove(row.id) })
+            item.append(entry, remove)
+            list.append(item)
+        }
+        bookmarksBody.replaceChildren(list)
+    }
+    // The tab shown last stays shown; only its list is filled.
+    const chooseTab = (name: 'contents' | 'bookmarks'): void => {
+        tabShown = name
+        for (const { name: each, tab, body } of tabs) {
+            tab.setAttribute('aria-selected', String(each === name))
+            body.hidden = each !== name
+        }
+        if (name === 'contents') {
+            fillContents()
+            contentsBody.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
+            bookmarksBody.replaceChildren()
+        } else {
+            fillBookmarks()
+            contentsBody.replaceChildren()
+        }
     }
 
     // Search in this book: a sheet or panel like Contents. A search lists each
@@ -522,8 +582,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         show()
         if (opening) {
             // Fill on opening, so the entry being read is the one marked, and show it.
-            fillContents()
-            contentsBody.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
+            chooseTab(tabShown)
             close.focus()
         }
         if (openingPrefs) prefsClose.focus()
@@ -554,6 +613,21 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         }
     })
 
+    // The bookmark beside the progress, in both footers, shows whether the page is bookmarked.
+    const showBookmark = (): void => {
+        const marked = options.bookmarks.marked()
+        for (const { bookmark } of [reading, place]) {
+            bookmark.setAttribute('aria-pressed', String(marked))
+            bookmark.setAttribute('aria-label', marked ? 'Remove the bookmark on this page' : 'Bookmark this page')
+            bookmark.innerHTML = icon(marked ? ICONS.bookmarkOn : ICONS.bookmarkOff)
+        }
+    }
+    for (const { bookmark } of [reading, place]) bookmark.addEventListener('click', () => { void options.bookmarks.toggle() })
+    options.bookmarks.onChange(() => {
+        showBookmark()
+        if (state.contents && tabShown === 'bookmarks') fillBookmarks()
+    })
+
     // The percent follows the slider while it moves; the book moves on release.
     slider.addEventListener('input', () => { place.progress.textContent = percent(Number(slider.value) / 100) })
     slider.addEventListener('change', () => { void options.seek(Number(slider.value) / 100) })
@@ -573,6 +647,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
                 }
             }
             slider.value = String(fraction * 100)
+            showBookmark()
         },
     }
 }

@@ -1,6 +1,7 @@
 import './reader.css'
-import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, BookLoadError, downloadBook, publicServerId, readBookmarks, readJellyfinPosition, readStoredPosition, removeBookmark, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
+import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { lastInput } from './controls/hint'
@@ -111,6 +112,15 @@ const start = async (): Promise<void> => {
             search: opened.searchable
                 ? { run: query => opened.search(query), clear: () => opened.clearSearch(), go: cfi => opened.goTo(cfi) }
                 : null,
+            bookmarks: createBookmarks({
+                load: () => readBookmarks(basePath, itemId, authorization),
+                add: (cfi, fraction, text) => addBookmark(basePath, itemId, authorization, cfi, fraction, text),
+                remove: id => removeBookmark(basePath, itemId, authorization, id),
+                page: () => opened.page(),
+                onPage: cfi => opened.onPage(cfi),
+                chapterOf: cfi => opened.chapterOf(cfi),
+                go: cfi => opened.goTo(cfi),
+            }),
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,

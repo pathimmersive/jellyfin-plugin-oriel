@@ -79,7 +79,7 @@ public sealed class ReadingDataTests : IDisposable
         { "not JSON", "{\"format\": \"oriel-reading-data\", \"positions\": [" },
         { "another format", "{\"format\": \"something-else\", \"version\": 1, \"positions\": []}" },
         { "no format", "{\"version\": 1, \"positions\": []}" },
-        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 2, \"positions\": []}" },
+        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 3, \"positions\": []}" },
         { "version 0", "{\"format\": \"oriel-reading-data\", \"version\": 0, \"positions\": []}" },
         { "a version that is not a number", "{\"format\": \"oriel-reading-data\", \"version\": \"1\", \"positions\": []}" },
         { "no positions", "{\"format\": \"oriel-reading-data\", \"version\": 1}" },
@@ -94,6 +94,12 @@ public sealed class ReadingDataTests : IDisposable
         { "a saved time that is not a time", File("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"savedAt\": \"yesterday\"}") },
         { "an item id that is not an id", File("{\"itemId\": \"abc\", \"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a null author", File("{\"authors\": [null], \"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a null bookmark", WithBookmark("null") },
+        { "a bookmark without a CFI", WithBookmark("{\"fraction\": 0.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a bookmark without text", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a bookmark's text that is too long", WithBookmark($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"{new string('a', BookmarksController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a bookmark's fraction above 1", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 1.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a bookmark without a time", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Page\"}") },
     };
 
     [Theory]
@@ -101,6 +107,48 @@ public sealed class ReadingDataTests : IDisposable
     public void RejectsAFileThatCannotBeImported(string reason, string json)
     {
         Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes(json)) is null, reason);
+    }
+
+    [Fact]
+    public void ExportsAndImportsBookmarksWithoutDuplicatingThem()
+    {
+        _store.AddBookmark(Reader, Dune.ItemId, Cfi, 0.6, "It begins", Now);
+        _store.AddBookmark(Reader, Hidden.ItemId, Cfi, 0.2, "Not exported", Now);
+        _store.AddBookmark(OtherReader, Emma.ItemId, OtherCfi, 0.3, "Not mine", Now);
+        var file = Data(Dune, Emma).Export(Reader, Now);
+
+        var exported = Assert.Single(file.Bookmarks!);
+        Assert.Equal(new ExportedBookmark(Dune.ItemId.ToString("N"), "Dune", Dune.Authors, "dune.epub", Cfi, 0.6, "It begins", Now), exported);
+
+        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Bookmarks);
+        Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Bookmarks);
+        Assert.Single(_store.ListBookmarks(Reader, Dune.ItemId));
+        Assert.Equal("It begins", Assert.Single(_store.ListBookmarks(OtherReader, Dune.ItemId)).Text);
+    }
+
+    [Fact]
+    public void ImportsAVersion1FileWithNoBookmarks()
+    {
+        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(File($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}}")));
+
+        Assert.NotNull(file);
+        var result = Data(Dune).Import(Reader, file);
+
+        Assert.Equal((1, 0), (result.Imported, result.Bookmarks));
+    }
+
+    [Fact]
+    public void ReportsABookOnceWhenNeitherItsPositionNorItsBookmarkMatches()
+    {
+        var file = new ReadingDataFile(ReadingData.Format, ReadingData.Version, Now, [Entry(Hidden, Cfi, Now)],
+            [new ExportedBookmark(Hidden.ItemId.ToString("N"), Hidden.Title, Hidden.Authors, Hidden.FileName, Cfi, 0.2, "Page", Now)]);
+
+        var result = Data(Dune).Import(Reader, file);
+
+        Assert.Single(result.Unmatched);
+        Assert.Equal(0, result.Bookmarks);
+        Assert.Empty(_store.ListBookmarks(Reader, Hidden.ItemId));
     }
 
     [Fact]
@@ -252,6 +300,9 @@ public sealed class ReadingDataTests : IDisposable
 
     private static string File(string position) =>
         $"{{\"format\": \"oriel-reading-data\", \"version\": 1, \"positions\": [{position}]}}";
+
+    private static string WithBookmark(string bookmark) =>
+        $"{{\"format\": \"oriel-reading-data\", \"version\": 2, \"positions\": [], \"bookmarks\": [{bookmark}]}}";
 
     private static ExportedPosition Entry(BookInfo book, string cfi, DateTimeOffset savedAt) =>
         new(book.ItemId.ToString("N"), book.Title, book.Authors, book.FileName, cfi, 0.4, savedAt);

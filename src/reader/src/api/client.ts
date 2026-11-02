@@ -71,6 +71,9 @@ const userDataUrl = (basePath: string, itemId: string, userId: string): string =
 const positionUrl = (basePath: string, itemId: string): string =>
     `${basePath}/Oriel/Positions/${encodeURIComponent(itemId)}`
 
+const bookmarksUrl = (basePath: string, itemId: string, id = ''): string =>
+    `${basePath}/Oriel/Bookmarks/${encodeURIComponent(itemId)}${id ? `/${encodeURIComponent(id)}` : ''}`
+
 /** The position Jellyfin keeps for a book: ticks on its one-second timeline, and when it was last saved. */
 export interface JellyfinPosition {
     ticks: number | null
@@ -177,6 +180,78 @@ export const writeStoredPosition = async (
         return isStoredPosition(data) ? data : null
     } catch {
         return null
+    }
+}
+
+/** A bookmark as Oriel's store keeps it: where its page starts, the text the page opens with, and when it was made. */
+export interface Bookmark {
+    id: string
+    cfi: string
+    fraction: number
+    text: string
+    createdAt: string
+}
+
+export const isBookmark = (value: unknown): value is Bookmark => {
+    const bookmark = value as Partial<Bookmark> | null
+    return typeof bookmark?.id === 'string' && typeof bookmark.cfi === 'string' && typeof bookmark.fraction === 'number'
+        && typeof bookmark.text === 'string' && typeof bookmark.createdAt === 'string'
+}
+
+/** The user's bookmarks in a book, or null when they cannot be read. */
+export const readBookmarks = async (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Bookmark[] | null> => {
+    try {
+        const response = await fetchImpl(bookmarksUrl(basePath, itemId), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isBookmark) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Bookmarks a page; returns the bookmark as stored (or the one already there), or null when that failed. */
+export const addBookmark = async (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    cfi: string,
+    fraction: number,
+    text: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Bookmark | null> => {
+    try {
+        const response = await fetchImpl(bookmarksUrl(basePath, itemId), {
+            method: 'POST',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cfi, fraction, text }),
+        })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return isBookmark(data) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Removes a bookmark; returns whether it is gone (true too when the server had it no longer). */
+export const removeBookmark = async (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    id: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<boolean> => {
+    try {
+        const response = await fetchImpl(bookmarksUrl(basePath, itemId, id), { method: 'DELETE', headers: { Authorization: authorization } })
+        return response.ok || response.status === 404
+    } catch {
+        return false
     }
 }
 
