@@ -350,6 +350,60 @@ export const removeHighlight = async (
     }
 }
 
+/** A highlighter as Oriel's store keeps it: its id, name and colour (#rrggbb), whether it is built in, and how many of the user's highlights use it. */
+export interface HighlighterRecord {
+    id: string
+    name: string
+    colour: string
+    builtIn: boolean
+    uses: number
+}
+
+export const isHighlighterRecord = (value: unknown): value is HighlighterRecord => {
+    const highlighter = value as Partial<HighlighterRecord> | null
+    return typeof highlighter?.id === 'string' && typeof highlighter.name === 'string' && typeof highlighter.colour === 'string'
+        && typeof highlighter.builtIn === 'boolean' && typeof highlighter.uses === 'number'
+}
+
+const highlightersUrl = (basePath: string): string => `${basePath}/Oriel/Highlighters`
+
+/** The user's highlighters in their order, or null when they cannot be read. */
+export const readHighlighters = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<HighlighterRecord[] | null> => {
+    try {
+        const response = await fetchImpl(highlightersUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Keeps the user's whole list of highlighters (a new one without an id); returns them as kept, or null when that failed. */
+export const saveHighlighters = async (
+    basePath: string,
+    authorization: string,
+    list: { id?: string, name: string, colour: string }[],
+    fetchImpl: typeof fetch = fetch,
+): Promise<HighlighterRecord[] | null> => {
+    try {
+        const response = await fetchImpl(highlightersUrl(basePath), {
+            method: 'PUT',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(list),
+        })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
 /** The reading data file from /Oriel/Export and the name the server gives it, or why it could not be had. */
 export type ReadingDataFile = { ok: true, blob: Blob, fileName: string } | { ok: false, reason: string }
 

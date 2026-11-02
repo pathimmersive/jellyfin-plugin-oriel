@@ -71,6 +71,12 @@ const clear = async id => {
     for (const highlight of await stored(id)) {
         await fetch(`${base}/Oriel/Highlights/${id}/${highlight.id}`, { method: 'DELETE', headers: { Authorization: authorization } })
     }
+    // The four built-in highlighters, as a reader who has changed nothing has them.
+    await fetch(`${base}/Oriel/Highlighters`, {
+        method: 'PUT',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify([['yellow', 'Quotes', '#ffd54f'], ['green', 'Green', '#81c784'], ['blue', 'Vocabulary', '#64b5f6'], ['pink', 'Pink', '#f06292']].map(([id, name, colour]) => ({ id, name, colour }))),
+    })
 }
 
 const open = async (context, id) => {
@@ -168,7 +174,7 @@ const highlighterNames = ['Highlight: Quotes', 'Highlight: Green', 'Highlight: V
 const toolbarState = async page => {
     const bar = toolbar(page)
     const buttons = await bar.getByRole('group', { name: 'Highlighters' }).getByRole('button').evaluateAll(items =>
-        items.map(item => ({ name: item.getAttribute('aria-label'), pressed: item.getAttribute('aria-pressed') })))
+        items.filter(item => item.getAttribute('aria-label').startsWith('Highlight: ')).map(item => ({ name: item.getAttribute('aria-label'), pressed: item.getAttribute('aria-pressed') })))
     return { buttons, remove: await bar.getByRole('button', { name: 'Remove' }).isVisible() }
 }
 

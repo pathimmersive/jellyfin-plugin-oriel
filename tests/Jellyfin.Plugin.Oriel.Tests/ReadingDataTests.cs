@@ -79,7 +79,7 @@ public sealed class ReadingDataTests : IDisposable
         { "not JSON", "{\"format\": \"oriel-reading-data\", \"positions\": [" },
         { "another format", "{\"format\": \"something-else\", \"version\": 1, \"positions\": []}" },
         { "no format", "{\"version\": 1, \"positions\": []}" },
-        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 5, \"positions\": []}" },
+        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": []}" },
         { "version 0", "{\"format\": \"oriel-reading-data\", \"version\": 0, \"positions\": []}" },
         { "a version that is not a number", "{\"format\": \"oriel-reading-data\", \"version\": \"1\", \"positions\": []}" },
         { "no positions", "{\"format\": \"oriel-reading-data\", \"version\": 1}" },
@@ -103,9 +103,13 @@ public sealed class ReadingDataTests : IDisposable
         { "a null highlight", WithHighlight("null") },
         { "a highlight without a CFI", WithHighlight("{\"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a highlight without a colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
-        { "a highlight in an unknown colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"purple\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a highlight with an empty colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a highlight's text that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"{new string('a', HighlightsController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
         { "a highlight's note that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"note\": \"{new string('a', HighlightsController.MaxNoteLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a null highlighter", WithHighlighter("null") },
+        { "a highlighter without an id", WithHighlighter("{\"name\": \"Questions\", \"colour\": \"#b39ddb\"}") },
+        { "a highlighter without a name", WithHighlighter("{\"id\": \"q\", \"name\": \" \", \"colour\": \"#b39ddb\"}") },
+        { "a highlighter's colour that is not #rrggbb", WithHighlighter("{\"id\": \"q\", \"name\": \"Questions\", \"colour\": \"lavender\"}") },
         { "a highlight without a time", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\"}") },
     };
 
@@ -151,6 +155,37 @@ public sealed class ReadingDataTests : IDisposable
         Assert.Single(_store.ListHighlights(Reader, Dune.ItemId));
         var theirs = Assert.Single(_store.ListHighlights(OtherReader, Dune.ItemId));
         Assert.Equal(("blue", "It begins", "Where it starts."), (theirs.Colour, theirs.Text, theirs.Note));
+    }
+
+    [Fact]
+    public void ExportsAndImportsHighlightersAndTheHighlightsInThem()
+    {
+        var questions = new HighlighterEntry("questions", "Questions", "#b39ddb");
+        _store.ReplaceHighlighters(Reader, [new("yellow", "Lines", "#ffb74d"), .. PositionStore.BuiltInHighlighters.Skip(1), questions]);
+        _store.AddHighlight(Reader, Dune.ItemId, Cfi, 0.6, "questions", "It begins", Now);
+        var file = Data(Dune).Export(Reader, Now);
+
+        Assert.Equal(
+            [new ExportedHighlighter("yellow", "Lines", "#ffb74d"), new ExportedHighlighter("green", "Green", "#81c784"), new ExportedHighlighter("blue", "Vocabulary", "#64b5f6"), new ExportedHighlighter("pink", "Pink", "#f06292"), new ExportedHighlighter("questions", "Questions", "#b39ddb")],
+            file.Highlighters!);
+
+        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        var result = Data(Dune).Import(OtherReader, parsed);
+        Assert.Equal((1, 1), (result.Highlighters, result.Highlights));
+        var theirs = _store.ListHighlighters(OtherReader);
+        Assert.Equal(["Quotes", "Green", "Vocabulary", "Pink", "Questions"], theirs.Select(highlighter => highlighter.Name));
+        Assert.Equal("questions", Assert.Single(_store.ListHighlights(OtherReader, Dune.ItemId)).Colour);
+        Assert.Equal(0, Data(Dune).Import(OtherReader, parsed).Highlighters);
+    }
+
+    [Fact]
+    public void ImportsAHighlightWhoseHighlighterTheUserDoesNotHaveAsQuotes()
+    {
+        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"gone\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+
+        Assert.NotNull(file);
+        Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
+        Assert.Equal("yellow", Assert.Single(_store.ListHighlights(Reader, Dune.ItemId)).Colour);
     }
 
     [Fact]
@@ -347,6 +382,9 @@ public sealed class ReadingDataTests : IDisposable
 
     private static string File(string position) =>
         $"{{\"format\": \"oriel-reading-data\", \"version\": 1, \"positions\": [{position}]}}";
+
+    private static string WithHighlighter(string highlighter) =>
+        $"{{\"format\": \"oriel-reading-data\", \"version\": 5, \"positions\": [], \"highlighters\": [{highlighter}]}}";
 
     private static string WithHighlight(string highlight) =>
         $"{{\"format\": \"oriel-reading-data\", \"version\": 3, \"positions\": [], \"highlights\": [{highlight}]}}";

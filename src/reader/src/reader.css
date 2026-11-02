@@ -347,7 +347,8 @@ body[data-state="rendered"] {
 #contents-backdrop,
 #prefs-backdrop,
 #search-backdrop,
-#note-backdrop {
+#note-backdrop,
+#highlighter-backdrop {
   position: fixed;
   z-index: 5;
   inset: 0;
@@ -357,7 +358,8 @@ body[data-state="rendered"] {
 #contents,
 #prefs,
 #search,
-#note {
+#note,
+#highlighter {
   box-sizing: border-box;
   position: fixed;
   z-index: 6;
@@ -787,9 +789,287 @@ body[data-state="rendered"] {
 
 /* The Note sheet: the text in its colour, the highlighters, the note, Cancel and Save.
    On a phone it rises only as high as it needs. */
-#note {
+#note,
+#highlighter {
   top: auto;
   max-height: calc(100% - env(safe-area-inset-top) - 40px);
+}
+
+/* The New highlighter sheet opens over the panel or sheet it was opened from. */
+#highlighter-backdrop,
+#highlighter {
+  z-index: 7;
+}
+
+#highlighter .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 20px 24px;
+}
+
+#highlighter .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#highlighter input[type="text"] {
+  box-sizing: border-box;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: 15px 'Noto Sans', sans-serif;
+}
+
+#highlighter .swatches {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 4px;
+}
+
+#highlighter .swatches button {
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+#highlighter .swatches .dot {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+#highlighter .swatches [aria-checked="true"] .dot {
+  box-shadow: 0 0 0 3px #00a4dc, inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+#highlighter .another {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#highlighter .another input {
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 4px;
+  background: none;
+}
+
+#highlighter .preview {
+  margin: 0;
+  padding: 12px 14px;
+  border-radius: 4px;
+  background: var(--page-background, #ffffff);
+  color: #2b2b2b;
+  font-family: 'Literata', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#highlighter .preview mark {
+  border-radius: 2px;
+  color: inherit;
+}
+
+#highlighter .sheet-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#highlighter .sheet-buttons button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#highlighter .sheet-buttons .save {
+  padding: 0 24px;
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+  font-weight: 600;
+}
+
+#highlighter button:focus-visible,
+#highlighter input:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
+}
+
+/* Add a highlighter, after the highlighters on the toolbar and the Note sheet: a dashed circle with a plus. */
+#selection-toolbar .add-highlighter,
+#note .add-highlighter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, .7);
+  cursor: pointer;
+}
+
+#selection-toolbar .add-highlighter > span,
+#note .add-highlighter > span {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px dashed rgba(255, 255, 255, .7);
+  border-radius: 50%;
+}
+
+/* Preferences' Highlighters: each in its order, with its handle, dot, name, Edit and Delete. */
+#prefs .highlighter-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 20px;
+}
+
+#prefs .highlighter-list .group-label {
+  display: flex;
+  justify-content: space-between;
+  padding: 0;
+}
+
+#prefs .highlighter-list ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+}
+
+#prefs .highlighter-list li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 52px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  background: #202020;
+}
+
+#prefs .highlighter-list li.dragging {
+  position: relative;
+  z-index: 1;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+}
+
+#prefs .highlighter-list .move {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, .7);
+  cursor: grab;
+  touch-action: none;
+}
+
+#prefs .highlighter-list .move svg {
+  width: 20px;
+  height: 20px;
+}
+
+#prefs .highlighter-list .dot {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin: 0 10px 0 2px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+#prefs .highlighter-list .name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-size: 15px;
+}
+
+#prefs .highlighter-list .default {
+  font-size: 12px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#prefs .highlighter-list .icon-button {
+  flex: none;
+  color: rgba(255, 255, 255, .7);
+}
+
+#prefs .highlighter-list .icon-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+#prefs .highlighter-list .spacer {
+  flex: none;
+  width: 44px;
+}
+
+#prefs .highlighter-list .add-highlighter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  border: 1px dashed rgba(255, 255, 255, .7);
+  border-radius: 4px;
+  background: none;
+  color: rgba(255, 255, 255, .87);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#prefs .highlighter-list .add-highlighter svg {
+  width: 20px;
+  height: 20px;
+}
+
+#prefs .highlighter-list button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+:is(#reset-dialog, #highlighter-dialog) .confirm.danger {
+  background: #c62828;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 #note .panel-body {
@@ -1339,7 +1619,7 @@ body[data-state="rendered"] {
 }
 
 /* Reset's question, over everything. */
-#reset-dialog {
+:is(#reset-dialog, #highlighter-dialog) {
   position: fixed;
   z-index: 8;
   inset: 0;
@@ -1350,7 +1630,7 @@ body[data-state="rendered"] {
   background: rgba(0, 0, 0, .6);
 }
 
-#reset-dialog [role="alertdialog"] {
+:is(#reset-dialog, #highlighter-dialog) [role="alertdialog"] {
   box-sizing: border-box;
   width: 100%;
   max-width: 400px;
@@ -1363,27 +1643,27 @@ body[data-state="rendered"] {
   color: rgba(255, 255, 255, .87);
 }
 
-#reset-dialog h2 {
+:is(#reset-dialog, #highlighter-dialog) h2 {
   margin: 0;
   font-size: 19px;
   font-weight: 600;
 }
 
-#reset-dialog p {
+:is(#reset-dialog, #highlighter-dialog) p {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
   color: rgba(255, 255, 255, .7);
 }
 
-#reset-dialog .dialog-buttons {
+:is(#reset-dialog, #highlighter-dialog) .dialog-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 6px;
 }
 
-#reset-dialog button {
+:is(#reset-dialog, #highlighter-dialog) button {
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
@@ -1396,12 +1676,12 @@ body[data-state="rendered"] {
   font-size: 15px;
 }
 
-#reset-dialog button:focus-visible {
+:is(#reset-dialog, #highlighter-dialog) button:focus-visible {
   outline: 2px solid #00a4dc;
   outline-offset: 2px;
 }
 
-#reset-dialog .confirm {
+:is(#reset-dialog, #highlighter-dialog) .confirm {
   padding: 0 20px;
   background: #00a4dc;
   color: rgba(0, 0, 0, .87);
@@ -1419,7 +1699,8 @@ body[data-state="rendered"] {
   #contents,
 #prefs,
 #search,
-#note {
+#note,
+#highlighter {
     left: auto;
     width: min(440px, 100%);
     top: calc(env(safe-area-inset-top) + 57px);

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
-import type { Highlight } from '../src/api/client'
-import { createHighlights, HIGHLIGHT_TEXT, highlighter, highlightFill, highlightText, type HighlightSources } from '../src/controls/highlights'
+import type { Highlight, HighlighterRecord } from '../src/api/client'
+import { BUILT_INS, createHighlighters, firstUnused, highlighterName, highlightFill, moved, SWATCHES } from '../src/controls/highlighters'
+import { createHighlights, HIGHLIGHT_TEXT, highlightText, type HighlightSources } from '../src/controls/highlights'
 import { toolbarPlace } from '../src/controls/toolbar'
 
 const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
@@ -46,14 +47,55 @@ const stored = (id: string, cfi: string, colour: string, fraction = 0.1): Highli
     ({ id, cfi, fraction, colour, text: `Text ${id}`, note: '', createdAt: '2026-11-01T00:00:00Z' })
 
 describe('highlighters', () => {
-    it('are the canvas\'s four, Quotes for a colour this reader does not know', () => {
-        expect(['yellow', 'green', 'blue', 'pink'].map(colour => highlighter(colour).name)).toEqual(['Quotes', 'Green', 'Vocabulary', 'Pink'])
-        expect(highlighter('purple').name).toBe('Quotes')
+    const own = { id: 'q', name: 'Questions', colour: '#b39ddb', builtIn: false, uses: 2 }
+
+    it('are the canvas\'s four built-ins until the server\'s list loads, Quotes for one the reader does not have', async () => {
+        let resolve: (list: HighlighterRecord[]) => void = () => {}
+        const highlighters = createHighlighters({ load: () => new Promise(done => { resolve = done }), save: async () => null })
+        expect(highlighters.list().map(highlighter => highlighter.name)).toEqual(['Quotes', 'Green', 'Vocabulary', 'Pink'])
+        let changes = 0
+        highlighters.onChange(() => changes++)
+        resolve([...BUILT_INS, own])
+        await settle()
+        expect(changes).toBe(1)
+        expect(highlighters.find('q')).toEqual({ id: 'q', name: 'Questions', solid: '#b39ddb', fill: 0.5, builtIn: false, uses: 2 })
+        expect(highlighters.find('gone').name).toBe('Quotes')
     })
 
     it('fill text with their colour at their strength', () => {
-        expect(highlightFill(highlighter('yellow'))).toBe('rgba(255, 213, 79, 0.5)')
-        expect(highlightFill(highlighter('pink'))).toBe('rgba(240, 98, 146, 0.38)')
+        const highlighters = createHighlighters({ load: async () => null, save: async () => null })
+        expect(highlightFill(highlighters.find('yellow'))).toBe('rgba(255, 213, 79, 0.5)')
+        expect(highlightFill(highlighters.find('pink'))).toBe('rgba(240, 98, 146, 0.38)')
+    })
+
+    it('keep a list the server takes, and keep theirs when it does not', async () => {
+        let sent = 0
+        const highlighters = createHighlighters({
+            load: async () => null,
+            save: async list => { sent++; return list.length > 4 ? [...BUILT_INS, own] : null },
+        })
+        expect(await highlighters.save([...BUILT_INS.map(({ id, name, colour }) => ({ id, name, colour })), { name: 'Questions', colour: '#b39ddb' }])).not.toBeNull()
+        expect(highlighters.list()).toHaveLength(5)
+        expect(await highlighters.save([])).toBeNull()
+        expect(highlighters.list()).toHaveLength(5)
+        expect(sent).toBe(2)
+    })
+
+    it('name a highlighter left unnamed by its swatch, else My colour', () => {
+        expect(highlighterName('  Questions ', '#b39ddb')).toBe('Questions')
+        expect(highlighterName('', '#B39DDB')).toBe('Lavender')
+        expect(highlighterName(' ', '#123456')).toBe('My colour')
+    })
+
+    it('offer the first swatch no highlighter has yet', () => {
+        expect(SWATCHES).toHaveLength(12)
+        expect(firstUnused(BUILT_INS.map(({ colour }) => ({ solid: colour })))).toBe('#ffb74d')
+        expect(firstUnused(SWATCHES)).toBe('#ffd54f')
+    })
+
+    it('move an entry to another place', () => {
+        expect(moved(['a', 'b', 'c', 'd'], 3, 1)).toEqual(['a', 'd', 'b', 'c'])
+        expect(moved(['a', 'b', 'c'], 0, 2)).toEqual(['b', 'c', 'a'])
     })
 })
 

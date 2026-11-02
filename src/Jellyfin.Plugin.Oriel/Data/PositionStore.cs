@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 
 namespace Jellyfin.Plugin.Oriel.Data;
@@ -37,10 +38,44 @@ public sealed record StoredBookmark(Guid Id, string Cfi, double Fraction, string
 public sealed record StoredHighlight(Guid Id, string Cfi, double Fraction, string Colour, string Text, DateTimeOffset CreatedAt, string Note = "");
 
 /// <summary>
+/// A highlighter as kept: its id, name and colour, as a whole list replaces it.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Colour">Its colour, as #rrggbb.</param>
+public sealed record HighlighterEntry(string Id, string Name, string Colour);
+
+/// <summary>
+/// A user's highlighter as listed: its id, name and colour, whether it is built in, and how many highlights use it.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Colour">Its colour, as #rrggbb.</param>
+/// <param name="BuiltIn">True for the four built-ins.</param>
+/// <param name="Uses">How many of the user's highlights, in every book, are in it.</param>
+public sealed record StoredHighlighter(string Id, string Name, string Colour, bool BuiltIn, int Uses);
+
+/// <summary>
 /// The plugin's own SQLite database: reading positions, one per user and book, bookmarks and highlights.
 /// </summary>
 public class PositionStore
 {
+    /// <summary>
+    /// The four built-in highlighters, in their first order: Quotes, Green, Vocabulary and Pink.
+    /// </summary>
+    public static readonly IReadOnlyList<HighlighterEntry> BuiltInHighlighters =
+    [
+        new("yellow", "Quotes", "#ffd54f"),
+        new("green", "Green", "#81c784"),
+        new("blue", "Vocabulary", "#64b5f6"),
+        new("pink", "Pink", "#f06292"),
+    ];
+
+    /// <summary>
+    /// The built-in highlighter a deleted highlighter's highlights move to: Quotes.
+    /// </summary>
+    public const string FallbackHighlighter = "yellow";
+
     /// <summary>
     /// The schema, one step per version: entry n moves the database from version n to n + 1.
     /// </summary>
@@ -82,6 +117,16 @@ public class PositionStore
         )
         """,
         "ALTER TABLE highlights ADD COLUMN note TEXT NOT NULL DEFAULT ''",
+        """
+        CREATE TABLE highlighters (
+            user_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            colour TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (user_id, id)
+        )
+        """,
     ];
 
     private readonly string _connectionString;
@@ -480,6 +525,105 @@ public class PositionStore
         command.Parameters.AddWithValue("$item", Key(itemId));
         return command.ExecuteNonQuery() > 0;
     }
+
+    /// <summary>
+    /// Gets a user's highlighters in their order, with how many of the user's highlights use each.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The highlighters; the built-ins for a user who has changed nothing.</returns>
+    public IReadOnlyList<StoredHighlighter> ListHighlighters(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        var uses = new Dictionary<string, int>(StringComparer.Ordinal);
+        using (var count = connection.CreateCommand())
+        {
+            count.CommandText = "SELECT colour, COUNT(*) FROM highlights WHERE user_id = $user GROUP BY colour";
+            count.Parameters.AddWithValue("$user", Key(userId));
+            using var reader = count.ExecuteReader();
+            while (reader.Read())
+            {
+                uses[reader.GetString(0)] = reader.GetInt32(1);
+            }
+        }
+
+        var entries = new List<HighlighterEntry>();
+        using (var read = connection.CreateCommand())
+        {
+            read.CommandText = "SELECT id, name, colour FROM highlighters WHERE user_id = $user ORDER BY position";
+            read.Parameters.AddWithValue("$user", Key(userId));
+            using var reader = read.ExecuteReader();
+            while (reader.Read())
+            {
+                entries.Add(new HighlighterEntry(reader.GetString(0), reader.GetString(1), reader.GetString(2)));
+            }
+        }
+
+        var builtIns = BuiltInHighlighters.Select(builtIn => builtIn.Id).ToHashSet(StringComparer.Ordinal);
+        return (entries.Count > 0 ? entries : BuiltInHighlighters)
+            .Select(entry => new StoredHighlighter(entry.Id, entry.Name, entry.Colour, builtIns.Contains(entry.Id), uses.GetValueOrDefault(entry.Id)))
+            .ToList();
+    }
+
+    /// <summary>
+    /// Replaces a user's highlighters with a whole, checked list. The user's own highlighters left out are
+    /// deleted, and their highlights move to Quotes.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="highlighters">The list, in its order; the built-ins all in it.</param>
+    /// <returns>The highlighters as <see cref="ListHighlighters"/> gives them.</returns>
+    public IReadOnlyList<StoredHighlighter> ReplaceHighlighters(Guid userId, IReadOnlyList<HighlighterEntry> highlighters)
+    {
+        var kept = highlighters.Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
+        var gone = ListHighlighters(userId).Where(highlighter => !highlighter.BuiltIn && !kept.Contains(highlighter.Id)).Select(highlighter => highlighter.Id).ToList();
+        using (var connection = Open())
+        using (var transaction = connection.BeginTransaction())
+        {
+            foreach (var id in gone)
+            {
+                using var move = connection.CreateCommand();
+                move.Transaction = transaction;
+                move.CommandText = "UPDATE highlights SET colour = $fallback WHERE user_id = $user AND colour = $id";
+                move.Parameters.AddWithValue("$fallback", FallbackHighlighter);
+                move.Parameters.AddWithValue("$user", Key(userId));
+                move.Parameters.AddWithValue("$id", id);
+                move.ExecuteNonQuery();
+            }
+
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = "DELETE FROM highlighters WHERE user_id = $user";
+                clear.Parameters.AddWithValue("$user", Key(userId));
+                clear.ExecuteNonQuery();
+            }
+
+            for (var position = 0; position < highlighters.Count; position++)
+            {
+                using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT INTO highlighters (user_id, id, name, colour, position) VALUES ($user, $id, $name, $colour, $position)";
+                insert.Parameters.AddWithValue("$user", Key(userId));
+                insert.Parameters.AddWithValue("$id", highlighters[position].Id);
+                insert.Parameters.AddWithValue("$name", highlighters[position].Name);
+                insert.Parameters.AddWithValue("$colour", highlighters[position].Colour);
+                insert.Parameters.AddWithValue("$position", position);
+                insert.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        return ListHighlighters(userId);
+    }
+
+    /// <summary>
+    /// Gets the ids of a user's highlighters, which a highlight's colour must be one of.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The ids.</returns>
+    public IReadOnlySet<string> HighlighterIds(Guid userId) =>
+        ListHighlighters(userId).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);
 

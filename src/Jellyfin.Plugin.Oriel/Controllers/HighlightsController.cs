@@ -30,11 +30,6 @@ public class HighlightsController : ControllerBase
     /// </summary>
     public const int MaxNoteLength = 2000;
 
-    /// <summary>
-    /// The highlighters' colours: Quotes, Green, Vocabulary and Pink.
-    /// </summary>
-    public static readonly IReadOnlySet<string> Colours = new HashSet<string>(StringComparer.Ordinal) { "yellow", "green", "blue", "pink" };
-
     private readonly PositionStore _store;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly IItemAccess _itemAccess;
@@ -110,7 +105,7 @@ public class HighlightsController : ControllerBase
         if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi
             || request.Fraction is not { } fraction
             || double.IsNaN(fraction) || fraction < 0 || fraction > 1
-            || request.Colour is not { } colour || !Colours.Contains(colour)
+            || request.Colour is not { } colour || !_store.HighlighterIds(userId.Value).Contains(colour)
             || request.Text is not { Length: <= MaxTextLength } text
             || request.Note is { Length: > MaxNoteLength })
         {
@@ -158,7 +153,7 @@ public class HighlightsController : ControllerBase
         }
 
         if (request is null || (request.Colour is null && request.Note is null)
-            || (request.Colour is { } colour && !Colours.Contains(colour))
+            || (request.Colour is { } colour && !_store.HighlighterIds(userId.Value).Contains(colour))
             || request.Note is { Length: > MaxNoteLength })
         {
             return BadRequest();

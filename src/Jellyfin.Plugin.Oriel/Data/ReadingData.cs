@@ -15,13 +15,15 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// <param name="Positions">The user's positions, one per book.</param>
 /// <param name="Bookmarks">The user's bookmarks, from version 2; none in a version 1 file.</param>
 /// <param name="Highlights">The user's highlights, from version 3; none in an earlier file.</param>
+/// <param name="Highlighters">The user's highlighters in their order, from version 5; none in an earlier file.</param>
 public sealed record ReadingDataFile(
     [property: JsonPropertyName("format")] string? Format,
     [property: JsonPropertyName("version")] int? Version,
     [property: JsonPropertyName("exportedAt")] DateTimeOffset? ExportedAt,
     [property: JsonPropertyName("positions")] IReadOnlyList<ExportedPosition?>? Positions,
     [property: JsonPropertyName("bookmarks")] IReadOnlyList<ExportedBookmark?>? Bookmarks = null,
-    [property: JsonPropertyName("highlights")] IReadOnlyList<ExportedHighlight?>? Highlights = null);
+    [property: JsonPropertyName("highlights")] IReadOnlyList<ExportedHighlight?>? Highlights = null,
+    [property: JsonPropertyName("highlighters")] IReadOnlyList<ExportedHighlighter?>? Highlighters = null);
 
 /// <summary>
 /// A position in a file, with what identifies its book on another server.
@@ -89,6 +91,17 @@ public sealed record ExportedHighlight(
     [property: JsonPropertyName("note")] string? Note = null);
 
 /// <summary>
+/// A highlighter in a file.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Colour">Its colour, as #rrggbb.</param>
+public sealed record ExportedHighlighter(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("colour")] string? Colour);
+
+/// <summary>
 /// A book in an imported file that matched no book the user can see.
 /// </summary>
 /// <param name="Title">The book's title as the file gives it.</param>
@@ -107,12 +120,14 @@ public sealed record UnmatchedBook(
 /// <param name="Unmatched">Books that matched no book the user can see.</param>
 /// <param name="Bookmarks">Bookmarks added because the user had none at the same place.</param>
 /// <param name="Highlights">Highlights added because the user had none at the same place.</param>
+/// <param name="Highlighters">Highlighters added because the user did not have them.</param>
 public sealed record ImportResult(
     [property: JsonPropertyName("imported")] int Imported,
     [property: JsonPropertyName("kept")] int Kept,
     [property: JsonPropertyName("unmatched")] IReadOnlyList<UnmatchedBook> Unmatched,
     [property: JsonPropertyName("bookmarks")] int Bookmarks = 0,
-    [property: JsonPropertyName("highlights")] int Highlights = 0);
+    [property: JsonPropertyName("highlights")] int Highlights = 0,
+    [property: JsonPropertyName("highlighters")] int Highlighters = 0);
 
 /// <summary>
 /// Exports a user's reading data to a file and imports it back, here or on another server.
@@ -127,7 +142,7 @@ public class ReadingData
     /// <summary>
     /// The newest format version this plugin reads and the one it writes.
     /// </summary>
-    public const int Version = 4;
+    public const int Version = 5;
 
     /// <summary>
     /// The longest CFI accepted, as when the reader saves a position.
@@ -188,7 +203,8 @@ public class ReadingData
             }
         }
 
-        return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights);
+        var highlighters = _store.ListHighlighters(userId).Select(highlighter => (ExportedHighlighter?)new ExportedHighlighter(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
+        return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights, highlighters);
     }
 
     /// <summary>
@@ -221,7 +237,7 @@ public class ReadingData
             return null;
         }
 
-        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) ? file : null;
+        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid) ? file : null;
     }
 
     /// <summary>
@@ -284,6 +300,27 @@ public class ReadingData
             }
         }
 
+        // The file's own highlighters the user does not have join the user's, while there is room.
+        var own = _store.ListHighlighters(userId).Select(highlighter => new HighlighterEntry(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
+        var ids = own.Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
+        var builtIns = PositionStore.BuiltInHighlighters.Select(builtIn => builtIn.Id).ToHashSet(StringComparer.Ordinal);
+        var highlighters = 0;
+        foreach (var entry in file.Highlighters ?? [])
+        {
+            if (own.Count >= Controllers.HighlightersController.MaxHighlighters || builtIns.Contains(entry!.Id!) || !ids.Add(entry.Id!))
+            {
+                continue;
+            }
+
+            own.Add(new HighlighterEntry(entry.Id!, entry.Name!.Trim(), entry.Colour!.ToLowerInvariant()));
+            highlighters++;
+        }
+
+        if (highlighters > 0)
+        {
+            _store.ReplaceHighlighters(userId, own);
+        }
+
         foreach (var entry in file.Highlights ?? [])
         {
             var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
@@ -293,13 +330,13 @@ public class ReadingData
                 continue;
             }
 
-            if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Colour!, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
+            if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : PositionStore.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
             {
                 highlights++;
             }
         }
 
-        return new ImportResult(imported, kept, unmatched, bookmarks, highlights);
+        return new ImportResult(imported, kept, unmatched, bookmarks, highlights, highlighters);
     }
 
     private static bool Valid(ExportedPosition? entry) =>
@@ -315,12 +352,16 @@ public class ReadingData
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedHighlight? entry) =>
-        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Colour: { } colour, Text.Length: <= Controllers.HighlightsController.MaxTextLength, CreatedAt: not null }
-        && Controllers.HighlightsController.Colours.Contains(colour)
+        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Colour.Length: > 0 and <= Controllers.HighlightersController.MaxIdLength, Text.Length: <= Controllers.HighlightsController.MaxTextLength, CreatedAt: not null }
         && entry.Note is not { Length: > Controllers.HighlightsController.MaxNoteLength }
         && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
+
+    private static bool Valid(ExportedHighlighter? entry) =>
+        entry is { Id.Length: > 0 and <= Controllers.HighlightersController.MaxIdLength, Name: { } name }
+        && name.Trim().Length is > 0 and <= Controllers.HighlightersController.MaxNameLength
+        && Controllers.HighlightersController.IsColour(entry.Colour);
 
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 

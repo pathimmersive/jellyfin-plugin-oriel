@@ -1,9 +1,11 @@
 import './reader.css'
-import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlights, readJellyfinPosition, readStoredPosition, removeBookmark, removeHighlight, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readStoredPosition, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
+import { createHighlighterSheet, type HighlighterSheet } from './controls/highlighter-sheet'
+import { createHighlighters } from './controls/highlighters'
 import { createHighlights } from './controls/highlights'
 import { lastInput } from './controls/hint'
 import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
@@ -120,8 +122,15 @@ const start = async (): Promise<void> => {
             chapterOf: cfi => opened.chapterOf(cfi),
             go: cfi => opened.goTo(cfi),
         })
-        if (highlights) {
-            highlighting = createHighlighting(document.body, opened, highlights, () => wide.matches)
+        // The reader's highlighters, kept on the server, with the sheet that adds and edits them.
+        const highlighters = highlights && createHighlighters({
+            load: () => readHighlighters(basePath, authorization),
+            save: list => saveHighlighters(basePath, authorization, list),
+        })
+        let highlighterSheet: HighlighterSheet | null = null
+        if (highlights && highlighters) {
+            highlighterSheet = createHighlighterSheet(document.body, highlighters)
+            highlighting = createHighlighting(document.body, opened, highlights, highlighters, highlighterSheet, () => wide.matches)
             for (const win of sectionWindows) highlighting.watch(win)
         }
 
@@ -151,6 +160,8 @@ const start = async (): Promise<void> => {
                 go: cfi => opened.goTo(cfi),
             }),
             highlights,
+            highlighters,
+            highlighterSheet,
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,

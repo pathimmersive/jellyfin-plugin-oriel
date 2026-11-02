@@ -1,35 +1,6 @@
 import type { Highlight } from '../api/client'
 import { bookmarkWhere, cutAtWord } from './bookmarks'
 
-/** A highlighter's colour, as the server keeps it. */
-export type Colour = 'yellow' | 'green' | 'blue' | 'pink'
-
-/** A highlighter: its colour, its name, the colour of its dot, and how strongly it fills the text it marks. */
-export interface Highlighter {
-    colour: Colour
-    name: string
-    solid: string
-    fill: number
-}
-
-/** The four highlighters, as the canvas draws them. */
-export const HIGHLIGHTERS: readonly Highlighter[] = [
-    { colour: 'yellow', name: 'Quotes', solid: '#ffd54f', fill: 0.5 },
-    { colour: 'green', name: 'Green', solid: '#81c784', fill: 0.45 },
-    { colour: 'blue', name: 'Vocabulary', solid: '#64b5f6', fill: 0.45 },
-    { colour: 'pink', name: 'Pink', solid: '#f06292', fill: 0.38 },
-]
-
-/** The highlighter of a colour; Quotes for one this reader does not know. */
-export const highlighter = (colour: string): Highlighter =>
-    HIGHLIGHTERS.find(each => each.colour === colour) ?? HIGHLIGHTERS[0]
-
-/** The colour a highlighter fills text with, its dot's colour at its strength. */
-export const highlightFill = ({ solid, fill }: Highlighter): string => {
-    const [red, green, blue] = [1, 3, 5].map(at => parseInt(solid.slice(at, at + 2), 16))
-    return `rgba(${red}, ${green}, ${blue}, ${fill})`
-}
-
 /** The longest text a highlight keeps, as the server takes it. */
 export const HIGHLIGHT_TEXT = 1000
 
@@ -39,37 +10,39 @@ export const highlightText = (selected: string): string => cutAtWord(selected, H
 /** The longest note a highlight keeps, as the server takes it. */
 export const NOTE_LENGTH = 2000
 
-/** A row of the Highlights tab. */
+/** A row of the Highlights tab: `colour` is its highlighter's id. */
 export interface HighlightRow {
     id: string
     text: string
-    colour: Colour
+    colour: string
     note: string
     where: string
 }
 
-/** A change to a highlight: its highlighter, its note (empty for none), or both. */
+/** A change to a highlight: its highlighter (by id), its note (empty for none), or both. */
 export interface HighlightChange {
-    colour?: Colour
+    colour?: string
     note?: string
 }
 
 /** The book's highlights, as the page and the Highlights tab show and change them. */
 export interface Highlights {
     /** The highlights of a colour (all for null) in book order. */
-    rows(colour: Colour | null): HighlightRow[]
+    rows(colour: string | null): HighlightRow[]
     /** Every highlight, for drawing on the page. */
     all(): Highlight[]
     /** The highlight at a CFI, or null. */
     at(cfi: string): Highlight | null
     /** Highlights text, with a note (empty for none); false when the server did not take it. */
-    add(cfi: string, fraction: number, colour: Colour, text: string, note?: string): Promise<boolean>
+    add(cfi: string, fraction: number, colour: string, text: string, note?: string): Promise<boolean>
     /** Changes a highlight's highlighter, its note, or both. */
     update(id: string, change: HighlightChange): Promise<void>
     /** Removes a highlight. */
     remove(id: string): Promise<void>
     /** Goes to a highlight, as a reader move. */
     go(id: string): Promise<void>
+    /** Reads the highlights again, as after a highlighter's deletion moved some to Quotes. */
+    reload(): Promise<void>
     /** Calls `changed` whenever the highlights change, as they load or are added, changed or removed. */
     onChange(changed: () => void): void
 }
@@ -77,7 +50,7 @@ export interface Highlights {
 /** What the highlights need: the server, and the book. */
 export interface HighlightSources {
     load(): Promise<Highlight[] | null>
-    add(cfi: string, fraction: number, colour: Colour, text: string, note: string): Promise<Highlight | null>
+    add(cfi: string, fraction: number, colour: string, text: string, note: string): Promise<Highlight | null>
     update(id: string, change: HighlightChange): Promise<Highlight | null>
     remove(id: string): Promise<boolean>
     /** Book order of two places: negative when `a` comes first. */
@@ -103,18 +76,20 @@ export const createHighlights = (sources: HighlightSources): Highlights => {
         kept = [...kept.filter(each => each.id !== highlight.id), highlight]
         changed()
     }
-    void sources.load().then(loaded => {
+    const load = async (): Promise<void> => {
+        const loaded = await sources.load()
         if (!loaded) return
         // A highlight added while the list loaded stays.
         const ids = new Set(loaded.map(highlight => highlight.id))
         kept = [...loaded, ...kept.filter(highlight => !ids.has(highlight.id))]
         changed()
-    })
+    }
+    void load()
     return {
         rows: colour => kept
             .filter(highlight => colour === null || highlight.colour === colour)
             .map(({ id, cfi, fraction, colour, text, note }) => ({
-                id, text, colour: highlighter(colour).colour, note, where: bookmarkWhere(sources.chapterOf(cfi), fraction),
+                id, text, colour, note, where: bookmarkWhere(sources.chapterOf(cfi), fraction),
             })),
         all: () => [...kept],
         at: cfi => kept.find(highlight => highlight.cfi === cfi) ?? null,
@@ -132,6 +107,7 @@ export const createHighlights = (sources: HighlightSources): Highlights => {
             kept = kept.filter(highlight => highlight.id !== id)
             changed()
         },
+        reload: load,
         async go(id) {
             const highlight = kept.find(candidate => candidate.id === id)
             if (highlight) await sources.go(highlight.cfi)
