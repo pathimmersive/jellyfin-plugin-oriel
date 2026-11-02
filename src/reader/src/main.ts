@@ -1,11 +1,13 @@
 import './reader.css'
-import { addBookmark, BookLoadError, downloadBook, publicServerId, readBookmarks, readJellyfinPosition, readStoredPosition, removeBookmark, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlights, readJellyfinPosition, readStoredPosition, removeBookmark, removeHighlight, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
+import { createHighlights } from './controls/highlights'
 import { lastInput } from './controls/hint'
 import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
+import { createHighlighting, type Highlighting } from './controls/toolbar'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
@@ -76,15 +78,26 @@ const start = async (): Promise<void> => {
         stage = 'opened'
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
+        let highlighting: Highlighting | null = null
         // The reading gestures hint follows the reader's last input, in this page and in the book's own documents.
         const input = lastInput(() => matchMedia('(pointer: coarse)').matches)
         input.watch(window)
+        // The book's section windows, for highlighting's Escape once it exists.
+        const sectionWindows: Window[] = []
         const watchSections = (view: EventTarget): void => view.addEventListener('load', event => {
             const win = (event as CustomEvent<{ doc: Document }>).detail.doc.defaultView
-            if (win) input.watch(win)
+            if (!win) return
+            input.watch(win)
+            sectionWindows.push(win)
+            highlighting?.watch(win)
         })
+        // A page turn hides the controls and closes the Selected text toolbar.
+        const turned = (): void => {
+            controls?.turned()
+            highlighting?.close()
+        }
         const opened = await openBook(book, file, view => { watchSections(view); overlay?.timeTurns(view) }, start,
-            () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces), marginsFor(settings, wide.matches), settings.pageTurn)
+            () => controls?.middle(), turned, bookStyles(settings, faces), marginsFor(settings, wide.matches), settings.pageTurn)
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -95,6 +108,22 @@ const start = async (): Promise<void> => {
         }
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
+
+        // Highlights, in a book with text: drawn on the page, made and changed
+        // from the Selected text toolbar, and listed in the Contents panel.
+        const highlights = opened.fixedLayout ? null : createHighlights({
+            load: () => readHighlights(basePath, itemId, authorization),
+            add: (cfi, fraction, colour, text, note) => addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note),
+            update: (id, change) => updateHighlight(basePath, itemId, authorization, id, change),
+            remove: id => removeHighlight(basePath, itemId, authorization, id),
+            compare: (a, b) => opened.compare(a, b),
+            chapterOf: cfi => opened.chapterOf(cfi),
+            go: cfi => opened.goTo(cfi),
+        })
+        if (highlights) {
+            highlighting = createHighlighting(document.body, opened, highlights, () => wide.matches)
+            for (const win of sectionWindows) highlighting.watch(win)
+        }
 
         // The reader's controls: a tap in the middle of the page shows them
         // and a page turn hides them; a move with their slider keeps them.
@@ -121,6 +150,7 @@ const start = async (): Promise<void> => {
                 chapterOf: cfi => opened.chapterOf(cfi),
                 go: cfi => opened.goTo(cfi),
             }),
+            highlights,
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,

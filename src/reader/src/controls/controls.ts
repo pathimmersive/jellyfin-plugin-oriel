@@ -1,6 +1,7 @@
 import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
+import { type Colour, HIGHLIGHTERS, highlighter, highlightFill, type Highlights } from './highlights'
 import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type BookSearch, noMatches } from './search'
@@ -24,6 +25,8 @@ export interface ControlsOptions {
     search: BookSearch | null
     /** The book's bookmarks. */
     bookmarks: Bookmarks
+    /** The book's highlights, for a book with text; null for comics and PDFs. */
+    highlights: Highlights | null
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -74,6 +77,8 @@ const ICONS = {
     bookmarkOn: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z',
     trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+    note: 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z',
+    highlight: 'M22 24H2v-4h20v4zM13.06 5.19l3.75 3.75L7.75 18H4v-3.75l9.06-9.06zm4.82 2.68l-3.75-3.75 1.83-1.83c.39-.39 1.02-.39 1.41 0l2.34 2.34c.39.39.39 1.02 0 1.41l-1.83 1.83z',
 }
 
 // The page turns: the setting, its name and its icon, as the canvas draws them.
@@ -195,7 +200,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
 
     // Contents: a sheet over a dimmed page on a phone, a panel beside the page
-    // on a wider screen, with a tab for the book's contents and one for its bookmarks.
+    // on a wider screen, with a tab for the book's contents, one for its
+    // bookmarks and, in a book with text, one for its highlights.
     const contentsBackdrop = element('div', { id: 'contents-backdrop', 'data-controls': '' })
     const contents = element('section', { id: 'contents', 'data-controls': '', 'aria-label': 'Contents' })
     const contentsTitle = element('h2')
@@ -205,16 +211,20 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     contentsHeader.append(contentsTitle, close)
     const contentsBody = element('div', { class: 'panel-body', id: 'contents-list', role: 'tabpanel', 'aria-labelledby': 'tab-contents' })
     const bookmarksBody = element('div', { class: 'panel-body bookmarks', id: 'bookmarks-list', role: 'tabpanel', 'aria-labelledby': 'tab-bookmarks' })
+    const highlightsBody = element('div', { class: 'panel-body highlights', id: 'highlights-list', role: 'tabpanel', 'aria-labelledby': 'tab-highlights' })
     const tabList = element('div', { role: 'tablist', class: 'tabs' })
-    const tabs = ([['contents', 'Contents', contentsBody], ['bookmarks', 'Bookmarks', bookmarksBody]] as const).map(([name, label, body]) => {
+    type Tab = 'contents' | 'bookmarks' | 'highlights'
+    const tabChoices: [Tab, string, HTMLElement][] = [['contents', 'Contents', contentsBody], ['bookmarks', 'Bookmarks', bookmarksBody]]
+    if (options.highlights) tabChoices.push(['highlights', 'Highlights', highlightsBody])
+    const tabs = tabChoices.map(([name, label, body]) => {
         const tab = element('button', { type: 'button', role: 'tab', id: `tab-${name}`, 'aria-controls': body.id, 'aria-selected': 'false' })
         tab.textContent = label
         tab.addEventListener('click', () => chooseTab(name))
         tabList.append(tab)
         return { name, tab, body }
     })
-    let tabShown: 'contents' | 'bookmarks' = 'contents'
-    contents.append(contentsHeader, tabList, contentsBody, bookmarksBody)
+    let tabShown: Tab = 'contents'
+    contents.append(contentsHeader, tabList, ...tabs.map(({ body }) => body))
     const fillContents = (): void => {
         const rows = options.contents()
         if (!rows.length) {
@@ -266,21 +276,73 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         }
         bookmarksBody.replaceChildren(list)
     }
+    // The highlights of the colour chosen (all for null), under chips choosing it.
+    let colourShown: Colour | null = null
+    const fillHighlights = (): void => {
+        const highlights = options.highlights
+        if (!highlights) return
+        if (!highlights.rows(null).length) {
+            highlightsBody.replaceChildren(element('div', { class: 'empty' },
+                `${icon(ICONS.highlight)}<p>No highlights in this book yet.</p><p class="hint">Select text to highlight it or add a note.</p>`))
+            return
+        }
+        const chips = element('div', { role: 'group', class: 'chips', 'aria-label': 'Show highlights of one colour' })
+        for (const [colour, name, solid] of [[null, 'All', ''], ...HIGHLIGHTERS.map(each => [each.colour, each.name, each.solid] as const)] as const) {
+            const chip = element('button', { type: 'button', class: 'chip', 'aria-pressed': String(colour === colourShown) },
+                `${solid ? '<span class="dot"></span>' : ''}<span></span>`)
+            chip.querySelector<HTMLElement>('.dot')?.style.setProperty('background', solid)
+            chip.lastElementChild!.textContent = name
+            chip.addEventListener('click', () => {
+                colourShown = colour
+                fillHighlights()
+                highlightsBody.querySelector<HTMLElement>('.chip[aria-pressed="true"]')?.focus()
+            })
+            chips.append(chip)
+        }
+        const rows = highlights.rows(colourShown)
+        if (!rows.length) {
+            const none = element('p', { class: 'none' })
+            none.textContent = 'No highlights in this colour.'
+            highlightsBody.replaceChildren(chips, none)
+            return
+        }
+        const list = element('ul')
+        for (const row of rows) {
+            const item = element('li')
+            const entry = element('a', { href: '#', class: 'entry' }, '<span class="text"><mark></mark></span><span class="where"></span>')
+            if (row.note) {
+                const note = element('span', { class: 'note' }, `${icon(ICONS.note)}<span></span>`)
+                note.lastElementChild!.textContent = row.note
+                entry.querySelector('.where')!.before(note)
+            }
+            const mark = entry.querySelector('mark')!
+            mark.textContent = row.text
+            mark.dataset.colour = row.colour
+            mark.style.background = highlightFill(highlighter(row.colour))
+            entry.querySelector('.where')!.textContent = row.where
+            entry.addEventListener('click', event => {
+                event.preventDefault()
+                apply('chosen')
+                void highlights.go(row.id)
+            })
+            const remove = element('button', { type: 'button', class: 'icon-button', 'aria-label': 'Delete this highlight' }, icon(ICONS.trash))
+            remove.addEventListener('click', () => { void highlights.remove(row.id) })
+            item.append(entry, remove)
+            list.append(item)
+        }
+        highlightsBody.replaceChildren(chips, list)
+    }
     // The tab shown last stays shown; only its list is filled.
-    const chooseTab = (name: 'contents' | 'bookmarks'): void => {
+    const fills: Record<Tab, () => void> = { contents: fillContents, bookmarks: fillBookmarks, highlights: fillHighlights }
+    const chooseTab = (name: Tab): void => {
         tabShown = name
         for (const { name: each, tab, body } of tabs) {
             tab.setAttribute('aria-selected', String(each === name))
             body.hidden = each !== name
+            if (each !== name) body.replaceChildren()
         }
-        if (name === 'contents') {
-            fillContents()
-            contentsBody.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
-            bookmarksBody.replaceChildren()
-        } else {
-            fillBookmarks()
-            contentsBody.replaceChildren()
-        }
+        fills[name]()
+        if (name === 'contents') contentsBody.querySelector('[aria-current]')?.scrollIntoView({ block: 'center' })
     }
 
     // Search in this book: a sheet or panel like Contents. A search lists each
@@ -626,6 +688,9 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     options.bookmarks.onChange(() => {
         showBookmark()
         if (state.contents && tabShown === 'bookmarks') fillBookmarks()
+    })
+    options.highlights?.onChange(() => {
+        if (state.contents && tabShown === 'highlights') fillHighlights()
     })
 
     // The percent follows the slider while it moves; the book moves on release.

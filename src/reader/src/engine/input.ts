@@ -142,6 +142,9 @@ export const TAP_MS = 500
  * (Scroll mode), clicks and taps act by height (scrollTarget), the wheel and
  * a drag scroll the book as the browser does, and a wheel gesture or a drag
  * on past the start or end of the section turns to the one before or after.
+ * `tapped` is asked first about a click or tap that would turn the page or
+ * show the controls, with where it landed; true stops it there (a tap on a
+ * highlight, or one that closes the Selected text toolbar).
  */
 export const attachPageInput = (
     doc: PageDocument,
@@ -151,6 +154,7 @@ export const attachPageInput = (
     menu: () => void,
     swiped: () => void = () => {},
     scroll: ScrollInput = NO_SCROLL,
+    tapped: (x: number, y: number) => boolean = () => false,
 ): void => {
     const win = doc.defaultView
     if (!win) return
@@ -170,6 +174,7 @@ export const attachPageInput = (
         if ((target as Partial<Element> | null)?.closest?.('a[href], button, input, [data-controls]')) return
         const selection = doc.getSelection()
         if (selection && !selection.isCollapsed) return
+        if (tapped(x, y)) return
         const bounds = area()
         const wanted = bounds && (scroll.active()
             ? scrollTarget(y, bounds.top, bounds.height)

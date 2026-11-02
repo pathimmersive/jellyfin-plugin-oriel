@@ -100,7 +100,7 @@ const openBookmarks = async page => {
     const panel = page.locator('#contents')
     if (!await panel.isVisible()) fail('Contents did not open')
     const tabs = (await panel.getByRole('tab').allInnerTexts()).map(text => text.trim())
-    if (tabs.join('|') !== 'Contents|Bookmarks') fail(`the Contents panel's tabs are ${tabs.join(', ')}`)
+    if (tabs.join('|') !== 'Contents|Bookmarks|Highlights') fail(`the Contents panel's tabs are ${tabs.join(', ')}`)
     await use(panel.getByRole('tab', { name: 'Bookmarks' }))
     await pause(300)
     if (await panel.getByRole('tab', { name: 'Bookmarks' }).getAttribute('aria-selected') !== 'true') fail('the Bookmarks tab is not selected')
@@ -170,8 +170,12 @@ try {
     await use(page.getByRole('button', { name: 'Contents' }))
     await pause(400)
     await use(page.locator('#contents').getByRole('tab', { name: 'Contents' }))
-    // Chapter Three is saved first, so going back to the bookmark is a change to save.
-    const awayFirst = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
+    // Chapter Three is saved first, so going back to the bookmark is a change to save. A save
+    // of Chapter One still waiting out its delay does not count: it would leave Chapter Three
+    // unsaved, and going back to Chapter One then rightly saves nothing.
+    const chapterOne = `${kept[0].cfi.split('!')[0]}!`
+    const awayFirst = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`)
+        && !String(request.postDataJSON()?.cfi).startsWith(chapterOne), { timeout: 15_000 }).catch(() => null)
     await use(page.locator('#contents').getByRole('link', { name: /^Chapter Three/ }))
     await pause(1500)
     if (await section(page) !== 2) fail('Contents did not go to Chapter Three')

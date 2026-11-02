@@ -79,7 +79,7 @@ public sealed class ReadingDataTests : IDisposable
         { "not JSON", "{\"format\": \"oriel-reading-data\", \"positions\": [" },
         { "another format", "{\"format\": \"something-else\", \"version\": 1, \"positions\": []}" },
         { "no format", "{\"version\": 1, \"positions\": []}" },
-        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 3, \"positions\": []}" },
+        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 5, \"positions\": []}" },
         { "version 0", "{\"format\": \"oriel-reading-data\", \"version\": 0, \"positions\": []}" },
         { "a version that is not a number", "{\"format\": \"oriel-reading-data\", \"version\": \"1\", \"positions\": []}" },
         { "no positions", "{\"format\": \"oriel-reading-data\", \"version\": 1}" },
@@ -100,6 +100,13 @@ public sealed class ReadingDataTests : IDisposable
         { "a bookmark's text that is too long", WithBookmark($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"{new string('a', BookmarksController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
         { "a bookmark's fraction above 1", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 1.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a bookmark without a time", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Page\"}") },
+        { "a null highlight", WithHighlight("null") },
+        { "a highlight without a CFI", WithHighlight("{\"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a highlight without a colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a highlight in an unknown colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"purple\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
+        { "a highlight's text that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"{new string('a', HighlightsController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a highlight's note that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"note\": \"{new string('a', HighlightsController.MaxNoteLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a highlight without a time", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\"}") },
     };
 
     [Theory]
@@ -125,6 +132,46 @@ public sealed class ReadingDataTests : IDisposable
         Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Bookmarks);
         Assert.Single(_store.ListBookmarks(Reader, Dune.ItemId));
         Assert.Equal("It begins", Assert.Single(_store.ListBookmarks(OtherReader, Dune.ItemId)).Text);
+    }
+
+    [Fact]
+    public void ExportsAndImportsHighlightsWithoutDuplicatingThem()
+    {
+        _store.AddHighlight(Reader, Dune.ItemId, Cfi, 0.6, "blue", "It begins", Now, "Where it starts.");
+        _store.AddHighlight(Reader, Hidden.ItemId, Cfi, 0.2, "pink", "Not exported", Now);
+        _store.AddHighlight(OtherReader, Emma.ItemId, OtherCfi, 0.3, "green", "Not mine", Now);
+        var file = Data(Dune, Emma).Export(Reader, Now);
+
+        var exported = Assert.Single(file.Highlights!);
+        Assert.Equal(new ExportedHighlight(Dune.ItemId.ToString("N"), "Dune", Dune.Authors, "dune.epub", Cfi, 0.6, "blue", "It begins", Now, "Where it starts."), exported);
+
+        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Highlights);
+        Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Highlights);
+        Assert.Single(_store.ListHighlights(Reader, Dune.ItemId));
+        var theirs = Assert.Single(_store.ListHighlights(OtherReader, Dune.ItemId));
+        Assert.Equal(("blue", "It begins", "Where it starts."), (theirs.Colour, theirs.Text, theirs.Note));
+    }
+
+    [Fact]
+    public void ImportsAVersion3FileWhoseHighlightsHaveNoNotes()
+    {
+        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"pink\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+
+        Assert.NotNull(file);
+        Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
+        Assert.Equal(string.Empty, Assert.Single(_store.ListHighlights(Reader, Dune.ItemId)).Note);
+    }
+
+    [Fact]
+    public void ImportsAVersion2FileWithNoHighlights()
+    {
+        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithBookmark($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+
+        Assert.NotNull(file);
+        var result = Data(Dune).Import(Reader, file);
+
+        Assert.Equal((1, 0), (result.Bookmarks, result.Highlights));
     }
 
     [Fact]
@@ -300,6 +347,9 @@ public sealed class ReadingDataTests : IDisposable
 
     private static string File(string position) =>
         $"{{\"format\": \"oriel-reading-data\", \"version\": 1, \"positions\": [{position}]}}";
+
+    private static string WithHighlight(string highlight) =>
+        $"{{\"format\": \"oriel-reading-data\", \"version\": 3, \"positions\": [], \"highlights\": [{highlight}]}}";
 
     private static string WithBookmark(string bookmark) =>
         $"{{\"format\": \"oriel-reading-data\", \"version\": 2, \"positions\": [], \"bookmarks\": [{bookmark}]}}";
