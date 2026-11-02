@@ -12,4 +12,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Off by default so a jellyfin-web change can only break the integration, never the reader.
     /// </summary>
     public bool EnableWebIntegration { get; set; }
+
+    /// <summary>
+    /// Gets or sets the address the reader's Translate opens, with {text} where the selected text goes.
+    /// Google Translate's by default; empty, or not an http or https address, and the reader offers no Translate.
+    /// </summary>
+    public string? TranslateUrl { get; set; } = "https://translate.google.com/?sl=auto&op=translate&text={text}";
 }

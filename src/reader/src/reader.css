@@ -757,7 +757,7 @@ body[data-state="rendered"] {
 }
 
 #selection-toolbar .highlighter:focus-visible,
-#selection-toolbar .remove:focus-visible,
+#selection-toolbar .action:focus-visible,
 #note .highlighter:focus-visible {
   outline: 2px solid #00a4dc;
   outline-offset: -2px;
@@ -765,12 +765,12 @@ body[data-state="rendered"] {
 
 #selection-toolbar .actions {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   border-top: 1px solid rgba(255, 255, 255, .12);
   padding-top: 6px;
 }
 
-#selection-toolbar .remove {
+#selection-toolbar .action {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -785,6 +785,26 @@ body[data-state="rendered"] {
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+
+/* 'Copied', for a moment, near the bottom of the screen. */
+#copied {
+  position: fixed;
+  z-index: 9;
+  left: 50%;
+  bottom: calc(env(safe-area-inset-bottom) + 72px);
+  transform: translateX(-50%);
+  padding: 10px 16px;
+  border-radius: 4px;
+  background: #202020;
+  color: rgba(255, 255, 255, .87);
+  font-size: 14px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+  pointer-events: none;
+}
+
+#copied:empty {
+  display: none;
 }
 
 /* The Note sheet: the text in its colour, the highlighters, the note, Cancel and Save.

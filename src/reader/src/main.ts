@@ -1,5 +1,5 @@
 import './reader.css'
-import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readStoredPosition, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
@@ -130,7 +130,14 @@ const start = async (): Promise<void> => {
         let highlighterSheet: HighlighterSheet | null = null
         if (highlights && highlighters) {
             highlighterSheet = createHighlighterSheet(document.body, highlighters)
-            highlighting = createHighlighting(document.body, opened, highlights, highlighters, highlighterSheet, () => wide.matches)
+            // What the admin has set for every reader: the translation address.
+            let translateUrl = ''
+            void readReaderSettings(basePath, authorization).then(settings => { translateUrl = settings?.translateUrl ?? '' })
+            highlighting = createHighlighting(document.body, opened, highlights, highlighters, highlighterSheet, () => wide.matches, {
+                title: opened.title,
+                translateUrl: () => translateUrl,
+                search: opened.searchable ? query => controls?.search(query) : null,
+            })
             for (const win of sectionWindows) highlighting.watch(win)
         }
 

@@ -58,6 +58,8 @@ export interface Controls {
      * (null for a book without pages).
      */
     locate(chapter: string, fraction: number, progress: ProgressShown, left: number | null): void
+    /** Opens Search in this book with a query, searched at once. */
+    search(query: string): void
 }
 
 // Material icons, as the canvas draws them.
@@ -838,6 +840,12 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
 
     return {
         middle: () => apply('middle'),
+        search(query) {
+            if (!options.search) return
+            if (!state.search) apply('find')
+            searchField.value = query
+            void runSearch(query)
+        },
         turned: () => apply('turned'),
         locate(chapter, fraction, progress, left) {
             for (const row of [reading, place]) {

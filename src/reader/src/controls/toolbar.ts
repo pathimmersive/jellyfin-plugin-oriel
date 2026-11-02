@@ -55,6 +55,45 @@ export interface HighlightingBook {
     clearSelection(): void
 }
 
+/** What the toolbar's second row needs from the page. */
+export interface SelectionActions {
+    /** The book's title, which Share sends with the text. */
+    title: string
+    /** The translation address, with {text} where the text goes; empty when Translate is off. */
+    translateUrl(): string
+    /** Opens Search in this book with a query; null for a book without search. */
+    search: ((query: string) => void) | null
+}
+
+/** The address Translate opens for `text`: the translation address with the text, URL-encoded, where {text} is. */
+export const translateAddress = (template: string, text: string): string =>
+    template.split('{text}').join(encodeURIComponent(text))
+
+// Puts text on the clipboard: the clipboard API where the browser offers it (a
+// secure page), else a selected, hidden field copied the old way, which also
+// works on a server reached over plain http.
+const copyText = (text: string): Promise<boolean> => {
+    const copyOldWay = (): boolean => {
+        const field = document.createElement('textarea')
+        field.value = text
+        field.setAttribute('readonly', '')
+        field.style.cssText = 'position: fixed; top: 0; left: 0; opacity: 0'
+        document.body.append(field)
+        field.select()
+        field.setSelectionRange(0, text.length)
+        let copied = false
+        try {
+            copied = document.execCommand('copy')
+        } catch {
+            copied = false
+        }
+        field.remove()
+        return copied
+    }
+    if (window.isSecureContext && navigator.clipboard) return navigator.clipboard.writeText(text).then(() => true, copyOldWay)
+    return Promise.resolve(copyOldWay())
+}
+
 /** Highlighting, as the page drives it. */
 export interface Highlighting {
     /** Closes the toolbar, as a page turn does. */
@@ -64,6 +103,10 @@ export interface Highlighting {
 }
 
 const TRASH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
+const COPY = 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z'
+const TRANSLATE = 'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z'
+const SEARCH = 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'
+const SHARE = 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z'
 const NOTE = 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z'
 const PLUS = 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z'
 const CLOSE = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'
@@ -107,9 +150,12 @@ const fillHighlighters = (group: HTMLElement, highlighters: Highlighters, presse
  * Save keeps the note with the highlight, making the highlight for a selection.
  * Add a highlighter, after the highlighters on both, opens the New highlighter
  * sheet; the new one highlights the selection (or recolours the highlight) from
- * the toolbar, and is pressed on the Note sheet.
+ * the toolbar, and is pressed on the Note sheet. Below a divider, Copy,
+ * Translate, Search and Share act on the text (Translate where the admin has
+ * set an address, Share where the browser has a share sheet), and Remove
+ * follows them for a highlight.
  */
-export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean): Highlighting => {
+export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean, actions: SelectionActions): Highlighting => {
     const bar = document.createElement('div')
     bar.id = 'selection-toolbar'
     bar.setAttribute('role', 'toolbar')
@@ -127,14 +173,30 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     const top = document.createElement('div')
     top.className = 'top'
     top.append(group, noteButton)
-    const actions = document.createElement('div')
-    actions.className = 'actions'
-    const remove = document.createElement('button')
-    remove.type = 'button'
-    remove.className = 'remove'
-    remove.innerHTML = `${svg(TRASH, 22)}Remove`
-    actions.append(remove)
-    bar.append(top, actions)
+    const row = document.createElement('div')
+    row.className = 'actions'
+    const action = (name: string, path: string): HTMLButtonElement => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'action'
+        button.innerHTML = `${svg(path, 22)}<span></span>`
+        button.querySelector('span')!.textContent = name
+        row.append(button)
+        return button
+    }
+    const copy = action('Copy', COPY)
+    const translate = action('Translate', TRANSLATE)
+    const search = action('Search', SEARCH)
+    const share = action('Share', SHARE)
+    const remove = action('Remove', TRASH)
+    bar.append(top, row)
+    // 'Copied', for a moment, once Copy has put the text on the clipboard.
+    const copied = document.createElement('div')
+    copied.id = 'copied'
+    copied.setAttribute('role', 'status')
+    copied.dataset.controls = ''
+    root.append(copied)
+    let copiedFor = 0
     // A mouse press on the toolbar leaves the selection in the book as it is.
     bar.addEventListener('mousedown', event => event.preventDefault())
 
@@ -178,7 +240,11 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         pressed = pressedNow
         fillBar()
         noteButton.querySelector('span')!.textContent = noted ? 'Edit note' : 'Note'
-        actions.hidden = !pressedNow
+        translate.hidden = !actions.translateUrl()
+        search.hidden = !actions.search
+        share.hidden = typeof navigator.share !== 'function'
+        remove.hidden = !pressedNow
+        row.style.gridTemplateColumns = `repeat(${[...row.children].filter(button => !(button as HTMLElement).hidden).length}, minmax(0, 1fr))`
         bar.hidden = false
         const place = toolbarPlace(around, bar.offsetHeight, { width: window.innerWidth, height: window.innerHeight }, wide())
         bar.style.left = `${place.left}px`
@@ -211,6 +277,29 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
             else if (chosen && 'selection' in chosen) book.clearSelection()
         })
     }
+    // An action acts on the text selected, or the highlight's, then closes the toolbar and lets go of the selection.
+    const act = (use: (text: string) => void): void => {
+        const chosen = target
+        close()
+        if (!chosen) return
+        if ('selection' in chosen) book.clearSelection()
+        use('selection' in chosen ? chosen.selection.text : chosen.highlight.text)
+    }
+    copy.addEventListener('click', () => act(text => {
+        void copyText(text).then(done => {
+            if (!done) return
+            copied.textContent = 'Copied'
+            clearTimeout(copiedFor)
+            copiedFor = window.setTimeout(() => { copied.textContent = '' }, 2000)
+        })
+    }))
+    translate.addEventListener('click', () => act(text => {
+        window.open(translateAddress(actions.translateUrl(), text), '_blank', 'noopener')
+    }))
+    search.addEventListener('click', () => act(text => actions.search?.(text)))
+    share.addEventListener('click', () => act(text => {
+        void navigator.share({ title: actions.title, text }).catch(() => {})
+    }))
     remove.addEventListener('click', () => {
         const chosen = target
         close()
