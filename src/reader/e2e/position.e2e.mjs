@@ -48,7 +48,11 @@ const browser = await webkit.launch()
 let failed = false
 try {
     const context = await browser.newContext()
-    await context.addInitScript(value => { localStorage.setItem('jellyfin_credentials', value) }, credentials)
+    await context.addInitScript(value => {
+        localStorage.setItem('jellyfin_credentials', value)
+        // The reading gestures hint was seen on this device before.
+        localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
+    }, credentials)
     const page = await context.newPage()
 
     // Placing the saved position depends on the page layout being ready, so open

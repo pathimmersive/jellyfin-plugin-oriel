@@ -176,7 +176,11 @@ body[data-state="rendered"] {
   background: #202020;
 }
 
-#more a {
+#more a,
+#more button {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
   display: flex;
   align-items: center;
   gap: 20px;
@@ -187,9 +191,156 @@ body[data-state="rendered"] {
   text-decoration: none;
 }
 
-#more a svg {
+#more button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+#more a svg,
+#more button svg {
   flex: none;
   color: rgba(255, 255, 255, .7);
+}
+
+/* The reading gestures hint, over everything: zones on a touch screen or in Scroll, tiles on a desktop. */
+#hint {
+  position: fixed;
+  z-index: 9;
+  inset: 0;
+  background: rgba(0, 0, 0, .72);
+  color: #fff;
+}
+
+#hint .zones-hint {
+  position: absolute;
+  inset: 0;
+}
+
+#hint .zones {
+  position: absolute;
+  left: calc(env(safe-area-inset-left) + 12px);
+  right: calc(env(safe-area-inset-right) + 12px);
+  top: calc(env(safe-area-inset-top) + 59px);
+  bottom: calc(env(safe-area-inset-bottom) + 164px);
+  display: grid;
+  grid-template-columns: 3fr 4fr 3fr;
+  gap: 8px;
+}
+
+#hint .scroll .zones {
+  grid-template-columns: 1fr;
+  grid-template-rows: 3fr 4fr 3fr;
+}
+
+#hint .zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 0 6px;
+  border: 2px dashed rgba(255, 255, 255, .55);
+  border-radius: 4px;
+  font-size: 15px;
+  line-height: 1.35;
+  text-align: center;
+}
+
+#hint .hint-foot {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: calc(env(safe-area-inset-bottom) + 56px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+#hint .hint-line {
+  margin: 0;
+  font-size: 14px;
+  color: rgba(255, 255, 255, .87);
+  text-align: center;
+}
+
+#hint .got-it {
+  all: unset;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 32px;
+  border-radius: 4px;
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+  font-size: 15px;
+  font-weight: 600;
+}
+
+#hint .got-it:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
+}
+
+#hint .desktop-hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  box-sizing: border-box;
+  width: min(600px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  padding: 28px;
+  border-radius: 8px;
+  background: #202020;
+}
+
+#hint .desktop-hint h2 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 400;
+  color: rgba(255, 255, 255, .87);
+}
+
+#hint .tiles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+  width: 100%;
+}
+
+#hint .tile {
+  height: 168px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 6px;
+  background: #2a2a2a;
+}
+
+#hint .tile svg {
+  max-width: 100%;
+}
+
+#hint .tile span {
+  padding: 0 16px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, .7);
+  text-align: center;
+}
+
+#hint .desktop-hint .got-it {
+  padding: 0 40px;
 }
 
 /* Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen. */

@@ -97,6 +97,8 @@ try {
     const context = await browser.newContext({ viewport: { width: 1280, height: 800 } })
     await context.addInitScript(value => {
         localStorage.setItem('jellyfin_credentials', value)
+        // The reading gestures hint was seen on this device before.
+        localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
     }, credentials)
     const page = await context.newPage()
     await page.goto(`${base}/Oriel/?id=${itemId}`)
