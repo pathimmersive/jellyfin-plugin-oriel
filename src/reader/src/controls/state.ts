@@ -13,7 +13,7 @@ export interface ControlsState {
  * Search in this book, a tap outside an open panel (or its Close button, or
  * Escape), or an entry chosen in Contents or a match chosen in Search.
  */
-export type ControlsEvent = 'middle' | 'turned' | 'more' | 'contents' | 'prefs' | 'search' | 'outside' | 'chosen'
+export type ControlsEvent = 'middle' | 'turned' | 'more' | 'contents' | 'prefs' | 'search' | 'find' | 'outside' | 'chosen'
 
 export const HIDDEN: ControlsState = { shown: false, more: false, contents: false, prefs: false, search: false }
 
@@ -23,7 +23,8 @@ const CLOSED = { more: false, contents: false, prefs: false, search: false }
  * The controls after `event`. A tap in the middle shows or hides them, and a
  * page turn or a chosen entry hides them. The More, Contents and Preferences
  * buttons, and More's Search in this book, open or close their panel, one at a time. While a panel is open, a
- * tap anywhere else only closes it.
+ * tap anywhere else only closes it. Search from selected text ('find') opens Search in this book and leaves the
+ * controls as they were, so closing it does not leave them showing.
  */
 export const nextControls = (state: ControlsState, event: ControlsEvent): ControlsState => {
     switch (event) {
@@ -34,6 +35,7 @@ export const nextControls = (state: ControlsState, event: ControlsEvent): Contro
         case 'contents': return { ...CLOSED, shown: true, contents: !state.contents }
         case 'prefs': return { ...CLOSED, shown: true, prefs: !state.prefs }
         case 'search': return { ...CLOSED, shown: true, search: !state.search }
+        case 'find': return { ...CLOSED, shown: state.shown, search: true }
         case 'outside': return { ...state, ...CLOSED }
         case 'middle':
             return state.more || state.contents || state.prefs || state.search

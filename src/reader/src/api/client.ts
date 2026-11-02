@@ -404,6 +404,27 @@ export const saveHighlighters = async (
     }
 }
 
+/** What the admin has set for every reader: the translation address, with {text} where the text goes, empty when Translate is off. */
+export interface ReaderSettings {
+    translateUrl: string
+}
+
+/** The admin's settings for every reader, or null when they cannot be read. */
+export const readReaderSettings = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<ReaderSettings | null> => {
+    try {
+        const response = await fetchImpl(`${basePath}/Oriel/ReaderSettings`, { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data = await response.json() as Partial<ReaderSettings> | null
+        return typeof data?.translateUrl === 'string' ? { translateUrl: data.translateUrl } : null
+    } catch {
+        return null
+    }
+}
+
 /** The reading data file from /Oriel/Export and the name the server gives it, or why it could not be had. */
 export type ReadingDataFile = { ok: true, blob: Blob, fileName: string } | { ok: false, reason: string }
 

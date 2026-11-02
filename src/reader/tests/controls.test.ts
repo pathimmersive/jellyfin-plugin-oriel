@@ -54,4 +54,12 @@ describe('nextControls', () => {
         expect(nextControls(open, 'contents')).toEqual({ shown: true, more: false, contents: true, prefs: false, search: false })
         expect(nextControls(open, 'chosen')).toEqual(HIDDEN)
     })
+
+    it('opens Search from selected text without showing the controls, so closing it leaves them hidden', () => {
+        const open = nextControls(HIDDEN, 'find')
+        expect(open).toEqual({ shown: false, more: false, contents: false, prefs: false, search: true })
+        expect(nextControls(open, 'outside')).toEqual(HIDDEN)
+        expect(nextControls({ shown: true, more: true, contents: false, prefs: false, search: false }, 'find'))
+            .toEqual({ shown: true, more: false, contents: false, prefs: false, search: true })
+    })
 })

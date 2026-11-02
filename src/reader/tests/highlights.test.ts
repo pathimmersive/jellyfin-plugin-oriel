@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Highlight, HighlighterRecord } from '../src/api/client'
 import { BUILT_INS, createHighlighters, firstUnused, highlighterName, highlightFill, moved, SWATCHES } from '../src/controls/highlighters'
 import { createHighlights, HIGHLIGHT_TEXT, highlightText, type HighlightSources } from '../src/controls/highlights'
-import { toolbarPlace } from '../src/controls/toolbar'
+import { toolbarPlace, translateAddress } from '../src/controls/toolbar'
 
 const settle = (): Promise<void> => new Promise(resolve => setTimeout(resolve, 0))
 
@@ -213,5 +213,13 @@ describe('toolbarPlace', () => {
         expect(toolbarPlace({ left: 500, top: 200, right: 700, bottom: 230 }, 70, desktop, true)).toEqual({ left: 390, top: 238, width: 420 })
         expect(toolbarPlace({ left: 1200, top: 200, right: 1260, bottom: 230 }, 70, desktop, true).left).toBe(844)
         expect(toolbarPlace({ left: 0, top: 200, right: 40, bottom: 230 }, 70, desktop, true).left).toBe(16)
+    })
+})
+
+describe('translateAddress', () => {
+    it('puts the text, URL-encoded, where {text} is', () => {
+        expect(translateAddress('https://translate.google.com/?sl=auto&op=translate&text={text}', 'a truth & a wife?'))
+            .toBe('https://translate.google.com/?sl=auto&op=translate&text=a%20truth%20%26%20a%20wife%3F')
+        expect(translateAddress('https://www.deepl.com/translator#auto/en/{text}', 'Ça va')).toBe('https://www.deepl.com/translator#auto/en/%C3%87a%20va')
     })
 })
