@@ -1,5 +1,5 @@
 // Checks exporting and importing reading data through the plugin's API on a
-// running server: the export (format version 2, with positions and bookmarks)
+// running server: the export (format version 3, with positions, bookmarks and highlights)
 // holds only the caller's own positions; importing
 // keeps whichever position was saved last; a book whose id is unknown is
 // matched by title and author; books that cannot be matched are reported; bad
@@ -48,7 +48,7 @@ try {
     if (exported.status !== 200) fail(`GET /Oriel/Export returned ${exported.status}`)
     if (!/attachment/i.test(exported.headers.get('content-disposition') ?? '')) fail('the export is not served as a download')
     const file = exported.body
-    if (file?.format !== 'oriel-reading-data' || file.version !== 2 || !Array.isArray(file.positions) || !Array.isArray(file.bookmarks)) {
+    if (file?.format !== 'oriel-reading-data' || file.version !== 3 || !Array.isArray(file.positions) || !Array.isArray(file.bookmarks) || !Array.isArray(file.highlights)) {
         fail(`the export is not an Oriel reading data file: ${exported.text.slice(0, 200)}`)
     }
     const entry = file.positions.find(p => id(p.itemId) === id(itemId))

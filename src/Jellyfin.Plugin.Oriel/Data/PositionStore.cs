@@ -25,7 +25,18 @@ public sealed record StoredPosition(string Cfi, double Fraction, DateTimeOffset 
 public sealed record StoredBookmark(Guid Id, string Cfi, double Fraction, string Text, DateTimeOffset CreatedAt);
 
 /// <summary>
-/// The plugin's own SQLite database: reading positions, one per user and book, and bookmarks.
+/// A highlight as stored: the text it covers, its highlighter, and when it was made.
+/// </summary>
+/// <param name="Id">The highlight's id.</param>
+/// <param name="Cfi">The EPUB range CFI of the highlighted text.</param>
+/// <param name="Fraction">How far through the book the page it was made on is, from 0 to 1.</param>
+/// <param name="Colour">Its highlighter's colour.</param>
+/// <param name="Text">The highlighted text.</param>
+/// <param name="CreatedAt">When the highlight was made.</param>
+public sealed record StoredHighlight(Guid Id, string Cfi, double Fraction, string Colour, string Text, DateTimeOffset CreatedAt);
+
+/// <summary>
+/// The plugin's own SQLite database: reading positions, one per user and book, bookmarks and highlights.
 /// </summary>
 public class PositionStore
 {
@@ -51,6 +62,19 @@ public class PositionStore
             item_id TEXT NOT NULL,
             cfi TEXT NOT NULL,
             fraction REAL NOT NULL,
+            text TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE (user_id, item_id, cfi)
+        )
+        """,
+        """
+        CREATE TABLE highlights (
+            id TEXT NOT NULL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            item_id TEXT NOT NULL,
+            cfi TEXT NOT NULL,
+            fraction REAL NOT NULL,
+            colour TEXT NOT NULL,
             text TEXT NOT NULL,
             created_at TEXT NOT NULL,
             UNIQUE (user_id, item_id, cfi)
@@ -311,7 +335,155 @@ public class PositionStore
         return command.ExecuteNonQuery() > 0;
     }
 
+    /// <summary>
+    /// Gets a user's highlights in a book, in book order.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="itemId">The book.</param>
+    /// <returns>The highlights, none when the user has made none.</returns>
+    public IReadOnlyList<StoredHighlight> ListHighlights(Guid userId, Guid itemId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user AND item_id = $item ORDER BY fraction, created_at";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$item", Key(itemId));
+        using var reader = command.ExecuteReader();
+        var highlights = new List<StoredHighlight>();
+        while (reader.Read())
+        {
+            highlights.Add(Highlight(reader, 0));
+        }
+
+        return highlights;
+    }
+
+    /// <summary>
+    /// Gets all of a user's highlights.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>Each highlight with its book, by book and then in book order.</returns>
+    public IReadOnlyList<KeyValuePair<Guid, StoredHighlight>> ListHighlightsForUser(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            "SELECT item_id, id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user ORDER BY item_id, fraction, created_at";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        var highlights = new List<KeyValuePair<Guid, StoredHighlight>>();
+        while (reader.Read())
+        {
+            highlights.Add(new(Guid.ParseExact(reader.GetString(0), "N"), Highlight(reader, 1)));
+        }
+
+        return highlights;
+    }
+
+    /// <summary>
+    /// Adds a highlight to a user's book, unless one is already at the same CFI.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="itemId">The book.</param>
+    /// <param name="cfi">The EPUB range CFI of the highlighted text.</param>
+    /// <param name="fraction">How far through the book the page it was made on is, from 0 to 1.</param>
+    /// <param name="colour">Its highlighter's colour.</param>
+    /// <param name="text">The highlighted text.</param>
+    /// <param name="createdAt">When the highlight was made.</param>
+    /// <returns>The highlight at that CFI, and whether it was added now.</returns>
+    public (StoredHighlight Highlight, bool Added) AddHighlight(Guid userId, Guid itemId, string cfi, double fraction, string colour, string text, DateTimeOffset createdAt)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        int added;
+        using (var insert = connection.CreateCommand())
+        {
+            insert.CommandText =
+                """
+                INSERT INTO highlights (id, user_id, item_id, cfi, fraction, colour, text, created_at)
+                VALUES ($id, $user, $item, $cfi, $fraction, $colour, $text, $created)
+                ON CONFLICT (user_id, item_id, cfi) DO NOTHING
+                """;
+            insert.Parameters.AddWithValue("$id", Key(Guid.NewGuid()));
+            insert.Parameters.AddWithValue("$user", Key(userId));
+            insert.Parameters.AddWithValue("$item", Key(itemId));
+            insert.Parameters.AddWithValue("$cfi", cfi);
+            insert.Parameters.AddWithValue("$fraction", fraction);
+            insert.Parameters.AddWithValue("$colour", colour);
+            insert.Parameters.AddWithValue("$text", text);
+            insert.Parameters.AddWithValue("$created", createdAt.ToString("O", CultureInfo.InvariantCulture));
+            added = insert.ExecuteNonQuery();
+        }
+
+        using var read = connection.CreateCommand();
+        read.CommandText =
+            "SELECT id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user AND item_id = $item AND cfi = $cfi";
+        read.Parameters.AddWithValue("$user", Key(userId));
+        read.Parameters.AddWithValue("$item", Key(itemId));
+        read.Parameters.AddWithValue("$cfi", cfi);
+        using var reader = read.ExecuteReader();
+        reader.Read();
+        return (Highlight(reader, 0), added > 0);
+    }
+
+    /// <summary>
+    /// Changes the highlighter of one of a user's highlights in a book.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="itemId">The book.</param>
+    /// <param name="highlightId">The highlight.</param>
+    /// <param name="colour">The new highlighter's colour.</param>
+    /// <returns>The highlight as it is now, or null when the user has no such highlight in the book.</returns>
+    public StoredHighlight? RecolourHighlight(Guid userId, Guid itemId, Guid highlightId, string colour)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText =
+            """
+            UPDATE highlights SET colour = $colour WHERE id = $id AND user_id = $user AND item_id = $item
+            RETURNING id, cfi, fraction, colour, text, created_at
+            """;
+        command.Parameters.AddWithValue("$colour", colour);
+        command.Parameters.AddWithValue("$id", Key(highlightId));
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$item", Key(itemId));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? Highlight(reader, 0) : null;
+    }
+
+    /// <summary>
+    /// Removes one of a user's highlights in a book.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="itemId">The book.</param>
+    /// <param name="highlightId">The highlight.</param>
+    /// <returns>False when the user has no such highlight in the book.</returns>
+    public bool RemoveHighlight(Guid userId, Guid itemId, Guid highlightId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM highlights WHERE id = $id AND user_id = $user AND item_id = $item";
+        command.Parameters.AddWithValue("$id", Key(highlightId));
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$item", Key(itemId));
+        return command.ExecuteNonQuery() > 0;
+    }
+
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);
+
+    // The id, cfi, fraction, colour, text and created_at columns, starting at `first`.
+    private static StoredHighlight Highlight(SqliteDataReader reader, int first) => new(
+        Guid.ParseExact(reader.GetString(first), "N"),
+        reader.GetString(first + 1),
+        reader.GetDouble(first + 2),
+        reader.GetString(first + 3),
+        reader.GetString(first + 4),
+        DateTimeOffset.Parse(reader.GetString(first + 5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
 
     // The id, cfi, fraction, text and created_at columns, starting at `first`.
     private static StoredBookmark Bookmark(SqliteDataReader reader, int first) => new(

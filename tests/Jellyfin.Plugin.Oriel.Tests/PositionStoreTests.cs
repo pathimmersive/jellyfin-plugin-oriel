@@ -139,6 +139,51 @@ public sealed class PositionStoreTests : IDisposable
         Assert.False(store.RemoveBookmark(Reader, Book, mine.Id));
     }
 
+    [Fact]
+    public void AddsHighlightsToADatabaseFromBeforeThemKeepingItsBookmarks()
+    {
+        new PositionStore(DatabasePath, [PositionStore.Schema[0], PositionStore.Schema[1]])
+            .AddBookmark(Reader, Book, "epubcfi(/6/8!/4/2/1:0)", 0.6, "Chapter text", DateTimeOffset.UnixEpoch);
+        var store = new PositionStore(DatabasePath);
+
+        store.AddHighlight(Reader, Book, "epubcfi(/6/8!/4/2,/1:0,/1:7)", 0.6, "yellow", "Chapter", DateTimeOffset.UnixEpoch);
+
+        Assert.Single(store.ListBookmarks(Reader, Book));
+        Assert.Single(store.ListHighlights(Reader, Book));
+    }
+
+    [Fact]
+    public void ListsHighlightsInBookOrderKeepsOnePerPlaceAndRecoloursOnlyTheUsersOwn()
+    {
+        var store = new PositionStore(DatabasePath);
+        var later = store.AddHighlight(Reader, Book, "epubcfi(/6/10!/4/2,/1:0,/1:5)", 0.7, "yellow", "Later", DateTimeOffset.UnixEpoch);
+        var earlier = store.AddHighlight(Reader, Book, "epubcfi(/6/4!/4/2,/1:0,/1:7)", 0.2, "green", "Earlier", DateTimeOffset.UnixEpoch.AddHours(1));
+        var again = store.AddHighlight(Reader, Book, "epubcfi(/6/10!/4/2,/1:0,/1:5)", 0.7, "pink", "Later, again", DateTimeOffset.UnixEpoch.AddHours(2));
+
+        Assert.True(later.Added && earlier.Added);
+        Assert.False(again.Added);
+        Assert.Equal(later.Highlight, again.Highlight);
+        Assert.Equal([earlier.Highlight, later.Highlight], store.ListHighlights(Reader, Book));
+
+        Assert.Null(store.RecolourHighlight(OtherReader, Book, later.Highlight.Id, "blue"));
+        Assert.Equal(later.Highlight with { Colour = "blue" }, store.RecolourHighlight(Reader, Book, later.Highlight.Id, "blue"));
+        Assert.Equal("blue", store.ListHighlights(Reader, Book)[1].Colour);
+    }
+
+    [Fact]
+    public void RemovesOnlyTheUsersOwnHighlight()
+    {
+        var store = new PositionStore(DatabasePath);
+        var mine = store.AddHighlight(Reader, Book, "epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, "yellow", "Mine", DateTimeOffset.UnixEpoch).Highlight;
+        store.AddHighlight(OtherReader, Book, "epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, "pink", "Theirs", DateTimeOffset.UnixEpoch);
+
+        Assert.False(store.RemoveHighlight(OtherReader, Book, mine.Id));
+        Assert.True(store.RemoveHighlight(Reader, Book, mine.Id));
+        Assert.Empty(store.ListHighlights(Reader, Book));
+        Assert.Single(store.ListHighlights(OtherReader, Book));
+        Assert.False(store.RemoveHighlight(Reader, Book, mine.Id));
+    }
+
     private int ReadSchemaVersion()
     {
         using var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False");

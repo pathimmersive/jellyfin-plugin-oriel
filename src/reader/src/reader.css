@@ -532,6 +532,208 @@ body[data-state="rendered"] {
   color: rgba(255, 255, 255, .7);
 }
 
+/* The Highlights tab: chips choosing a colour, then each highlight marked in its colour. */
+#contents .highlights .chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 12px 20px 8px;
+  scrollbar-color: rgba(255, 255, 255, .28) transparent;
+}
+
+#contents .highlights .chip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 18px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#contents .highlights .chip[aria-pressed="true"] {
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+}
+
+#contents .highlights .chip:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
+}
+
+#contents .highlights .dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+}
+
+#contents .highlights ul {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 8px;
+}
+
+#contents .highlights li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 14px 4px 14px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+}
+
+#contents .highlights .entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-height: 0;
+  padding: 0;
+}
+
+#contents .highlights .text {
+  font-family: 'Literata', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#contents .highlights mark {
+  padding: 1px 0;
+  border-radius: 2px;
+  color: inherit;
+}
+
+#contents .highlights .where {
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#contents .highlights .icon-button {
+  flex: none;
+  color: rgba(255, 255, 255, .7);
+}
+
+#contents .highlights .none {
+  margin: 0;
+  padding: 24px 20px;
+  font-size: 15px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#contents .highlights .empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 360px;
+  padding: 0 32px;
+  text-align: center;
+}
+
+#contents .highlights .empty p {
+  margin: 0;
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+#contents .highlights .empty .hint {
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .7);
+}
+
+#contents .highlights .empty svg {
+  width: 48px;
+  height: 48px;
+  color: rgba(255, 255, 255, .7);
+}
+
+/* The Selected text toolbar, beside the text selected or the highlight tapped. */
+#selection-toolbar {
+  box-sizing: border-box;
+  position: fixed;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border-radius: 8px;
+  background: #202020;
+  color: rgba(255, 255, 255, .87);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+}
+
+#selection-toolbar .highlighters {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 4px;
+  overflow-x: auto;
+}
+
+#selection-toolbar .highlighter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+#selection-toolbar .dot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+#selection-toolbar .highlighter[aria-pressed="true"] .dot {
+  box-shadow: 0 0 0 2px #00a4dc, inset 0 0 0 1px rgba(0, 0, 0, .15);
+}
+
+#selection-toolbar .highlighter:focus-visible,
+#selection-toolbar .remove:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+#selection-toolbar .actions {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  border-top: 1px solid rgba(255, 255, 255, .12);
+  padding-top: 6px;
+}
+
+#selection-toolbar .remove {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  min-height: 52px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
 #contents ol {
   list-style: none;
   margin: 0;

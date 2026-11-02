@@ -4,14 +4,17 @@ import { percent } from './progress'
 /** The longest text a bookmark keeps, as the server takes it. */
 export const BOOKMARK_TEXT = 200
 
-/** The text a bookmark keeps for a page: its opening text, spaces evened, cut at a word to BOOKMARK_TEXT characters. */
-export const bookmarkText = (pageText: string): string => {
-    const text = pageText.replace(/\s+/g, ' ').trim()
-    if (text.length <= BOOKMARK_TEXT) return text
-    const cut = text.slice(0, BOOKMARK_TEXT - 1)
+/** Text with its spaces evened, cut at a word to at most `limit` characters, ending in an ellipsis when cut. */
+export const cutAtWord = (whole: string, limit: number): string => {
+    const text = whole.replace(/\s+/g, ' ').trim()
+    if (text.length <= limit) return text
+    const cut = text.slice(0, limit - 1)
     const space = cut.lastIndexOf(' ')
-    return `${(space > BOOKMARK_TEXT / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
+    return `${(space > limit / 2 ? cut.slice(0, space) : cut).trimEnd()}…`
 }
+
+/** The text a bookmark keeps for a page: its opening text, spaces evened, cut at a word to BOOKMARK_TEXT characters. */
+export const bookmarkText = (pageText: string): string => cutAtWord(pageText, BOOKMARK_TEXT)
 
 /** Where a bookmark is, as its row shows it: its chapter's name and the percent of the book. */
 export const bookmarkWhere = (chapter: string, fraction: number): string =>

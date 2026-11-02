@@ -74,6 +74,9 @@ const positionUrl = (basePath: string, itemId: string): string =>
 const bookmarksUrl = (basePath: string, itemId: string, id = ''): string =>
     `${basePath}/Oriel/Bookmarks/${encodeURIComponent(itemId)}${id ? `/${encodeURIComponent(id)}` : ''}`
 
+const highlightsUrl = (basePath: string, itemId: string, id = ''): string =>
+    `${basePath}/Oriel/Highlights/${encodeURIComponent(itemId)}${id ? `/${encodeURIComponent(id)}` : ''}`
+
 /** The position Jellyfin keeps for a book: ticks on its one-second timeline, and when it was last saved. */
 export interface JellyfinPosition {
     ticks: number | null
@@ -249,6 +252,95 @@ export const removeBookmark = async (
 ): Promise<boolean> => {
     try {
         const response = await fetchImpl(bookmarksUrl(basePath, itemId, id), { method: 'DELETE', headers: { Authorization: authorization } })
+        return response.ok || response.status === 404
+    } catch {
+        return false
+    }
+}
+
+/** A highlight as Oriel's store keeps it: the text it covers, its highlighter's colour, and when it was made. */
+export interface Highlight {
+    id: string
+    cfi: string
+    fraction: number
+    colour: string
+    text: string
+    createdAt: string
+}
+
+export const isHighlight = (value: unknown): value is Highlight => {
+    const highlight = value as Partial<Highlight> | null
+    return typeof highlight?.id === 'string' && typeof highlight.cfi === 'string' && typeof highlight.fraction === 'number'
+        && typeof highlight.colour === 'string' && typeof highlight.text === 'string' && typeof highlight.createdAt === 'string'
+}
+
+/** The user's highlights in a book, or null when they cannot be read. */
+export const readHighlights = async (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Highlight[] | null> => {
+    try {
+        const response = await fetchImpl(highlightsUrl(basePath, itemId), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isHighlight) ? data : null
+    } catch {
+        return null
+    }
+}
+
+// Sends a highlight change; the highlight as stored, or null when that failed.
+const sendHighlight = async (url: string, method: string, authorization: string, body: object, fetchImpl: typeof fetch): Promise<Highlight | null> => {
+    try {
+        const response = await fetchImpl(url, {
+            method,
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return isHighlight(data) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Highlights text; returns the highlight as stored (or the one already there, in this colour), or null when that failed. */
+export const addHighlight = (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    cfi: string,
+    fraction: number,
+    colour: string,
+    text: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Highlight | null> =>
+    sendHighlight(highlightsUrl(basePath, itemId), 'POST', authorization, { cfi, fraction, colour, text }, fetchImpl)
+
+/** Changes a highlight's colour; returns the highlight as stored, or null when that failed. */
+export const recolourHighlight = (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    id: string,
+    colour: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Highlight | null> =>
+    sendHighlight(highlightsUrl(basePath, itemId, id), 'PATCH', authorization, { colour }, fetchImpl)
+
+/** Removes a highlight; returns whether it is gone (true too when the server had it no longer). */
+export const removeHighlight = async (
+    basePath: string,
+    itemId: string,
+    authorization: string,
+    id: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<boolean> => {
+    try {
+        const response = await fetchImpl(highlightsUrl(basePath, itemId, id), { method: 'DELETE', headers: { Authorization: authorization } })
         return response.ok || response.status === 404
     } catch {
         return false

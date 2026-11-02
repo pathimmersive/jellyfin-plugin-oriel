@@ -5,6 +5,8 @@ import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
 import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
+import { highlighter } from '../controls/highlights'
+import type { Box, TextSelection } from '../controls/toolbar'
 import type { SearchSection } from '../controls/search'
 import type { PageCount, PagesShown } from '../controls/progress'
 import type { Moved, StartAt } from '../position/position'
@@ -23,6 +25,9 @@ interface FoliateView extends HTMLElement {
     book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?(): Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
     search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoundSection | { progress: number } | 'done'>
     getProgressOf(index: number, range?: Range): { tocItem?: { label?: string } } | undefined
+    getCFI(index: number, range: Range): string
+    addAnnotation(annotation: { value: string }): Promise<unknown>
+    deleteAnnotation(annotation: { value: string }): Promise<unknown>
     clearSearch(): void
     next(): Promise<void>
     prev(): Promise<void>
@@ -31,7 +36,7 @@ interface FoliateView extends HTMLElement {
     renderer: HTMLElement & {
         setStyles?(styles: string): void
         render?(): void
-        getContents?(): { doc: Document, index: number }[]
+        getContents?(): { doc: Document, index: number, overlayer?: { hitTest(point: { x: number, y: number }): [string?, Range?] } }[]
         readonly page?: number
         readonly size?: number
         readonly start?: number
@@ -132,6 +137,25 @@ export interface OpenBook {
     onPage(cfi: string): boolean
     /** The name of the contents entry a place's section starts in; empty for none. */
     chapterOf(cfi: string): string
+    /** Book order of two places (CFIs): negative when `a` comes first. */
+    compare(a: string, b: string): number
+    /**
+     * Draws highlights behind their text, each in its highlighter's colour,
+     * the one at `ringed` ringed in the accent colour; highlights no longer
+     * listed are cleared. Sections loaded later draw theirs as they load.
+     */
+    showHighlights(highlights: { cfi: string, colour: string }[], ringed: string | null): void
+    /** Calls `selected` with the text selected in the book, or null when none is, once a selection settles (on release of the mouse). */
+    onSelect(selected: (selection: TextSelection | null) => void): void
+    /**
+     * Calls `tapped` for a click or tap that would turn the page or show the
+     * controls, with the highlight under it (its CFI) or null; true stops it there.
+     */
+    onTap(tapped: (cfi: string | null) => boolean): void
+    /** A highlight's box on screen, or null when it is not on a page loaded. */
+    boxOf(cfi: string): Box | null
+    /** Clears any text selected in the book. */
+    clearSelection(): void
     /**
      * Puts a stylesheet in every section of a reflowable book, now and as
      * sections load; the page lays out again around the place being read.
@@ -164,6 +188,12 @@ const TWO_COLUMN_GAP = 48
 
 // The colour search marks matches on the page in: the selection colour, at foliate-js's highlight opacity.
 const SEARCH_MARK = '#00a4dc'
+
+// The ring around a highlight tapped: the accent colour.
+const HIGHLIGHT_RING = '#00a4dc'
+
+// How long a selection must stay the same before the toolbar shows for it.
+const SELECTION_SETTLES_MS = 250
 
 // The paginator's reasons for re-placing the current position rather than moving.
 const NOT_MOVES = new Set(['anchor', 'selection'])
@@ -214,11 +244,47 @@ export const openBook = async (
     }
     const gesture = wheelGesture()
     const page = (): DOMRect => container.getBoundingClientRect()
+    // The highlights drawn, by CFI, with their colours, and the one ringed.
+    // foliate-js asks for each one's drawing as it is added, and again as its
+    // section loads.
+    let drawn = new Map<string, string>()
+    let ringed: string | null = null
+    // A tap is first offered to highlighting, with the highlight under it.
+    let tapped: (cfi: string | null) => boolean = () => false
+    // The highlight drawn at a point of a section's document.
+    const highlightAt = (doc: Document, x: number, y: number): string | null => {
+        const [value] = view.renderer.getContents?.().find(contents => contents.doc === doc)?.overlayer?.hitTest({ x, y }) ?? []
+        return value && drawn.has(value) ? value : null
+    }
     attachPageInput(document, () => ({ left: page().left, width: page().width, top: page().top, height: page().height }),
-        gesture, turn, onMenu, onTurn, scroll)
+        gesture, turn, onMenu, onTurn, scroll, () => tapped(null))
+    // Text selected in a section, once it settles: a mouse selection on release.
+    let selected: (selection: TextSelection | null) => void = () => {}
+    const selectionIn = (doc: Document): TextSelection | null => {
+        const selection = doc.getSelection()
+        if (view.isFixedLayout || !selection || selection.isCollapsed || !selection.rangeCount) return null
+        const range = selection.getRangeAt(0)
+        const text = rangeText(range).replace(/\s+/g, ' ').trim()
+        const index = view.renderer.getContents?.().find(contents => contents.doc === doc)?.index
+        if (!text || index === undefined) return null
+        return { cfi: view.getCFI(index, range), fraction: view.lastLocation?.fraction ?? 0, text, box: boxOn(doc, range.getBoundingClientRect()) }
+    }
     view.addEventListener('load', event => {
         const doc = (event as CustomEvent<{ doc: Document }>).detail.doc
         guardSelectionDrag(doc)
+        let pressed = false
+        let settling = 0
+        const settle = (): void => {
+            clearTimeout(settling)
+            settling = window.setTimeout(() => selected(selectionIn(doc)), SELECTION_SETTLES_MS)
+        }
+        doc.addEventListener('selectionchange', () => { if (!pressed) settle() })
+        doc.defaultView?.addEventListener('pointerdown', event => { pressed = event.pointerType === 'mouse' && event.button === 0 })
+        doc.defaultView?.addEventListener('pointerup', () => {
+            if (!pressed) return
+            pressed = false
+            settle()
+        })
         attachPageInput(doc, () => {
             // The page's left edge and width in the section frame's own
             // coordinates. Fixed-layout pages (comics) scale their frame with a
@@ -233,7 +299,7 @@ export const openBook = async (
                 top: (page().top - frame.top) / scale,
                 height: page().height / scale,
             }
-        }, gesture, turn, onMenu, onTurn, scroll)
+        }, gesture, turn, onMenu, onTurn, scroll, (x, y) => tapped(highlightAt(doc, x, y)))
     })
     onView?.(view)
     container.replaceChildren(view)
@@ -344,6 +410,18 @@ export const openBook = async (
         fraction: view.lastLocation?.fraction ?? 0,
         pages: pagesShown(),
     })
+    const annotation = (cfi: string): { value: string } => ({ value: cfi })
+    view.addEventListener('draw-annotation', event => {
+        const { draw, annotation } = (event as CustomEvent<{ draw: (draw: unknown, options: unknown) => void, annotation: { value: string } }>).detail
+        const colour = drawn.get(annotation.value)
+        if (colour === undefined) return
+        const { solid, fill } = highlighter(colour)
+        draw(drawHighlight, { colour, solid, fill, ring: annotation.value === ringed ? HIGHLIGHT_RING : null })
+    })
+    view.addEventListener('create-overlay', event => {
+        const { index } = (event as CustomEvent<{ index: number }>).detail
+        for (const cfi of drawn.keys()) if (resolve(cfi)?.index === index) void view.addAnnotation(annotation(cfi))
+    })
     // Where each section starts, as foliate-js measures progress through the book.
     const sectionStarts: number[] = new SectionProgress(view.book.sections, 1500, 1600).sectionFractions
     const opened: OpenBook = {
@@ -404,6 +482,40 @@ export const openBook = async (
         chapterOf(cfi) {
             const index = resolve(cfi)?.index
             return index === undefined ? '' : view.getProgressOf(index)?.tocItem?.label?.trim() ?? ''
+        },
+        compare(a, b) {
+            try {
+                return CFI.compare(a, b)
+            } catch {
+                return 0
+            }
+        },
+        showHighlights(highlights, ring) {
+            if (view.isFixedLayout) return
+            const next = new Map(highlights.map(({ cfi, colour }) => [cfi, colour]))
+            const before = drawn
+            const ringedBefore = ringed
+            drawn = next
+            ringed = ring
+            for (const cfi of before.keys()) if (!next.has(cfi)) void view.deleteAnnotation(annotation(cfi))
+            for (const [cfi, colour] of next) {
+                if (before.get(cfi) !== colour || cfi === ring || cfi === ringedBefore) void view.addAnnotation(annotation(cfi))
+            }
+        },
+        onSelect(onSelected) {
+            selected = onSelected
+        },
+        onTap(onTapped) {
+            tapped = onTapped
+        },
+        boxOf(cfi) {
+            const target = resolve(cfi)
+            const doc = view.renderer.getContents?.().find(contents => contents.index === target?.index)?.doc
+            const range = doc && target?.anchor?.(doc)
+            return doc && range ? boxOn(doc, range.getBoundingClientRect()) : null
+        },
+        clearSelection() {
+            for (const { doc } of view.renderer.getContents?.() ?? []) doc.getSelection()?.removeAllRanges()
         },
         setStyles,
         setMargins,
@@ -466,6 +578,38 @@ const fade = async (view: HTMLElement, go: () => Promise<unknown>): Promise<void
     } finally {
         view.style.opacity = '1'
     }
+}
+
+// A box in a section's document, as it is on screen in this page.
+const boxOn = (doc: Document, { left, top, right, bottom }: DOMRect): Box => {
+    const frame = (doc.defaultView?.frameElement as HTMLElement | null | undefined)?.getBoundingClientRect()
+    const x = frame?.left ?? 0
+    const y = frame?.top ?? 0
+    return { left: left + x, top: top + y, right: right + x, bottom: bottom + y }
+}
+
+// Draws a highlight for foliate-js's overlayer: its lines filled with the
+// highlighter's colour at its strength, behind the text, and ringed when tapped.
+const drawHighlight = (rects: DOMRectList, { colour, solid, fill, ring }: { colour: string, solid: string, fill: number, ring: string | null }): SVGElement => {
+    const svg = 'http://www.w3.org/2000/svg'
+    const group = document.createElementNS(svg, 'g')
+    group.setAttribute('data-colour', colour)
+    group.setAttribute('fill', solid)
+    group.setAttribute('fill-opacity', String(fill))
+    if (ring) {
+        group.setAttribute('data-ringed', '')
+        group.setAttribute('stroke', ring)
+        group.setAttribute('stroke-width', '1')
+    }
+    for (const { left, top, width, height } of rects) {
+        const rect = document.createElementNS(svg, 'rect')
+        rect.setAttribute('x', String(left))
+        rect.setAttribute('y', String(top))
+        rect.setAttribute('width', String(width))
+        rect.setAttribute('height', String(height))
+        group.append(rect)
+    }
+    return group
 }
 
 // The text in a range, with a space between blocks (a heading and the

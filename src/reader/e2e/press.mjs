@@ -6,8 +6,11 @@
 export const press = async (page, share, touch, down = 0.5) => {
     const rect = await page.locator('#book').boundingBox()
     if (!rect) return false
-    const x = rect.x + rect.width * share
-    const y = rect.y + rect.height * down
+    return pressPoint(page, rect.x + rect.width * share, rect.y + rect.height * down, touch)
+}
+
+// The same, at a point of the page.
+export const pressPoint = async (page, x, y, touch) => {
     if (!touch) {
         await page.mouse.click(x, y)
         return true
