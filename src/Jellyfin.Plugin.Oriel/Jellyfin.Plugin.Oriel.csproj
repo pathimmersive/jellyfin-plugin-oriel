@@ -49,6 +49,11 @@
     <EmbeddedResource Include="..\integration\launcher.js" LogicalName="oriel-web/integration/launcher.js" />
   </ItemGroup>
 
+  <!-- WordNet, as scripts/build-dictionary.py builds it, for Define. -->
+  <ItemGroup>
+    <EmbeddedResource Include="Data\wordnet.txt.gz" LogicalName="oriel-dictionary/wordnet.txt.gz" />
+  </ItemGroup>
+
   <!-- meta.json is the plugin manifest Jellyfin reads from the plugin folder. -->
   <Target Name="WritePluginMeta" BeforeTargets="BeforeBuild">
     <PropertyGroup>

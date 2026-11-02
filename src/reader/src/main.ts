@@ -1,15 +1,16 @@
 import './reader.css'
-import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
+import { createDictionarySheet, type DictionarySheet } from './controls/dictionary'
 import { createHighlighterSheet, type HighlighterSheet } from './controls/highlighter-sheet'
 import { createHighlighters } from './controls/highlighters'
 import { createHighlights } from './controls/highlights'
 import { lastInput } from './controls/hint'
 import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
-import { createHighlighting, type Highlighting } from './controls/toolbar'
+import { createCopy, createHighlighting, type Highlighting } from './controls/toolbar'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { openBook } from './engine/engine'
@@ -81,10 +82,11 @@ const start = async (): Promise<void> => {
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
         let highlighting: Highlighting | null = null
+        let dictionary: DictionarySheet | null = null
         // The reading gestures hint follows the reader's last input, in this page and in the book's own documents.
         const input = lastInput(() => matchMedia('(pointer: coarse)').matches)
         input.watch(window)
-        // The book's section windows, for highlighting's Escape once it exists.
+        // The book's section windows, for Escape in highlighting and the Dictionary sheet once they exist.
         const sectionWindows: Window[] = []
         const watchSections = (view: EventTarget): void => view.addEventListener('load', event => {
             const win = (event as CustomEvent<{ doc: Document }>).detail.doc.defaultView
@@ -92,6 +94,7 @@ const start = async (): Promise<void> => {
             input.watch(win)
             sectionWindows.push(win)
             highlighting?.watch(win)
+            dictionary?.watch(win)
         })
         // A page turn hides the controls and closes the Selected text toolbar.
         const turned = (): void => {
@@ -133,12 +136,26 @@ const start = async (): Promise<void> => {
             // What the admin has set for every reader: the translation address.
             let translateUrl = ''
             void readReaderSettings(basePath, authorization).then(settings => { translateUrl = settings?.translateUrl ?? '' })
+            const search = opened.searchable ? (query: string) => controls?.search(query) : null
+            const copy = createCopy(document.body)
+            // Define's sheet, with the dictionary on the server.
+            const sheet = createDictionarySheet(document.body, {
+                lookUp: word => lookUpWord(basePath, authorization, word),
+                search,
+                copy,
+            })
             highlighting = createHighlighting(document.body, opened, highlights, highlighters, highlighterSheet, () => wide.matches, {
                 title: opened.title,
                 translateUrl: () => translateUrl,
-                search: opened.searchable ? query => controls?.search(query) : null,
+                search,
+                copy,
+                define: text => sheet.open(text),
             })
-            for (const win of sectionWindows) highlighting.watch(win)
+            dictionary = sheet
+            for (const win of sectionWindows) {
+                highlighting.watch(win)
+                sheet.watch(win)
+            }
         }
 
         // The reader's controls: a tap in the middle of the page shows them

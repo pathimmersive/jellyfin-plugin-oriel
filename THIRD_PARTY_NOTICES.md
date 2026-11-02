@@ -1,6 +1,6 @@
 # Third-party notices
 
-Oriel is licensed under the GNU General Public License v3.0 or later. It ships the third-party code and fonts below, each under its own license. The code's licenses are compatible with GPL-3.0. The fonts are under free font licenses, such as the SIL Open Font License, and ship as separate font files beside the code, not combined with it.
+Oriel is licensed under the GNU General Public License v3.0 or later. It ships the third-party code, fonts and data below, each under its own license. The code's licenses are compatible with GPL-3.0. The fonts are under free font licenses, such as the SIL Open Font License, and ship as separate font files beside the code, not combined with it.
 
 Not shipped, and so not listed: the Jellyfin libraries, which the server provides at runtime; the npm packages used only to build and test the reader; and the File Transformation plugin, which an admin installs separately to turn on the optional jellyfin-web integration.
 
@@ -344,6 +344,44 @@ DEALINGS IN THE FONT SOFTWARE.
 %%Copyright: OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 %%Copyright: SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 %%Copyright: -----------------------------------------------------------
+```
+
+## WordNet
+
+- Source: https://wordnet.princeton.edu/, the database files of WordNet 3.1 (https://wordnetcode.princeton.edu/wn3.1.dict.tar.gz, SHA-256 3f7d8be8ef6ecc7167d39b10d66954ec734280b5bdcd57f7d9eafe429d11c22a)
+- Version: 3.1; its words, definitions and lists of irregular forms, rewritten by `scripts/build-dictionary.py` into `src/Jellyfin.Plugin.Oriel/Data/wordnet.txt.gz`, which the plugin assembly embeds for Define. That file begins with the license below.
+- License: the WordNet License, a permissive license that asks for the notice below on every copy
+
+```
+This software and database is being provided to you, the LICENSEE, by
+Princeton University under the following license.  By obtaining, using
+and/or copying this software and database, you agree that you have
+read, understood, and will comply with these terms and conditions.:
+
+Permission to use, copy, modify and distribute this software and
+database and its documentation for any purpose and without fee or
+royalty is hereby granted, provided that you agree to comply with
+the following copyright notice and statements, including the disclaimer,
+and that the same appear on ALL copies of the software, database and
+documentation, including modifications that you make for internal
+use or for distribution.
+
+WordNet 3.1 Copyright 2011 by Princeton University.  All rights reserved.
+
+THIS SOFTWARE AND DATABASE IS PROVIDED "AS IS" AND PRINCETON
+UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES, EXPRESS OR
+IMPLIED.  BY WAY OF EXAMPLE, BUT NOT LIMITATION, PRINCETON
+UNIVERSITY MAKES NO REPRESENTATIONS OR WARRANTIES OF MERCHANT-
+ABILITY OR FITNESS FOR ANY PARTICULAR PURPOSE OR THAT THE USE
+OF THE LICENSED SOFTWARE, DATABASE OR DOCUMENTATION WILL NOT
+INFRINGE ANY THIRD PARTY PATENTS, COPYRIGHTS, TRADEMARKS OR
+OTHER RIGHTS.
+
+The name of Princeton University or Princeton may not be used in
+advertising or publicity pertaining to distribution of the software
+and/or database.  Title to copyright in this software, database and
+any associated documentation shall at all times remain with
+Princeton University and LICENSEE agrees to preserve same.
 ```
 
 ## Reading fonts: Literata, Noto Serif, Noto Sans, Atkinson Hyperlegible
