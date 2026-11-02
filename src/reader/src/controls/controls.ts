@@ -2,6 +2,7 @@ import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACIN
 import type { ContentsRow } from './contents'
 import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
+import { type BookSearch, noMatches } from './search'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
 
 /** What the controls show and where their links go. */
@@ -18,6 +19,8 @@ export interface ControlsOptions {
     contents(): ContentsRow[]
     /** Goes to a contents entry's link, as a reader move. */
     choose(href: string): Promise<void>
+    /** Search in this book, for a book with text; null for comics and PDFs. */
+    search: BookSearch | null
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -64,6 +67,7 @@ const ICONS = {
     scroll: 'M12 4l-4 4h3v8H8l4 4 4-4h-3V8h3z',
     fade: 'M12 3a9 9 0 100 18 9 9 0 000-18zm0 16V5a7 7 0 010 14z',
     none: 'M6 5h12v14H6z',
+    search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
 }
 
 // The page turns: the setting, its name and its icon, as the canvas draws them.
@@ -178,6 +182,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return a
     }
     const showGestures = element('button', { type: 'button' }, `${icon(ICONS.gesture)}<span>Show reading gestures</span>`)
+    const searchItem = element('button', { type: 'button' }, `${icon(ICONS.search)}<span>Search in this book</span>`)
+    if (options.search) more.append(searchItem)
     more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
 
     // Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen.
@@ -216,6 +222,96 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         }
         contentsBody.replaceChildren(list)
     }
+
+    // Search in this book: a sheet or panel like Contents. A search lists each
+    // chapter's matches as it is searched, and choosing one goes there.
+    const searchBackdrop = element('div', { id: 'search-backdrop', 'data-controls': '' })
+    const searchPanel = element('section', { id: 'search', 'data-controls': '', 'aria-label': 'Search in this book' })
+    const searchClose = closeButton()
+    const searchHeader = element('div', { class: 'panel-header' }, '<h2>Search in this book</h2>')
+    searchHeader.append(searchClose)
+    const searchForm = element('form', { role: 'search', class: 'search-form' },
+        `<label class="field">${icon(ICONS.search)}<span class="visually-hidden">Search in this book</span><input type="search" enterkeyhint="search" autocomplete="off" spellcheck="false"></label>`)
+    const searchField = searchForm.querySelector('input')!
+    const results = element('div', { class: 'results' })
+    const searching = element('p', { class: 'searching', role: 'status' })
+    searching.textContent = 'Searching the rest of the book…'
+    searching.hidden = true
+    const searchBody = element('div', { class: 'panel-body' })
+    searchBody.append(searchForm, results, searching)
+    searchPanel.append(searchHeader, searchBody)
+    // Each search has its number; an older one still running stops at its next section.
+    let searchRun = 0
+    const clearSearch = (): void => {
+        searchRun++
+        results.replaceChildren()
+        searching.hidden = true
+        options.search?.clear()
+    }
+    const matchItem = (cfi: string, pre: string, match: string, post: string): HTMLLIElement => {
+        const item = element('li')
+        const go = element('a', { href: '#' }, '<span></span><mark></mark><span></span>')
+        const [before, marked, after] = go.children
+        before.textContent = pre
+        marked.textContent = match
+        after.textContent = post
+        go.addEventListener('click', event => {
+            event.preventDefault()
+            apply('chosen')
+            void options.search?.go(cfi)
+        })
+        item.append(go)
+        return item
+    }
+    const runSearch = async (query: string): Promise<void> => {
+        const search = options.search
+        if (!search) return
+        const run = ++searchRun
+        results.replaceChildren()
+        searching.hidden = false
+        let chapter = ''
+        let list: HTMLUListElement | null = null
+        let found = false
+        try {
+            for await (const section of search.run(query)) {
+                if (run !== searchRun) return
+                if (!section.matches.length) continue
+                found = true
+                // A chapter can span sections: its matches stay under one name.
+                if (!list || section.label !== chapter) {
+                    chapter = section.label
+                    const group = element('div', { class: 'group' })
+                    if (chapter) {
+                        const name = element('span', { class: 'chapter' })
+                        name.textContent = chapter
+                        group.append(name)
+                    }
+                    list = element('ul')
+                    group.append(list)
+                    results.append(group)
+                }
+                for (const { cfi, pre, match, post } of section.matches) list.append(matchItem(cfi, pre, match, post))
+            }
+        } catch (error) {
+            console.warn('Oriel: the search stopped', error)
+        }
+        if (run !== searchRun) return
+        searching.hidden = true
+        if (!found) {
+            const none = element('div', { class: 'no-matches' }, `${icon(ICONS.search)}<p class="what"></p><p class="next">Check the spelling, or search for fewer words.</p>`)
+            none.querySelector('.what')!.textContent = noMatches(query)
+            results.replaceChildren(none)
+        }
+    }
+    searchForm.addEventListener('submit', event => {
+        event.preventDefault()
+        const query = searchField.value.trim()
+        if (query) void runSearch(query)
+        else clearSearch()
+    })
+    searchField.addEventListener('input', () => {
+        if (!searchField.value) clearSearch()
+    })
 
     // Preferences: a sheet or panel like Contents. Each choice applies at once.
     const prefsBackdrop = element('div', { id: 'prefs-backdrop', 'data-controls': '' })
@@ -391,7 +487,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     }
     fillPrefs()
 
-    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, resetDialog)
+    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, searchBackdrop, searchPanel, resetDialog)
 
     // The reading gestures hint, over everything: by itself the first time
     // this device opens a book, and from More at any time.
@@ -415,10 +511,13 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         prefs.hidden = !state.prefs
         prefsBackdrop.hidden = !state.prefs
         prefsButton.setAttribute('aria-expanded', String(state.prefs))
+        searchPanel.hidden = !state.search
+        searchBackdrop.hidden = !state.search
     }
     const apply = (event: ControlsEvent): void => {
         const opening = event === 'contents' && !state.contents
         const openingPrefs = event === 'prefs' && !state.prefs
+        const openingSearch = event === 'search' && !state.search
         state = nextControls(state, event)
         show()
         if (opening) {
@@ -428,6 +527,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             close.focus()
         }
         if (openingPrefs) prefsClose.focus()
+        if (openingSearch) searchField.focus()
     }
     show()
     if (hintDue(readHintsSeen(options.storage), 'open')) showHint()
@@ -440,11 +540,18 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     prefsButton.addEventListener('click', () => apply('prefs'))
     prefsBackdrop.addEventListener('click', () => apply('outside'))
     prefsClose.addEventListener('click', () => apply('outside'))
+    searchItem.addEventListener('click', () => apply('search'))
+    searchBackdrop.addEventListener('click', () => apply('outside'))
+    searchClose.addEventListener('click', () => apply('outside'))
     document.addEventListener('keydown', event => {
         if (event.key !== 'Escape') return
         if (hint.shown) hint.close()
         else if (!resetDialog.hidden) closeReset()
-        else if (state.more || state.contents || state.prefs) apply('outside')
+        else if (state.more || state.contents || state.prefs || state.search) {
+            // Escape in the search field would also clear it; the search stays for next time.
+            event.preventDefault()
+            apply('outside')
+        }
     })
 
     // The percent follows the slider while it moves; the book moves on release.

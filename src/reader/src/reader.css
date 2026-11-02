@@ -345,7 +345,8 @@ body[data-state="rendered"] {
 
 /* Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen. */
 #contents-backdrop,
-#prefs-backdrop {
+#prefs-backdrop,
+#search-backdrop {
   position: fixed;
   z-index: 5;
   inset: 0;
@@ -353,7 +354,8 @@ body[data-state="rendered"] {
 }
 
 #contents,
-#prefs {
+#prefs,
+#search {
   box-sizing: border-box;
   position: fixed;
   z-index: 6;
@@ -446,6 +448,136 @@ body[data-state="rendered"] {
 #contents .empty svg {
   width: 48px;
   height: 48px;
+  color: rgba(255, 255, 255, .7);
+}
+
+/* Search in this book: the field, then each chapter's matches, as the canvas draws them. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+#search .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 20px 24px;
+}
+
+#search .field {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .7);
+}
+
+#search .field:focus-within {
+  outline: 2px solid #00a4dc;
+}
+
+#search .field svg {
+  flex: none;
+  width: 20px;
+  height: 20px;
+}
+
+/* 16px, so iOS does not zoom the page when the field takes focus. */
+#search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: rgba(255, 255, 255, .87);
+  font: 16px 'Noto Sans', system-ui, sans-serif;
+  outline: none;
+}
+
+#search .results {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+#search .group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+#search .chapter,
+#search .searching {
+  margin: 0;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#search ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid rgba(255, 255, 255, .12);
+}
+
+#search li a {
+  display: block;
+  padding: 12px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  font-family: 'Literata', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .87);
+  text-decoration: none;
+}
+
+#search li a:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+#search mark {
+  border-radius: 2px;
+  background: rgba(0, 164, 220, .35);
+  color: inherit;
+}
+
+#search .no-matches {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 240px;
+  padding: 0 16px;
+  text-align: center;
+}
+
+#search .no-matches svg {
+  width: 44px;
+  height: 44px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#search .no-matches p {
+  margin: 0;
+}
+
+#search .no-matches .what {
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+#search .no-matches .next {
+  font-size: 14px;
+  line-height: 1.5;
   color: rgba(255, 255, 255, .7);
 }
 
@@ -811,12 +943,14 @@ body[data-state="rendered"] {
 
 @media (min-width: 600px) {
   #contents-backdrop,
-#prefs-backdrop {
+#prefs-backdrop,
+#search-backdrop {
     display: none;
   }
 
   #contents,
-#prefs {
+#prefs,
+#search {
     left: auto;
     width: min(440px, 100%);
     top: calc(env(safe-area-inset-top) + 57px);

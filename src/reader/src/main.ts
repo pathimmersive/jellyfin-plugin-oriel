@@ -108,6 +108,9 @@ const start = async (): Promise<void> => {
                     counted && (href => counted.entries[href] ?? null))
             },
             choose: href => opened.goTo(href),
+            search: opened.searchable
+                ? { run: query => opened.search(query), clear: () => opened.clearSearch(), go: cfi => opened.goTo(cfi) }
+                : null,
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,

@@ -1,7 +1,9 @@
 // The only module that touches foliate-js.
+import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
 import type { TocEntry } from '../controls/contents'
+import type { SearchSection } from '../controls/search'
 import type { PageCount, PagesShown } from '../controls/progress'
 import type { Moved, StartAt } from '../position/position'
 import type { Margins, PageTurn } from '../settings/settings'
@@ -16,7 +18,9 @@ interface FoliateView extends HTMLElement {
     goToFraction(fraction: number): Promise<void>
     goToTextStart(): Promise<void>
     resolveNavigation(target: string): { index?: unknown, anchor?: (doc: Document) => Element | Range | null } | undefined
-    book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
+    book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?(): Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
+    search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoundSection | { progress: number } | 'done'>
+    clearSearch(): void
     next(): Promise<void>
     prev(): Promise<void>
     goLeft(): Promise<void>
@@ -33,6 +37,12 @@ interface FoliateView extends HTMLElement {
     }
     isFixedLayout: boolean
     lastLocation?: Location
+}
+
+// A section's matches, as foliate-js's search gives them.
+interface FoundSection {
+    label: string
+    subitems: { cfi: string, excerpt: { pre: string, match: string, post: string } }[]
 }
 
 // What foliate-js reports for the place shown.
@@ -96,6 +106,18 @@ export interface OpenBook {
     goTo(href: string): Promise<void>
     /** True for a fixed layout (comics, PDFs), whose pages have no text to restyle. */
     fixedLayout: boolean
+    /** True for a book with text to search; comics and PDFs have none. */
+    searchable: boolean
+    /**
+     * Searches the book's text for `query`, ignoring case and accents and
+     * matching inside words: each section's matches as it is searched, with
+     * the name of the contents entry it starts in. The matches are marked on
+     * the page until `clearSearch` or the next search; stopping early stops
+     * the search.
+     */
+    search(query: string): AsyncIterable<SearchSection>
+    /** Clears the marks the last search left on the page. */
+    clearSearch(): void
     /**
      * Puts a stylesheet in every section of a reflowable book, now and as
      * sections load; the page lays out again around the place being read.
@@ -125,6 +147,9 @@ const COLUMN_WIDTH = 720
 // The paginator's gap in px: the least space at the sides, and between two columns.
 const ONE_COLUMN_GAP = 4
 const TWO_COLUMN_GAP = 48
+
+// The colour search marks matches on the page in: the selection colour, at foliate-js's highlight opacity.
+const SEARCH_MARK = '#00a4dc'
 
 // The paginator's reasons for re-placing the current position rather than moving.
 const NOT_MOVES = new Set(['anchor', 'selection'])
@@ -327,6 +352,19 @@ export const openBook = async (
             await view.goTo(href)
         },
         fixedLayout: view.isFixedLayout,
+        searchable: !view.isFixedLayout && view.book.sections.some(section => section.createDocument),
+        async * search(query) {
+            for await (const found of view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_MARK } })) {
+                if (typeof found !== 'object' || !('subitems' in found)) continue
+                yield {
+                    label: found.label.trim(),
+                    matches: found.subitems.map(({ cfi, excerpt }) => ({ cfi, ...excerpt })),
+                }
+            }
+        },
+        clearSearch() {
+            view.clearSearch()
+        },
         setStyles,
         setMargins,
         setPageTurn(pageTurn) {
@@ -354,13 +392,21 @@ export const openBook = async (
             // The view handles the renderer's relocate first and updates
             // lastLocation with the CFI and the fraction of the whole book.
             let shown = view.lastLocation?.cfi
+            let shownIndex = view.renderer.getContents?.()[0]?.index
             view.renderer.addEventListener('relocate', event => {
-                const reason = (event as CustomEvent<{ reason?: string }>).detail?.reason ?? ''
+                const { reason = '', index } = (event as CustomEvent<{ reason?: string, index?: number }>).detail ?? {}
+                const move = !NOT_MOVES.has(reason)
+                // Going to another section, the paginator first lays out the
+                // section it has loaded, at a place left from the one before,
+                // and only then goes where it was asked: that re-placement is a
+                // step of the move, so it leaves the place shown as it was.
+                if (!move && index !== shownIndex) return
                 const { fraction, cfi } = view.lastLocation ?? {}
                 const previous = shown
                 shown = cfi
+                shownIndex = index
                 if (cfi === previous) return
-                if (!NOT_MOVES.has(reason) && typeof fraction === 'number' && typeof cfi === 'string') onMoved({ cfi, fraction })
+                if (move && typeof fraction === 'number' && typeof cfi === 'string') onMoved({ cfi, fraction })
             })
         },
     }
