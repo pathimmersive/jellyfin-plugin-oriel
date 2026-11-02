@@ -1,7 +1,9 @@
 import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
 import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
-import { type Colour, HIGHLIGHTERS, highlighter, highlightFill, type Highlights } from './highlights'
+import type { HighlighterSheet } from './highlighter-sheet'
+import { highlightFill, type Highlighters, MAX_HIGHLIGHTERS, moved } from './highlighters'
+import type { Highlights } from './highlights'
 import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type BookSearch, noMatches } from './search'
@@ -27,6 +29,9 @@ export interface ControlsOptions {
     bookmarks: Bookmarks
     /** The book's highlights, for a book with text; null for comics and PDFs. */
     highlights: Highlights | null
+    /** The reader's highlighters and the sheet that adds and edits them, with the highlights. */
+    highlighters: Highlighters | null
+    highlighterSheet: HighlighterSheet | null
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -78,6 +83,9 @@ const ICONS = {
     trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
     note: 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z',
+    drag: 'M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
+    edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
+    plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
     highlight: 'M22 24H2v-4h20v4zM13.06 5.19l3.75 3.75L7.75 18H4v-3.75l9.06-9.06zm4.82 2.68l-3.75-3.75 1.83-1.83c.39-.39 1.02-.39 1.41 0l2.34 2.34c.39.39.39 1.02 0 1.41l-1.83 1.83z',
 }
 
@@ -277,17 +285,19 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         bookmarksBody.replaceChildren(list)
     }
     // The highlights of the colour chosen (all for null), under chips choosing it.
-    let colourShown: Colour | null = null
+    let colourShown: string | null = null
     const fillHighlights = (): void => {
         const highlights = options.highlights
-        if (!highlights) return
+        const highlighters = options.highlighters
+        if (!highlights || !highlighters) return
+        if (colourShown && !highlighters.list().some(highlighter => highlighter.id === colourShown)) colourShown = null
         if (!highlights.rows(null).length) {
             highlightsBody.replaceChildren(element('div', { class: 'empty' },
                 `${icon(ICONS.highlight)}<p>No highlights in this book yet.</p><p class="hint">Select text to highlight it or add a note.</p>`))
             return
         }
         const chips = element('div', { role: 'group', class: 'chips', 'aria-label': 'Show highlights of one colour' })
-        for (const [colour, name, solid] of [[null, 'All', ''], ...HIGHLIGHTERS.map(each => [each.colour, each.name, each.solid] as const)] as const) {
+        for (const [colour, name, solid] of [[null, 'All', ''] as const, ...highlighters.list().map(each => [each.id, each.name, each.solid] as const)]) {
             const chip = element('button', { type: 'button', class: 'chip', 'aria-pressed': String(colour === colourShown) },
                 `${solid ? '<span class="dot"></span>' : ''}<span></span>`)
             chip.querySelector<HTMLElement>('.dot')?.style.setProperty('background', solid)
@@ -318,7 +328,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             const mark = entry.querySelector('mark')!
             mark.textContent = row.text
             mark.dataset.colour = row.colour
-            mark.style.background = highlightFill(highlighter(row.colour))
+            mark.style.background = highlightFill(highlighters.find(row.colour))
             entry.querySelector('.where')!.textContent = row.where
             entry.addEventListener('click', event => {
                 event.preventDefault()
@@ -441,7 +451,10 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const prefsClose = closeButton()
     const prefsHeader = element('div', { class: 'panel-header' }, '<h2>Preferences</h2>')
     prefsHeader.append(prefsClose)
-    const prefsBody = element('div', { class: 'panel-body' }, '<p class="note">Your preferences apply to this device.</p>')
+    const prefsBody = element('div', { class: 'panel-body' }, '<p class="note"></p>')
+    prefsBody.querySelector('.note')!.textContent = options.highlighters
+        ? 'Your preferences apply to this device. Your highlighters follow you on every device.'
+        : 'Your preferences apply to this device.'
     prefs.append(prefsHeader, prefsBody)
     let settings = options.settings
     const group = (name: string): { box: HTMLElement, row: HTMLElement } => {
@@ -569,7 +582,132 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return { setting, button }
     })
 
-    prefsBody.append(themes.box, fonts.box, steppers, margins, pageTurns.box, progressRow, checks, resetButton)
+    // Highlighters: each in its order, to move, edit and (the reader's own) delete, then Add a highlighter.
+    const highlighterGroup = element('div', { role: 'group', 'aria-label': 'Highlighters', class: 'highlighter-list' },
+        '<span class="group-label"><span>Highlighters</span><span class="count"></span></span><ul></ul>')
+    const highlighterRows = highlighterGroup.querySelector('ul')!
+    const addHighlighter = element('button', { type: 'button', class: 'add-highlighter' }, `${icon(ICONS.plus)}<span>Add a highlighter</span>`)
+    highlighterGroup.append(addHighlighter)
+    const deleteDialog = element('div', { id: 'highlighter-dialog', class: 'dialog-layer', 'data-controls': '' })
+    const deleteBox = element('div', { role: 'alertdialog', 'aria-modal': 'true', 'aria-labelledby': 'highlighter-dialog-title', 'aria-describedby': 'highlighter-dialog-body' },
+        '<h2 id="highlighter-dialog-title"></h2><p id="highlighter-dialog-body"></p><div class="dialog-buttons"></div>')
+    const keepHighlighter = element('button', { type: 'button', class: 'cancel' }, 'Cancel')
+    const deleteHighlighter = element('button', { type: 'button', class: 'confirm danger' }, 'Delete')
+    deleteBox.querySelector('.dialog-buttons')!.append(keepHighlighter, deleteHighlighter)
+    deleteDialog.append(deleteBox)
+    deleteDialog.hidden = true
+    let deleting: string | null = null
+    const closeDelete = (): void => {
+        deleteDialog.hidden = true
+        deleting = null
+    }
+    keepHighlighter.addEventListener('click', closeDelete)
+    deleteDialog.addEventListener('click', event => {
+        if (event.target === deleteDialog) closeDelete()
+    })
+    deleteHighlighter.addEventListener('click', () => {
+        const highlighters = options.highlighters
+        const id = deleting
+        closeDelete()
+        if (!highlighters || !id) return
+        const left = highlighters.list().filter(highlighter => highlighter.id !== id).map(({ id: kept, name, solid }) => ({ id: kept, name, colour: solid }))
+        // Its highlights become Quotes highlights on the server; read this book's again.
+        void highlighters.save(left).then(saved => { if (saved) void options.highlights?.reload() })
+    })
+    const confirmDelete = async (id: string): Promise<void> => {
+        const highlighters = options.highlighters
+        if (!highlighters) return
+        await highlighters.refresh()
+        const { name, uses } = highlighters.find(id)
+        deleteBox.querySelector('h2')!.textContent = `Delete the ${name} highlighter?`
+        deleteBox.querySelector('p')!.textContent = uses === 0 ? 'No highlights use it.'
+            : uses === 1 ? '1 highlight uses it. It will become a Quotes highlight, so nothing you marked is lost.'
+                : `${uses} highlights use it. They will become Quotes highlights, so nothing you marked is lost.`
+        deleting = id
+        deleteDialog.hidden = false
+        keepHighlighter.focus()
+    }
+    // Keeps the list in a new order, then puts the focus back on the moved one's handle.
+    const reorder = (from: number, to: number): void => {
+        const highlighters = options.highlighters
+        if (!highlighters || from === to) return
+        const list = highlighters.list()
+        const id = list[from].id
+        void highlighters.save(moved(list, from, to).map(({ id: kept, name, solid }) => ({ id: kept, name, colour: solid }))).then(() => {
+            highlighterRows.querySelector<HTMLElement>(`[data-id="${CSS.escape(id)}"] .move`)?.focus()
+        })
+    }
+    const fillHighlighterList = (): void => {
+        const highlighters = options.highlighters
+        if (!highlighters) return
+        const list = highlighters.list()
+        highlighterGroup.querySelector('.count')!.textContent = `${list.length} of ${MAX_HIGHLIGHTERS}`
+        addHighlighter.hidden = list.length >= MAX_HIGHLIGHTERS
+        highlighterRows.replaceChildren(...list.map((highlighter, index) => {
+            const row = element('li', { 'data-id': highlighter.id },
+                `<button type="button" class="move">${icon(ICONS.drag)}</button><span class="dot"></span><span class="name"><span></span></span>`)
+            const move = row.querySelector<HTMLButtonElement>('.move')!
+            move.setAttribute('aria-label', `Move ${highlighter.name}`)
+            row.querySelector<HTMLElement>('.dot')!.style.background = highlighter.solid
+            row.querySelector('.name span')!.textContent = highlighter.name
+            if (highlighter.builtIn) row.querySelector('.name')!.append(element('span', { class: 'default' }, 'Default colour'))
+            const edit = element('button', { type: 'button', class: 'icon-button', 'aria-label': `Edit ${highlighter.name}` }, icon(ICONS.edit))
+            edit.addEventListener('click', () => options.highlighterSheet?.open(highlighter))
+            row.append(edit)
+            if (!highlighter.builtIn) {
+                const remove = element('button', { type: 'button', class: 'icon-button', 'aria-label': `Delete ${highlighter.name}` }, icon(ICONS.trash))
+                remove.addEventListener('click', () => { void confirmDelete(highlighter.id) })
+                row.append(remove)
+            } else {
+                row.append(element('span', { class: 'spacer', 'aria-hidden': 'true' }))
+            }
+            // The arrows move it one place; a drag by the handle moves it where it is dropped.
+            move.addEventListener('keydown', event => {
+                const to = event.key === 'ArrowUp' ? index - 1 : event.key === 'ArrowDown' ? index + 1 : -1
+                if (to < 0 || to >= list.length) return
+                event.preventDefault()
+                reorder(index, to)
+            })
+            move.addEventListener('pointerdown', event => {
+                event.preventDefault()
+                move.setPointerCapture(event.pointerId)
+                // The rows stay where they are while the one dragged follows the
+                // pointer (moving it in the list would lose the pointer); where it
+                // lands is worked out from the others' middles as the drag began.
+                const middles = ([...highlighterRows.children] as HTMLElement[]).filter(each => each !== row)
+                    .map(each => each.getBoundingClientRect().top + each.offsetHeight / 2)
+                const startY = event.clientY
+                let at = index
+                row.classList.add('dragging')
+                const follow = (moving: PointerEvent): void => {
+                    row.style.transform = `translateY(${moving.clientY - startY}px)`
+                    at = middles.filter(middle => moving.clientY > middle).length
+                }
+                const drop = (): void => {
+                    move.removeEventListener('pointermove', follow)
+                    move.removeEventListener('pointerup', drop)
+                    move.removeEventListener('pointercancel', drop)
+                    row.classList.remove('dragging')
+                    row.style.transform = ''
+                    reorder(index, at)
+                }
+                move.addEventListener('pointermove', follow)
+                move.addEventListener('pointerup', drop)
+                move.addEventListener('pointercancel', drop)
+            })
+            return row
+        }))
+    }
+    addHighlighter.addEventListener('click', () => options.highlighterSheet?.open(null))
+    options.highlighters?.onChange(() => {
+        fillHighlighterList()
+        if (state.contents && tabShown === 'highlights') fillHighlights()
+    })
+    fillHighlighterList()
+
+    prefsBody.append(themes.box, fonts.box, steppers, margins, pageTurns.box, progressRow, checks)
+    if (options.highlighters) prefsBody.append(highlighterGroup)
+    prefsBody.append(resetButton)
     const fillPrefs = (): void => {
         const fixed = options.fixedLayout
         const own = settings.bookLayout
@@ -609,7 +747,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     }
     fillPrefs()
 
-    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, searchBackdrop, searchPanel, resetDialog)
+    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, searchBackdrop, searchPanel, resetDialog, deleteDialog)
 
     // The reading gestures hint, over everything: by itself the first time
     // this device opens a book, and from More at any time.
@@ -668,6 +806,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         if (event.key !== 'Escape') return
         if (hint.shown) hint.close()
         else if (!resetDialog.hidden) closeReset()
+        else if (!deleteDialog.hidden) closeDelete()
         else if (state.more || state.contents || state.prefs || state.search) {
             // Escape in the search field would also clear it; the search stays for next time.
             event.preventDefault()

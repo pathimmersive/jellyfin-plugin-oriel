@@ -198,6 +198,18 @@ public sealed class PositionStoreTests : IDisposable
     }
 
     [Fact]
+    public void AddsHighlightersToADatabaseFromBeforeThemKeepingItsHighlights()
+    {
+        var before = new PositionStore(DatabasePath, [.. PositionStore.Schema.Take(4)])
+            .AddHighlight(Reader, Book, "epubcfi(/6/8!/4/2,/1:0,/1:7)", 0.6, "pink", "Chapter", DateTimeOffset.UnixEpoch, "Noted.").Highlight;
+        var store = new PositionStore(DatabasePath);
+
+        Assert.Equal(before, Assert.Single(store.ListHighlights(Reader, Book)));
+        Assert.Equal(["yellow", "green", "blue", "pink"], store.ListHighlighters(Reader).Select(highlighter => highlighter.Id));
+        Assert.Equal(1, store.ListHighlighters(Reader)[3].Uses);
+    }
+
+    [Fact]
     public void RemovesOnlyTheUsersOwnHighlight()
     {
         var store = new PositionStore(DatabasePath);

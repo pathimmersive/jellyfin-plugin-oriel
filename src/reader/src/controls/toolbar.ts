@@ -1,5 +1,7 @@
 import type { Highlight } from '../api/client'
-import { type Colour, HIGHLIGHTERS, highlighter, highlightFill, type Highlights, highlightText, NOTE_LENGTH } from './highlights'
+import type { HighlighterSheet } from './highlighter-sheet'
+import { highlightFill, type Highlighters, MAX_HIGHLIGHTERS } from './highlighters'
+import { type Highlights, highlightText, NOTE_LENGTH } from './highlights'
 
 /** A box on screen, in the page's coordinates. */
 export interface Box {
@@ -46,8 +48,8 @@ export interface HighlightingBook {
     onSelect(selected: (selection: TextSelection | null) => void): void
     /** Calls `tapped` for a tap or click on the page with the highlight under it (null for none); true stops the tap there. */
     onTap(tapped: (cfi: string | null) => boolean): void
-    /** Draws the highlights on the page, the one at `ringed` ringed. */
-    showHighlights(highlights: { cfi: string, colour: string }[], ringed: string | null): void
+    /** Draws the highlights on the page, each in its highlighter's colour and strength, the one at `ringed` ringed. */
+    showHighlights(highlights: { cfi: string, colour: string, solid: string, fill: number }[], ringed: string | null): void
     /** A highlight's box on screen, or null when it is not on the page. */
     boxOf(cfi: string): Box | null
     clearSelection(): void
@@ -63,24 +65,38 @@ export interface Highlighting {
 
 const TRASH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
 const NOTE = 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z'
+const PLUS = 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z'
 const CLOSE = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'
 
 const svg = (path: string, size: number): string =>
     `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`
 
-// A dot button for each highlighter, named 'Highlight: <name>', calling `chosen` with its colour.
-const highlighterButtons = (group: HTMLElement, chosen: (colour: Colour) => void): HTMLButtonElement[] => HIGHLIGHTERS.map(({ colour, name, solid }) => {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.className = 'highlighter'
-    button.setAttribute('aria-label', `Highlight: ${name}`)
-    button.dataset.colour = colour
-    button.innerHTML = '<span class="dot"></span>'
-    button.querySelector<HTMLElement>('.dot')!.style.background = solid
-    button.addEventListener('click', () => chosen(colour))
-    group.append(button)
-    return button
-})
+// Fills `group` with a dot button for each highlighter, named 'Highlight: <name>',
+// calling `chosen` with its id, the one `pressed` pressed (none pressed for
+// null, no aria-pressed at all for undefined), and then 'Add a highlighter'
+// while there is room for another.
+const fillHighlighters = (group: HTMLElement, highlighters: Highlighters, pressed: string | null | undefined, chosen: (id: string) => void, add: () => void): void => {
+    group.replaceChildren(...highlighters.list().map(({ id, name, solid }) => {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.className = 'highlighter'
+        button.setAttribute('aria-label', `Highlight: ${name}`)
+        button.dataset.colour = id
+        if (pressed !== undefined) button.setAttribute('aria-pressed', String(id === pressed))
+        button.innerHTML = '<span class="dot"></span>'
+        button.querySelector<HTMLElement>('.dot')!.style.background = solid
+        button.addEventListener('click', () => chosen(id))
+        return button
+    }))
+    if (highlighters.list().length >= MAX_HIGHLIGHTERS) return
+    const more = document.createElement('button')
+    more.type = 'button'
+    more.className = 'add-highlighter'
+    more.setAttribute('aria-label', 'Add a highlighter')
+    more.innerHTML = `<span>${svg(PLUS, 16)}</span>`
+    more.addEventListener('click', add)
+    group.append(more)
+}
 
 /**
  * The Selected text toolbar and what it does: selecting text shows it with the
@@ -89,8 +105,11 @@ const highlighterButtons = (group: HTMLElement, chosen: (colour: Colour) => void
  * highlighter recolours it. A tap elsewhere, Escape or a page turn closes it.
  * Its Note (Edit note for a highlight with one) opens the Note sheet, where
  * Save keeps the note with the highlight, making the highlight for a selection.
+ * Add a highlighter, after the highlighters on both, opens the New highlighter
+ * sheet; the new one highlights the selection (or recolours the highlight) from
+ * the toolbar, and is pressed on the Note sheet.
  */
-export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, wide: () => boolean): Highlighting => {
+export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean): Highlighting => {
     const bar = document.createElement('div')
     bar.id = 'selection-toolbar'
     bar.setAttribute('role', 'toolbar')
@@ -101,7 +120,6 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     group.className = 'highlighters'
     group.setAttribute('role', 'group')
     group.setAttribute('aria-label', 'Highlighters')
-    const buttons = highlighterButtons(group, colour => choose(colour))
     const noteButton = document.createElement('button')
     noteButton.type = 'button'
     noteButton.className = 'note'
@@ -134,13 +152,13 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         + '<div class="sheet-buttons"><button type="button" class="cancel">Cancel</button><button type="button" class="save">Save</button></div></div>'
     const quote = sheet.querySelector('mark')!
     const field = sheet.querySelector('textarea')!
-    let notePressed: Colour = 'yellow'
-    const pressNote = (colour: Colour): void => {
-        notePressed = colour
-        for (const button of noteButtons) button.setAttribute('aria-pressed', String(button.dataset.colour === colour))
-        quote.style.background = highlightFill(highlighter(colour))
+    const noteGroup = sheet.querySelector<HTMLElement>('.highlighters')!
+    let notePressed = 'yellow'
+    const pressNote = (id: string): void => {
+        notePressed = highlighters.find(id).id
+        fillHighlighters(noteGroup, highlighters, notePressed, pressNote, () => sheetOf.open(null, added => { if (added) pressNote(added) }))
+        quote.style.background = highlightFill(highlighters.find(notePressed))
     }
-    const noteButtons = highlighterButtons(sheet.querySelector<HTMLElement>('.highlighters')!, pressNote)
     sheetBackdrop.hidden = true
     sheet.hidden = true
     root.append(bar, sheetBackdrop, sheet)
@@ -149,14 +167,18 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     type Target = { selection: TextSelection } | { highlight: Highlight }
     let target: Target | null = null
     const ringed = (): string | null => target && 'highlight' in target ? target.highlight.cfi : null
-    const draw = (): void => book.showHighlights(highlights.all(), ringed())
-    const show = (around: Box, pressed: Colour | null, noted = false): void => {
-        for (const button of buttons) {
-            if (pressed) button.setAttribute('aria-pressed', String(button.dataset.colour === pressed))
-            else button.removeAttribute('aria-pressed')
-        }
+    const draw = (): void => book.showHighlights(highlights.all().map(({ cfi, colour }) => {
+        const { id, solid, fill } = highlighters.find(colour)
+        return { cfi, colour: id, solid, fill }
+    }), ringed())
+    // The highlighter pressed while the toolbar shows: the highlight's, or none for a selection.
+    let pressed: string | null = null
+    const fillBar = (): void => fillHighlighters(group, highlighters, pressed ?? undefined, id => choose(id), addFromBar)
+    const show = (around: Box, pressedNow: string | null, noted = false): void => {
+        pressed = pressedNow
+        fillBar()
         noteButton.querySelector('span')!.textContent = noted ? 'Edit note' : 'Note'
-        actions.hidden = !pressed
+        actions.hidden = !pressedNow
         bar.hidden = false
         const place = toolbarPlace(around, bar.offsetHeight, { width: window.innerWidth, height: window.innerHeight }, wide())
         bar.style.left = `${place.left}px`
@@ -169,9 +191,8 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         bar.hidden = true
         if (wasRinged) draw()
     }
-    const choose = (colour: Colour): void => {
-        const chosen = target
-        close()
+    const choose = (colour: string, chosen = target): void => {
+        if (chosen === target) close()
         if (!chosen) return
         if ('selection' in chosen) {
             const { cfi, fraction, text } = chosen.selection
@@ -180,6 +201,15 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         } else {
             void highlights.update(chosen.highlight.id, { colour })
         }
+    }
+    // A new highlighter from the toolbar highlights the selection, or recolours the highlight, in it.
+    const addFromBar = (): void => {
+        const chosen = target
+        close()
+        sheetOf.open(null, added => {
+            if (added && chosen) choose(added, chosen)
+            else if (chosen && 'selection' in chosen) book.clearSelection()
+        })
     }
     remove.addEventListener('click', () => {
         const chosen = target
@@ -203,7 +233,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         noting = chosen
         const highlight = 'highlight' in chosen ? chosen.highlight : null
         quote.textContent = 'selection' in chosen ? highlightText(chosen.selection.text) : chosen.highlight.text
-        pressNote(highlight ? highlighter(highlight.colour).colour : 'yellow')
+        pressNote(highlight ? highlight.colour : 'yellow')
         field.value = highlight?.note ?? ''
         sheet.hidden = false
         sheetBackdrop.hidden = false
@@ -226,6 +256,11 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     }
 
     highlights.onChange(draw)
+    highlighters.onChange(() => {
+        draw()
+        if (!bar.hidden) fillBar()
+        if (!sheet.hidden) pressNote(notePressed)
+    })
     book.onSelect(selection => {
         if (selection) {
             const wasRinged = ringed()
@@ -242,7 +277,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         if (highlight && box) {
             target = { highlight }
             draw()
-            show(box, highlighter(highlight.colour).colour, highlight.note !== '')
+            show(box, highlighters.find(highlight.colour).id, highlight.note !== '')
             return true
         }
         if (bar.hidden) return false

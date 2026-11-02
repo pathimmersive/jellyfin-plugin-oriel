@@ -5,7 +5,6 @@ import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
 import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
-import { highlighter } from '../controls/highlights'
 import type { Box, TextSelection } from '../controls/toolbar'
 import type { SearchSection } from '../controls/search'
 import type { PageCount, PagesShown } from '../controls/progress'
@@ -140,11 +139,11 @@ export interface OpenBook {
     /** Book order of two places (CFIs): negative when `a` comes first. */
     compare(a: string, b: string): number
     /**
-     * Draws highlights behind their text, each in its highlighter's colour,
-     * the one at `ringed` ringed in the accent colour; highlights no longer
-     * listed are cleared. Sections loaded later draw theirs as they load.
+     * Draws highlights behind their text, each in its highlighter's colour at
+     * its strength, the one at `ringed` ringed in the accent colour; highlights
+     * no longer listed are cleared. Sections loaded later draw theirs as they load.
      */
-    showHighlights(highlights: { cfi: string, colour: string }[], ringed: string | null): void
+    showHighlights(highlights: { cfi: string, colour: string, solid: string, fill: number }[], ringed: string | null): void
     /** Calls `selected` with the text selected in the book, or null when none is, once a selection settles (on release of the mouse). */
     onSelect(selected: (selection: TextSelection | null) => void): void
     /**
@@ -188,6 +187,13 @@ const TWO_COLUMN_GAP = 48
 
 // The colour search marks matches on the page in: the selection colour, at foliate-js's highlight opacity.
 const SEARCH_MARK = '#00a4dc'
+
+// How a highlight is drawn: its highlighter's id, colour and strength.
+interface HighlightStyle {
+    colour: string
+    solid: string
+    fill: number
+}
 
 // The ring around a highlight tapped: the accent colour.
 const HIGHLIGHT_RING = '#00a4dc'
@@ -244,10 +250,10 @@ export const openBook = async (
     }
     const gesture = wheelGesture()
     const page = (): DOMRect => container.getBoundingClientRect()
-    // The highlights drawn, by CFI, with their colours, and the one ringed.
-    // foliate-js asks for each one's drawing as it is added, and again as its
-    // section loads.
-    let drawn = new Map<string, string>()
+    // The highlights drawn, by CFI, with their highlighters' ids, colours and
+    // strengths, and the one ringed. foliate-js asks for each one's drawing as
+    // it is added, and again as its section loads.
+    let drawn = new Map<string, HighlightStyle>()
     let ringed: string | null = null
     // A tap is first offered to highlighting, with the highlight under it.
     let tapped: (cfi: string | null) => boolean = () => false
@@ -413,10 +419,9 @@ export const openBook = async (
     const annotation = (cfi: string): { value: string } => ({ value: cfi })
     view.addEventListener('draw-annotation', event => {
         const { draw, annotation } = (event as CustomEvent<{ draw: (draw: unknown, options: unknown) => void, annotation: { value: string } }>).detail
-        const colour = drawn.get(annotation.value)
-        if (colour === undefined) return
-        const { solid, fill } = highlighter(colour)
-        draw(drawHighlight, { colour, solid, fill, ring: annotation.value === ringed ? HIGHLIGHT_RING : null })
+        const style = drawn.get(annotation.value)
+        if (!style) return
+        draw(drawHighlight, { ...style, ring: annotation.value === ringed ? HIGHLIGHT_RING : null })
     })
     view.addEventListener('create-overlay', event => {
         const { index } = (event as CustomEvent<{ index: number }>).detail
@@ -492,14 +497,15 @@ export const openBook = async (
         },
         showHighlights(highlights, ring) {
             if (view.isFixedLayout) return
-            const next = new Map(highlights.map(({ cfi, colour }) => [cfi, colour]))
+            const next = new Map(highlights.map(({ cfi, colour, solid, fill }) => [cfi, { colour, solid, fill }]))
             const before = drawn
             const ringedBefore = ringed
             drawn = next
             ringed = ring
             for (const cfi of before.keys()) if (!next.has(cfi)) void view.deleteAnnotation(annotation(cfi))
-            for (const [cfi, colour] of next) {
-                if (before.get(cfi) !== colour || cfi === ring || cfi === ringedBefore) void view.addAnnotation(annotation(cfi))
+            const same = (a?: HighlightStyle, b?: HighlightStyle): boolean => !!a && !!b && a.colour === b.colour && a.solid === b.solid && a.fill === b.fill
+            for (const [cfi, style] of next) {
+                if (!same(before.get(cfi), style) || cfi === ring || cfi === ringedBefore) void view.addAnnotation(annotation(cfi))
             }
         },
         onSelect(onSelected) {
