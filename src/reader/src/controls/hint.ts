@@ -37,6 +37,36 @@ export const sawHint = (storage: Pick<Storage, 'getItem' | 'setItem'>, kind: Hin
     }
 }
 
+/** The reader's last input, as the hint reads it. */
+export interface LastInput {
+    /** Listens for input in `win`: this page, or a section document of the book. */
+    watch(win: Pick<Window, 'addEventListener'>): void
+    /** True when the reader last touched the screen; before any input, `coarse` (the primary pointer) decides. */
+    touch(): boolean
+}
+
+/**
+ * Follows the input the reader last used, so a device with both touch and a
+ * mouse or trackpad teaches the gestures in use: a touch, or a mouse, trackpad
+ * or key. A pen leaves it as it was.
+ */
+export const lastInput = (coarse: () => boolean): LastInput => {
+    let touched: boolean | null = null
+    return {
+        watch(win) {
+            const options = { capture: true, passive: true }
+            win.addEventListener('pointerdown', event => {
+                if (event.pointerType === 'touch') touched = true
+                else if (event.pointerType === 'mouse') touched = false
+            }, options)
+            win.addEventListener('touchstart', () => { touched = true }, options)
+            win.addEventListener('keydown', () => { touched = false }, options)
+            win.addEventListener('wheel', () => { touched = false }, options)
+        },
+        touch: () => touched ?? coarse(),
+    }
+}
+
 /**
  * Whether a hint shows by itself: on opening a book, until this device has
  * dismissed one; on choosing Scroll, until it has dismissed the Scroll hint.
