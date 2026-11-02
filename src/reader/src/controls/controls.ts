@@ -24,7 +24,7 @@ export interface ControlsOptions {
     fixedLayout: boolean
     /** True on a screen wider than a phone's, whose margins start wider. */
     wide(): boolean
-    /** True on a touch screen (a coarse pointer), whose reading gestures are taps and swipes. */
+    /** True when the reader reads by touch, whose reading gestures are taps and swipes: the last input, else the primary pointer. */
     touch(): boolean
     /** Where this device remembers the reading gestures hints it has dismissed. */
     storage: Pick<Storage, 'getItem' | 'setItem'>

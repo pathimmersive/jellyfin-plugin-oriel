@@ -3,6 +3,7 @@ import { BookLoadError, downloadBook, publicServerId, readJellyfinPosition, read
 import { serverBasePath } from './base'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
+import { lastInput } from './controls/hint'
 import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
@@ -74,7 +75,14 @@ const start = async (): Promise<void> => {
         stage = 'opened'
         const start = chooseStart(stored, jellyfin)
         let controls: Controls | null = null
-        const opened = await openBook(book, file, view => overlay?.timeTurns(view), start,
+        // The reading gestures hint follows the reader's last input, in this page and in the book's own documents.
+        const input = lastInput(() => matchMedia('(pointer: coarse)').matches)
+        input.watch(window)
+        const watchSections = (view: EventTarget): void => view.addEventListener('load', event => {
+            const win = (event as CustomEvent<{ doc: Document }>).detail.doc.defaultView
+            if (win) input.watch(win)
+        })
+        const opened = await openBook(book, file, view => { watchSections(view); overlay?.timeTurns(view) }, start,
             () => controls?.middle(), () => controls?.turned(), bookStyles(settings, faces), marginsFor(settings, wide.matches), settings.pageTurn)
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
@@ -103,7 +111,7 @@ const start = async (): Promise<void> => {
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,
-            touch: () => matchMedia('(pointer: coarse)').matches,
+            touch: input.touch,
             storage: localStorage,
             change(changed) {
                 const restyle = bookStyles(changed, faces) !== bookStyles(settings, faces)

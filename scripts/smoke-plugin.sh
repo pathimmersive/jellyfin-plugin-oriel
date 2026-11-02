@@ -257,7 +257,7 @@ check_page_turn_in_browser() {
 
 check_hint_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in webkit chromium hybrid; do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/hint.e2e.mjs" || fail "the reading gestures hint in $browser at $1"
     done

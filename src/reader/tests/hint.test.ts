@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hintDue, hintKind, hintLine, readHintsSeen, sawHint } from '../src/controls/hint'
+import { hintDue, hintKind, hintLine, lastInput, readHintsSeen, sawHint } from '../src/controls/hint'
 
 const memory = (): { getItem: (key: string) => string | null, setItem: (key: string, value: string) => void } => {
     const kept = new Map<string, string>()
@@ -44,5 +44,55 @@ describe('when the hint shows by itself', () => {
         expect(readHintsSeen({ getItem: () => 'not json' })).toEqual({ first: false, scroll: false })
         expect(readHintsSeen({ getItem: () => '{"first":"yes"}' })).toEqual({ first: false, scroll: false })
         expect(() => sawHint({ getItem: () => null, setItem: () => { throw new Error('QuotaExceededError') } }, 'touch')).not.toThrow()
+    })
+})
+
+describe('lastInput', () => {
+    // A window that records its listeners, and sends one event to them.
+    const fakeWindow = () => {
+        const listeners = new Map<string, ((event: unknown) => void)[]>()
+        return {
+            addEventListener: (type: string, listener: (event: unknown) => void) => {
+                listeners.set(type, [...listeners.get(type) ?? [], listener])
+            },
+            send: (type: string, event: object = {}) => listeners.get(type)?.forEach(listener => listener(event)),
+        }
+    }
+
+    it('follows the primary pointer until the reader uses one', () => {
+        let coarse = true
+        const input = lastInput(() => coarse)
+        input.watch(fakeWindow() as unknown as Window)
+        expect(input.touch()).toBe(true)
+        coarse = false
+        expect(input.touch()).toBe(false)
+    })
+
+    it('follows a touch, then a mouse, a key or the wheel, in any watched window', () => {
+        const input = lastInput(() => false)
+        const page = fakeWindow()
+        const section = fakeWindow()
+        input.watch(page as unknown as Window)
+        input.watch(section as unknown as Window)
+        section.send('pointerdown', { pointerType: 'touch' })
+        expect(input.touch()).toBe(true)
+        page.send('pointerdown', { pointerType: 'mouse' })
+        expect(input.touch()).toBe(false)
+        section.send('touchstart')
+        expect(input.touch()).toBe(true)
+        page.send('keydown')
+        expect(input.touch()).toBe(false)
+        section.send('touchstart')
+        section.send('wheel')
+        expect(input.touch()).toBe(false)
+    })
+
+    it('leaves the last input as it was for a pen', () => {
+        const input = lastInput(() => false)
+        const page = fakeWindow()
+        input.watch(page as unknown as Window)
+        page.send('touchstart')
+        page.send('pointerdown', { pointerType: 'pen' })
+        expect(input.touch()).toBe(true)
     })
 })
