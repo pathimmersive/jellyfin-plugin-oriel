@@ -13,20 +13,20 @@ const sources = (stored: Highlight[] = [], overrides: Partial<HighlightSources> 
     const result: HighlightSources & { server: Highlight[] } = {
         server,
         load: async () => [...server],
-        add: async (cfi, fraction, colour, text) => {
+        add: async (cfi, fraction, colour, text, note) => {
             const there = server.find(each => each.cfi === cfi)
             if (there) {
-                there.colour = colour
+                Object.assign(there, { colour, note })
                 return { ...there }
             }
-            const highlight = { id: `h${next++}`, cfi, fraction, colour, text, createdAt: `2026-11-02T12:00:0${next}Z` }
+            const highlight: Highlight = { id: `h${next++}`, cfi, fraction, colour, text, note, createdAt: `2026-11-02T12:00:0${next}Z` }
             server.push(highlight)
             return { ...highlight }
         },
-        recolour: async (id, colour) => {
+        update: async (id, change) => {
             const there = server.find(each => each.id === id)
             if (!there) return null
-            there.colour = colour
+            Object.assign(there, change)
             return { ...there }
         },
         remove: async id => {
@@ -43,7 +43,7 @@ const sources = (stored: Highlight[] = [], overrides: Partial<HighlightSources> 
 }
 
 const stored = (id: string, cfi: string, colour: string, fraction = 0.1): Highlight =>
-    ({ id, cfi, fraction, colour, text: `Text ${id}`, createdAt: '2026-11-01T00:00:00Z' })
+    ({ id, cfi, fraction, colour, text: `Text ${id}`, note: '', createdAt: '2026-11-01T00:00:00Z' })
 
 describe('highlighters', () => {
     it('are the canvas\'s four, Quotes for a colour this reader does not know', () => {
@@ -75,8 +75,8 @@ describe('createHighlights', () => {
 
         expect(changes).toBe(1)
         expect(highlights.rows(null)).toEqual([
-            { id: 'y', text: 'Text y', colour: 'yellow', where: 'Chapter One · 10%' },
-            { id: 'x', text: 'Text x', colour: 'pink', where: 'Chapter Three · 60%' },
+            { id: 'y', text: 'Text y', colour: 'yellow', note: '', where: 'Chapter One · 10%' },
+            { id: 'x', text: 'Text x', colour: 'pink', note: '', where: 'Chapter Three · 60%' },
         ])
         expect(highlights.at('epubcfi(/6/8!/4/2,/1:0,/1:4)')?.id).toBe('x')
     })
@@ -97,13 +97,26 @@ describe('createHighlights', () => {
         expect(await highlights.add('epubcfi(/6/4)', 0.2, 'blue', 'a truth')).toBe(true)
         expect(highlights.all()).toEqual([expect.objectContaining({ id: 'h1', cfi: 'epubcfi(/6/4)', colour: 'blue', text: 'a truth' })])
 
-        await highlights.recolour('h1', 'green')
+        await highlights.update('h1', { colour: 'green' })
         expect(highlights.rows(null).map(row => row.colour)).toEqual(['green'])
         expect(from.server[0].colour).toBe('green')
 
         await highlights.remove('h1')
         expect(highlights.all()).toEqual([])
         expect(from.server).toEqual([])
+    })
+
+    it('keeps a note with a highlight, changes it and empties it', async () => {
+        const from = sources()
+        const highlights = createHighlights(from)
+        await settle()
+
+        await highlights.add('epubcfi(/6/4)', 0.2, 'yellow', 'a truth', 'The irony starts here.')
+        expect(highlights.rows(null).map(row => row.note)).toEqual(['The irony starts here.'])
+        await highlights.update('h1', { colour: 'blue', note: 'Edited.' })
+        expect(highlights.rows(null).map(({ colour, note }) => ({ colour, note }))).toEqual([{ colour: 'blue', note: 'Edited.' }])
+        await highlights.update('h1', { note: '' })
+        expect(from.server[0]).toEqual(expect.objectContaining({ colour: 'blue', note: '' }))
     })
 
     it('keeps one highlight per place, in the colour last chosen', async () => {
@@ -117,14 +130,14 @@ describe('createHighlights', () => {
 
     it('changes nothing when the server does not take a change', async () => {
         const highlights = createHighlights(sources([stored('z', 'epubcfi(/6/2)', 'yellow')], {
-            add: async () => null, recolour: async () => null, remove: async () => false,
+            add: async () => null, update: async () => null, remove: async () => false,
         }))
         await settle()
 
         expect(await highlights.add('epubcfi(/6/4)', 0.2, 'blue', 'a truth')).toBe(false)
-        await highlights.recolour('z', 'pink')
+        await highlights.update('z', { colour: 'pink', note: 'Lost' })
         await highlights.remove('z')
-        expect(highlights.rows(null)).toEqual([{ id: 'z', text: 'Text z', colour: 'yellow', where: 'Chapter One · 10%' }])
+        expect(highlights.rows(null)).toEqual([{ id: 'z', text: 'Text z', colour: 'yellow', note: '', where: 'Chapter One · 10%' }])
     })
 
     it('goes to a highlight by its id', async () => {

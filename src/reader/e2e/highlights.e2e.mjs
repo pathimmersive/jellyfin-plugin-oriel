@@ -9,7 +9,10 @@
 // marked in their colours, filters them by colour, goes to one from another
 // chapter and saves the place, deletes one, and says when there are none.
 // Highlights made in one browser show on the page and in the list in another.
-// A comic offers no highlighting. Nothing is requested from another host.
+// The toolbar's Note opens the Note sheet: Cancel keeps nothing, Save makes a
+// highlight with its note; a tapped highlight with a note offers Edit note, an
+// edit is kept and shows in the list and in another browser, and an emptied
+// note is removed. A comic offers no highlighting. Nothing is requested from another host.
 // Configured by environment: ORIEL_BASE (server URL including any BaseUrl),
 // ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID (the test EPUB),
 // ORIEL_CBZ_ID and ORIEL_BROWSER. Exits non-zero on the first failed check.
@@ -200,8 +203,19 @@ const rows = panel => panel.locator('.highlights li').evaluateAll(items => items
 const chips = panel => panel.getByRole('group', { name: 'Show highlights of one colour' }).getByRole('button').evaluateAll(items =>
     items.map(item => `${item.textContent.trim()}${item.getAttribute('aria-pressed') === 'true' ? '*' : ''}`))
 
+// The Note sheet, and what it shows: the text and its fill, the highlighter pressed, and the note.
+const noteSheet = page => page.getByRole('region', { name: 'Note' })
+const noteState = async page => ({
+    quote: (await noteSheet(page).locator('.quote mark').innerText()).trim(),
+    fill: await noteSheet(page).locator('.quote mark').evaluate(mark => getComputedStyle(mark).backgroundColor),
+    pressed: await noteSheet(page).getByRole('group', { name: 'Highlighters' }).getByRole('button', { pressed: true }).getAttribute('aria-label'),
+    note: await noteSheet(page).getByRole('textbox', { name: 'Note' }).inputValue(),
+})
+const noteButton = page => toolbar(page).getByRole('button', { name: /^(Note|Edit note)$/ })
+
 const FIRST = ['Paragraph 1 holds', 'plain filler text']
 const SECOND = ['Paragraph 2 holds', 'every chapter']
+const THIRD = ['Paragraph 3 holds', 'about the same length']
 
 const browser = await setup.engine.launch()
 let failed = false
@@ -368,6 +382,91 @@ try {
     if (empty !== 'No highlights in this book yet. Select text to highlight it or add a note.') fail(`with no highlights the tab shows '${empty}'`)
     if ((await stored(itemId)).length || (await drawn(page)).length) fail('the deleted highlight is still kept or drawn')
     pass(`Remove and Delete this highlight remove them from the page and the server, leaving '${empty}'`)
+    await page.keyboard.press('Escape')
+    await pause(300)
+
+    // Note on the toolbar opens the Note sheet for the selection; Cancel keeps nothing.
+    await select(page, ...THIRD)
+    if ((await noteButton(page).innerText()).trim() !== 'Note') fail(`for a selection the toolbar's note button reads '${(await noteButton(page).innerText()).trim()}'`)
+    await use(noteButton(page))
+    await pause(400)
+    if (!await noteSheet(page).isVisible()) fail('Note did not open the Note sheet')
+    if (await toolbar(page).isVisible()) fail('the toolbar stayed open under the Note sheet')
+    let sheet = await noteState(page)
+    if (JSON.stringify(sheet) !== JSON.stringify({ quote: THIRD[1], fill: 'rgba(255, 213, 79, 0.5)', pressed: 'Highlight: Quotes', note: '' })) fail(`the Note sheet for a selection shows ${JSON.stringify(sheet)}`)
+    await use(noteSheet(page).getByRole('button', { name: 'Cancel' }))
+    await pause(600)
+    if (await noteSheet(page).isVisible()) fail('Cancel left the Note sheet open')
+    if ((await stored(itemId)).length) fail('Cancel kept a highlight')
+    pass(`Note opens the Note sheet with '${sheet.quote}' in Quotes and an empty note, and Cancel keeps nothing`)
+
+    // Save makes the highlight, in the highlighter chosen on the sheet, with its note.
+    await select(page, ...THIRD)
+    await use(noteButton(page))
+    await pause(400)
+    await use(noteSheet(page).getByRole('button', { name: 'Highlight: Green' }))
+    sheet = await noteState(page)
+    if (sheet.pressed !== 'Highlight: Green' || sheet.fill !== 'rgba(129, 199, 132, 0.45)') fail(`choosing Green on the sheet shows ${JSON.stringify(sheet)}`)
+    await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('Every chapter runs the same.')
+    await use(noteSheet(page).getByRole('button', { name: 'Save' }))
+    await pause(1000)
+    if (await noteSheet(page).isVisible()) fail('Save left the Note sheet open')
+    kept = await stored(itemId)
+    if (kept.length !== 1 || kept[0].colour !== 'green' || kept[0].text !== THIRD[1] || kept[0].note !== 'Every chapter runs the same.') fail(`after Save the server keeps ${JSON.stringify(kept)}`)
+    if ((await drawn(page)).map(mark => mark.colour).join() !== 'green') fail('the highlight saved with a note is not drawn in green')
+    pass(`Save highlights '${kept[0].text}' in green with the note '${kept[0].note}'`)
+
+    // The highlight tapped offers Edit note, with its note; an edit is kept.
+    await tapWords(page, ...THIRD)
+    if ((await noteButton(page).innerText()).trim() !== 'Edit note') fail('a highlight with a note does not offer Edit note')
+    await use(noteButton(page))
+    await pause(400)
+    sheet = await noteState(page)
+    if (sheet.pressed !== 'Highlight: Green' || sheet.note !== 'Every chapter runs the same.' || sheet.quote !== THIRD[1]) fail(`Edit note shows ${JSON.stringify(sheet)}`)
+    await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('Every chapter runs about the same.')
+    await use(noteSheet(page).getByRole('button', { name: 'Save' }))
+    await pause(1000)
+    kept = await stored(itemId)
+    if (kept.length !== 1 || kept[0].note !== 'Every chapter runs about the same.' || kept[0].colour !== 'green') fail(`after the edit the server keeps ${JSON.stringify(kept)}`)
+    pass('Edit note on a tapped highlight shows its note and highlighter, and Save keeps the edit')
+
+    // The Highlights tab shows the note under its highlight.
+    panel = await openHighlights(page)
+    const noted = await panel.locator('.highlights li .note').allInnerTexts()
+    if (noted.map(text => text.trim()).join('|') !== 'Every chapter runs about the same.') fail(`the Highlights tab shows the notes ${JSON.stringify(noted)}`)
+    await page.keyboard.press('Escape')
+    await pause(300)
+    pass('the Highlights tab shows the note under its highlight')
+
+    // Another browser shows the note, in the list and on the highlight tapped.
+    const third = await browser.newContext(setup.context)
+    await third.addInitScript(value => {
+        localStorage.setItem('jellyfin_credentials', value)
+        localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
+    }, credentials)
+    const elsewherePage = await open(third, itemId)
+    const theirNotes = await (await openHighlights(elsewherePage)).locator('.highlights li .note').allInnerTexts()
+    if (theirNotes.map(text => text.trim()).join('|') !== 'Every chapter runs about the same.') fail(`another browser lists the notes ${JSON.stringify(theirNotes)}`)
+    await elsewherePage.keyboard.press('Escape')
+    await pause(300)
+    await tapWords(elsewherePage, ...THIRD)
+    if ((await noteButton(elsewherePage).innerText()).trim() !== 'Edit note') fail('in another browser the highlight does not offer Edit note')
+    await third.close()
+    pass('another browser lists the note and offers Edit note on its highlight')
+
+    // An emptied note is removed, and the highlight stays.
+    await tapWords(page, ...THIRD)
+    await use(noteButton(page))
+    await pause(400)
+    await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('')
+    await use(noteSheet(page).getByRole('button', { name: 'Save' }))
+    await pause(1000)
+    kept = await stored(itemId)
+    if (kept.length !== 1 || kept[0].note !== '' || kept[0].colour !== 'green') fail(`after emptying the note the server keeps ${JSON.stringify(kept)}`)
+    await tapWords(page, ...THIRD)
+    if ((await noteButton(page).innerText()).trim() !== 'Note') fail('with its note emptied, the highlight still offers Edit note')
+    await page.keyboard.press('Escape')
+    pass('saving an empty note removes the note and keeps the highlight')
     await page.close()
 
     // A comic offers no highlighting.

@@ -51,11 +51,41 @@ public sealed class HighlightsControllerTests : IDisposable
         Assert.Equal([added], (await controller.GetHighlights(Book)).Value!);
 
         var recoloured = (await controller.PatchHighlight(Book, Guid.Parse(added.Id), new("pink"))).Value!;
+        Assert.Equal(string.Empty, added.Note);
         Assert.Equal(added with { Colour = "pink" }, recoloured);
         Assert.Equal([recoloured], (await controller.GetHighlights(Book)).Value!);
 
         Assert.IsType<NoContentResult>(await controller.DeleteHighlight(Book, Guid.Parse(added.Id)));
         Assert.Empty((await controller.GetHighlights(Book)).Value!);
+    }
+
+    [Fact]
+    public async Task KeepsChangesAndRemovesANoteWithItsHighlight()
+    {
+        var controller = Controller(Reader);
+
+        var added = (await controller.PostHighlight(Book, new(Cfi, 0.6, "green", "a dark and stormy night", "Sets the mood."))).Value!;
+        Assert.Equal(("green", "Sets the mood."), (added.Colour, added.Note));
+
+        var edited = (await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(null, "Sets the mood at once."))).Value!;
+        Assert.Equal(added with { Note = "Sets the mood at once." }, edited);
+
+        var both = (await controller.PatchHighlight(Book, Guid.Parse(added.Id), new("blue", string.Empty))).Value!;
+        Assert.Equal(added with { Colour = "blue", Note = string.Empty }, both);
+        Assert.Equal([both], (await controller.GetHighlights(Book)).Value!);
+    }
+
+    [Fact]
+    public async Task GivesTheHighlightAlreadyAtAPlaceTheNoteSentAndKeepsItsNoteWhenNoneIs()
+    {
+        var controller = Controller(Reader);
+
+        var first = (await controller.PostHighlight(Book, new(Cfi, 0.6, "yellow", "First"))).Value!;
+        var noted = (await controller.PostHighlight(Book, new(Cfi, 0.6, "yellow", "First", "A note."))).Value!;
+        var again = (await controller.PostHighlight(Book, new(Cfi, 0.6, "yellow", "First"))).Value!;
+
+        Assert.Equal(first with { Note = "A note." }, noted);
+        Assert.Equal(noted, again);
     }
 
     [Fact]
@@ -132,10 +162,22 @@ public sealed class HighlightsControllerTests : IDisposable
         Assert.Empty(_store.ListHighlights(Reader, Book));
     }
 
+    [Fact]
+    public async Task RejectsANoteThatIsTooLongAndStoresNothing()
+    {
+        var controller = Controller(Reader);
+        var tooLong = new string('a', HighlightsController.MaxNoteLength + 1);
+
+        Assert.IsType<BadRequestResult>((await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", tooLong))).Result);
+        var added = (await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", new string('a', HighlightsController.MaxNoteLength)))).Value!;
+        Assert.IsType<BadRequestResult>((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(null, tooLong))).Result);
+        Assert.Equal([added], (await controller.GetHighlights(Book)).Value!);
+    }
+
     [Theory]
     [InlineData(null)]
     [InlineData("purple")]
-    public async Task RejectsAnUnknownColourAndLeavesTheHighlightAsItWas(string? colour)
+    public async Task RejectsAnUnknownColourOrNoChangeAndLeavesTheHighlightAsItWas(string? colour)
     {
         var controller = Controller(Reader);
         var added = (await controller.PostHighlight(Book, new(Cfi, 0.6, "yellow", "Text"))).Value!;

@@ -25,7 +25,7 @@ public sealed record StoredPosition(string Cfi, double Fraction, DateTimeOffset 
 public sealed record StoredBookmark(Guid Id, string Cfi, double Fraction, string Text, DateTimeOffset CreatedAt);
 
 /// <summary>
-/// A highlight as stored: the text it covers, its highlighter, and when it was made.
+/// A highlight as stored: the text it covers, its highlighter, its note, and when it was made.
 /// </summary>
 /// <param name="Id">The highlight's id.</param>
 /// <param name="Cfi">The EPUB range CFI of the highlighted text.</param>
@@ -33,7 +33,8 @@ public sealed record StoredBookmark(Guid Id, string Cfi, double Fraction, string
 /// <param name="Colour">Its highlighter's colour.</param>
 /// <param name="Text">The highlighted text.</param>
 /// <param name="CreatedAt">When the highlight was made.</param>
-public sealed record StoredHighlight(Guid Id, string Cfi, double Fraction, string Colour, string Text, DateTimeOffset CreatedAt);
+/// <param name="Note">The reader's note on it; empty for none.</param>
+public sealed record StoredHighlight(Guid Id, string Cfi, double Fraction, string Colour, string Text, DateTimeOffset CreatedAt, string Note = "");
 
 /// <summary>
 /// The plugin's own SQLite database: reading positions, one per user and book, bookmarks and highlights.
@@ -80,6 +81,7 @@ public class PositionStore
             UNIQUE (user_id, item_id, cfi)
         )
         """,
+        "ALTER TABLE highlights ADD COLUMN note TEXT NOT NULL DEFAULT ''",
     ];
 
     private readonly string _connectionString;
@@ -347,7 +349,7 @@ public class PositionStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user AND item_id = $item ORDER BY fraction, created_at";
+            "SELECT id, cfi, fraction, colour, text, created_at, note FROM highlights WHERE user_id = $user AND item_id = $item ORDER BY fraction, created_at";
         command.Parameters.AddWithValue("$user", Key(userId));
         command.Parameters.AddWithValue("$item", Key(itemId));
         using var reader = command.ExecuteReader();
@@ -371,7 +373,7 @@ public class PositionStore
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText =
-            "SELECT item_id, id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user ORDER BY item_id, fraction, created_at";
+            "SELECT item_id, id, cfi, fraction, colour, text, created_at, note FROM highlights WHERE user_id = $user ORDER BY item_id, fraction, created_at";
         command.Parameters.AddWithValue("$user", Key(userId));
         using var reader = command.ExecuteReader();
         var highlights = new List<KeyValuePair<Guid, StoredHighlight>>();
@@ -393,8 +395,9 @@ public class PositionStore
     /// <param name="colour">Its highlighter's colour.</param>
     /// <param name="text">The highlighted text.</param>
     /// <param name="createdAt">When the highlight was made.</param>
+    /// <param name="note">The reader's note on it; empty for none.</param>
     /// <returns>The highlight at that CFI, and whether it was added now.</returns>
-    public (StoredHighlight Highlight, bool Added) AddHighlight(Guid userId, Guid itemId, string cfi, double fraction, string colour, string text, DateTimeOffset createdAt)
+    public (StoredHighlight Highlight, bool Added) AddHighlight(Guid userId, Guid itemId, string cfi, double fraction, string colour, string text, DateTimeOffset createdAt, string note = "")
     {
         EnsureMigrated();
         using var connection = Open();
@@ -403,8 +406,8 @@ public class PositionStore
         {
             insert.CommandText =
                 """
-                INSERT INTO highlights (id, user_id, item_id, cfi, fraction, colour, text, created_at)
-                VALUES ($id, $user, $item, $cfi, $fraction, $colour, $text, $created)
+                INSERT INTO highlights (id, user_id, item_id, cfi, fraction, colour, text, created_at, note)
+                VALUES ($id, $user, $item, $cfi, $fraction, $colour, $text, $created, $note)
                 ON CONFLICT (user_id, item_id, cfi) DO NOTHING
                 """;
             insert.Parameters.AddWithValue("$id", Key(Guid.NewGuid()));
@@ -415,12 +418,13 @@ public class PositionStore
             insert.Parameters.AddWithValue("$colour", colour);
             insert.Parameters.AddWithValue("$text", text);
             insert.Parameters.AddWithValue("$created", createdAt.ToString("O", CultureInfo.InvariantCulture));
+            insert.Parameters.AddWithValue("$note", note);
             added = insert.ExecuteNonQuery();
         }
 
         using var read = connection.CreateCommand();
         read.CommandText =
-            "SELECT id, cfi, fraction, colour, text, created_at FROM highlights WHERE user_id = $user AND item_id = $item AND cfi = $cfi";
+            "SELECT id, cfi, fraction, colour, text, created_at, note FROM highlights WHERE user_id = $user AND item_id = $item AND cfi = $cfi";
         read.Parameters.AddWithValue("$user", Key(userId));
         read.Parameters.AddWithValue("$item", Key(itemId));
         read.Parameters.AddWithValue("$cfi", cfi);
@@ -430,24 +434,27 @@ public class PositionStore
     }
 
     /// <summary>
-    /// Changes the highlighter of one of a user's highlights in a book.
+    /// Changes the highlighter or the note, or both, of one of a user's highlights in a book.
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <param name="itemId">The book.</param>
     /// <param name="highlightId">The highlight.</param>
-    /// <param name="colour">The new highlighter's colour.</param>
+    /// <param name="colour">The new highlighter's colour, or null to keep it.</param>
+    /// <param name="note">The new note (empty for none), or null to keep it.</param>
     /// <returns>The highlight as it is now, or null when the user has no such highlight in the book.</returns>
-    public StoredHighlight? RecolourHighlight(Guid userId, Guid itemId, Guid highlightId, string colour)
+    public StoredHighlight? UpdateHighlight(Guid userId, Guid itemId, Guid highlightId, string? colour, string? note)
     {
         EnsureMigrated();
         using var connection = Open();
         using var command = connection.CreateCommand();
         command.CommandText =
             """
-            UPDATE highlights SET colour = $colour WHERE id = $id AND user_id = $user AND item_id = $item
-            RETURNING id, cfi, fraction, colour, text, created_at
+            UPDATE highlights SET colour = coalesce($colour, colour), note = coalesce($note, note)
+            WHERE id = $id AND user_id = $user AND item_id = $item
+            RETURNING id, cfi, fraction, colour, text, created_at, note
             """;
-        command.Parameters.AddWithValue("$colour", colour);
+        command.Parameters.AddWithValue("$colour", (object?)colour ?? DBNull.Value);
+        command.Parameters.AddWithValue("$note", (object?)note ?? DBNull.Value);
         command.Parameters.AddWithValue("$id", Key(highlightId));
         command.Parameters.AddWithValue("$user", Key(userId));
         command.Parameters.AddWithValue("$item", Key(itemId));
@@ -476,14 +483,15 @@ public class PositionStore
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);
 
-    // The id, cfi, fraction, colour, text and created_at columns, starting at `first`.
+    // The id, cfi, fraction, colour, text, created_at and note columns, starting at `first`.
     private static StoredHighlight Highlight(SqliteDataReader reader, int first) => new(
         Guid.ParseExact(reader.GetString(first), "N"),
         reader.GetString(first + 1),
         reader.GetDouble(first + 2),
         reader.GetString(first + 3),
         reader.GetString(first + 4),
-        DateTimeOffset.Parse(reader.GetString(first + 5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind));
+        DateTimeOffset.Parse(reader.GetString(first + 5), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind),
+        reader.GetString(first + 6));
 
     // The id, cfi, fraction, text and created_at columns, starting at `first`.
     private static StoredBookmark Bookmark(SqliteDataReader reader, int first) => new(

@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using Jellyfin.Plugin.Oriel.Data;
 using Microsoft.Data.Sqlite;
 using Xunit;
@@ -165,9 +166,35 @@ public sealed class PositionStoreTests : IDisposable
         Assert.Equal(later.Highlight, again.Highlight);
         Assert.Equal([earlier.Highlight, later.Highlight], store.ListHighlights(Reader, Book));
 
-        Assert.Null(store.RecolourHighlight(OtherReader, Book, later.Highlight.Id, "blue"));
-        Assert.Equal(later.Highlight with { Colour = "blue" }, store.RecolourHighlight(Reader, Book, later.Highlight.Id, "blue"));
+        Assert.Null(store.UpdateHighlight(OtherReader, Book, later.Highlight.Id, "blue", null));
+        Assert.Equal(later.Highlight with { Colour = "blue" }, store.UpdateHighlight(Reader, Book, later.Highlight.Id, "blue", null));
         Assert.Equal("blue", store.ListHighlights(Reader, Book)[1].Colour);
+    }
+
+    [Fact]
+    public void AddsNotesToADatabaseFromBeforeThemKeepingItsHighlights()
+    {
+        // A highlight as the plugin kept it before notes, written as that schema has it.
+        new PositionStore(DatabasePath, [.. PositionStore.Schema.Take(3)]).Migrate();
+        var before = new StoredHighlight(Guid.NewGuid(), "epubcfi(/6/8!/4/2,/1:0,/1:7)", 0.6, "yellow", "Chapter", DateTimeOffset.UnixEpoch);
+        using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
+        {
+            connection.Open();
+            using var insert = connection.CreateCommand();
+            insert.CommandText = "INSERT INTO highlights (id, user_id, item_id, cfi, fraction, colour, text, created_at) VALUES ($id, $user, $item, $cfi, 0.6, 'yellow', 'Chapter', $created)";
+            insert.Parameters.AddWithValue("$id", before.Id.ToString("N"));
+            insert.Parameters.AddWithValue("$user", Reader.ToString("N"));
+            insert.Parameters.AddWithValue("$item", Book.ToString("N"));
+            insert.Parameters.AddWithValue("$cfi", before.Cfi);
+            insert.Parameters.AddWithValue("$created", before.CreatedAt.ToString("O"));
+            insert.ExecuteNonQuery();
+        }
+
+        var store = new PositionStore(DatabasePath);
+
+        Assert.Equal(before, Assert.Single(store.ListHighlights(Reader, Book)));
+        Assert.Equal(before with { Note = "Noted." }, store.UpdateHighlight(Reader, Book, before.Id, null, "Noted."));
+        Assert.Equal(before with { Note = "Noted." }, Assert.Single(store.ListHighlights(Reader, Book)));
     }
 
     [Fact]

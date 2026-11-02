@@ -13,7 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 namespace Jellyfin.Plugin.Oriel.Controllers;
 
 /// <summary>
-/// Lists, adds, recolours and removes the caller's highlights in a book.
+/// Lists, adds, changes and removes the caller's highlights in a book, with their notes.
 /// </summary>
 [ApiController]
 [Route("Oriel/Highlights")]
@@ -24,6 +24,11 @@ public class HighlightsController : ControllerBase
     /// The longest text a highlight keeps.
     /// </summary>
     public const int MaxTextLength = 1000;
+
+    /// <summary>
+    /// The longest note a highlight keeps.
+    /// </summary>
+    public const int MaxNoteLength = 2000;
 
     /// <summary>
     /// The highlighters' colours: Quotes, Green, Vocabulary and Pink.
@@ -82,7 +87,8 @@ public class HighlightsController : ControllerBase
     /// <param name="itemId">The book.</param>
     /// <param name="request">The highlight.</param>
     /// <returns>
-    /// The highlight, stamped with the server's time, or the one already at that CFI in the colour asked for;
+    /// The highlight, stamped with the server's time, or the one already at that CFI in the colour asked for
+    /// and with the note sent, if any;
     /// 400 for a malformed highlight; 404 when the book is not visible to the caller.
     /// </returns>
     [HttpPost("{itemId:guid}")]
@@ -105,7 +111,8 @@ public class HighlightsController : ControllerBase
             || request.Fraction is not { } fraction
             || double.IsNaN(fraction) || fraction < 0 || fraction > 1
             || request.Colour is not { } colour || !Colours.Contains(colour)
-            || request.Text is not { Length: <= MaxTextLength } text)
+            || request.Text is not { Length: <= MaxTextLength } text
+            || request.Note is { Length: > MaxNoteLength })
         {
             return BadRequest();
         }
@@ -115,34 +122,34 @@ public class HighlightsController : ControllerBase
             return NotFound();
         }
 
-        var (highlight, _) = _store.AddHighlight(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow());
-        if (highlight.Colour != colour)
+        var (highlight, _) = _store.AddHighlight(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow(), request.Note ?? string.Empty);
+        if (highlight.Colour != colour || (request.Note is { } note && highlight.Note != note))
         {
-            highlight = _store.RecolourHighlight(userId.Value, itemId, highlight.Id, colour) ?? highlight;
+            highlight = _store.UpdateHighlight(userId.Value, itemId, highlight.Id, colour, request.Note) ?? highlight;
         }
 
         return Reply(highlight);
     }
 
     /// <summary>
-    /// Changes the highlighter of one of the caller's highlights in a book.
+    /// Changes the highlighter or the note, or both, of one of the caller's highlights in a book.
     /// </summary>
     /// <param name="itemId">The book.</param>
     /// <param name="highlightId">The highlight.</param>
-    /// <param name="request">The new highlighter.</param>
+    /// <param name="request">The new highlighter, the new note (empty for none), or both.</param>
     /// <returns>
-    /// The highlight as it is now; 400 for an unknown colour; 404 when the book is not visible to the caller
-    /// or the caller has no such highlight in it.
+    /// The highlight as it is now; 400 for neither, an unknown colour or an over-long note; 404 when the book
+    /// is not visible to the caller or the caller has no such highlight in it.
     /// </returns>
     [HttpPatch("{itemId:guid}/{highlightId:guid}")]
     [Consumes(MediaTypeNames.Application.Json)]
     [Produces(MediaTypeNames.Application.Json)]
-    [RequestSizeLimit(1024)]
+    [RequestSizeLimit(16 * 1024)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult<HighlightResponse>> PatchHighlight([FromRoute] Guid itemId, [FromRoute] Guid highlightId, [FromBody] RecolourRequest? request)
+    public async Task<ActionResult<HighlightResponse>> PatchHighlight([FromRoute] Guid itemId, [FromRoute] Guid highlightId, [FromBody] ChangeRequest? request)
     {
         var userId = await CallerAsync().ConfigureAwait(false);
         if (userId is null)
@@ -150,12 +157,14 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Colour is not { } colour || !Colours.Contains(colour))
+        if (request is null || (request.Colour is null && request.Note is null)
+            || (request.Colour is { } colour && !Colours.Contains(colour))
+            || request.Note is { Length: > MaxNoteLength })
         {
             return BadRequest();
         }
 
-        if (!_itemAccess.CanSee(userId.Value, itemId) || _store.RecolourHighlight(userId.Value, itemId, highlightId, colour) is not { } highlight)
+        if (!_itemAccess.CanSee(userId.Value, itemId) || _store.UpdateHighlight(userId.Value, itemId, highlightId, request.Colour, request.Note) is not { } highlight)
         {
             return NotFound();
         }
@@ -190,7 +199,7 @@ public class HighlightsController : ControllerBase
     }
 
     private static HighlightResponse Reply(StoredHighlight highlight) =>
-        new(highlight.Id.ToString("N"), highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.CreatedAt);
+        new(highlight.Id.ToString("N"), highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.Note, highlight.CreatedAt);
 
     private async Task<Guid?> CallerAsync()
     {
@@ -205,17 +214,22 @@ public class HighlightsController : ControllerBase
     /// <param name="Fraction">How far through the book the page it was made on is, from 0 to 1.</param>
     /// <param name="Colour">Its highlighter's colour.</param>
     /// <param name="Text">The highlighted text.</param>
+    /// <param name="Note">The reader's note on it, if any.</param>
     public record HighlightRequest(
         [property: JsonPropertyName("cfi")] string? Cfi,
         [property: JsonPropertyName("fraction")] double? Fraction,
         [property: JsonPropertyName("colour")] string? Colour,
-        [property: JsonPropertyName("text")] string? Text);
+        [property: JsonPropertyName("text")] string? Text,
+        [property: JsonPropertyName("note")] string? Note = null);
 
     /// <summary>
     /// The body of <see cref="PatchHighlight"/>.
     /// </summary>
-    /// <param name="Colour">The new highlighter's colour.</param>
-    public record RecolourRequest([property: JsonPropertyName("colour")] string? Colour);
+    /// <param name="Colour">The new highlighter's colour, or null to keep it.</param>
+    /// <param name="Note">The new note (empty for none), or null to keep it.</param>
+    public record ChangeRequest(
+        [property: JsonPropertyName("colour")] string? Colour,
+        [property: JsonPropertyName("note")] string? Note = null);
 
     /// <summary>
     /// A highlight as <see cref="GetHighlights"/>, <see cref="PostHighlight"/> and <see cref="PatchHighlight"/> return it.
@@ -225,6 +239,7 @@ public class HighlightsController : ControllerBase
     /// <param name="Fraction">How far through the book the page it was made on is, from 0 to 1.</param>
     /// <param name="Colour">Its highlighter's colour.</param>
     /// <param name="Text">The highlighted text.</param>
+    /// <param name="Note">The reader's note on it; empty for none.</param>
     /// <param name="CreatedAt">When the highlight was made.</param>
     public record HighlightResponse(
         [property: JsonPropertyName("id")] string Id,
@@ -232,5 +247,6 @@ public class HighlightsController : ControllerBase
         [property: JsonPropertyName("fraction")] double Fraction,
         [property: JsonPropertyName("colour")] string Colour,
         [property: JsonPropertyName("text")] string Text,
+        [property: JsonPropertyName("note")] string Note,
         [property: JsonPropertyName("createdAt")] DateTimeOffset CreatedAt);
 }

@@ -346,7 +346,8 @@ body[data-state="rendered"] {
 /* Contents: a sheet over a dimmed page on a phone, a panel beside the page on a wider screen. */
 #contents-backdrop,
 #prefs-backdrop,
-#search-backdrop {
+#search-backdrop,
+#note-backdrop {
   position: fixed;
   z-index: 5;
   inset: 0;
@@ -355,7 +356,8 @@ body[data-state="rendered"] {
 
 #contents,
 #prefs,
-#search {
+#search,
+#note {
   box-sizing: border-box;
   position: fixed;
   z-index: 6;
@@ -611,6 +613,20 @@ body[data-state="rendered"] {
   color: inherit;
 }
 
+#contents .highlights .note {
+  display: flex;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+#contents .highlights .note svg {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: rgba(255, 255, 255, .7);
+}
+
 #contents .highlights .where {
   font-size: 13px;
   color: rgba(255, 255, 255, .7);
@@ -672,15 +688,47 @@ body[data-state="rendered"] {
   box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
 }
 
-#selection-toolbar .highlighters {
+#selection-toolbar .top {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 0 4px;
+}
+
+#selection-toolbar .highlighters,
+#note .highlighters {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 2px;
   overflow-x: auto;
 }
 
-#selection-toolbar .highlighter {
+#selection-toolbar .note {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+#selection-toolbar .note:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+#selection-toolbar .highlighter,
+#note .highlighter {
   flex: none;
   display: flex;
   align-items: center;
@@ -693,19 +741,22 @@ body[data-state="rendered"] {
   cursor: pointer;
 }
 
-#selection-toolbar .dot {
+#selection-toolbar .dot,
+#note .dot {
   width: 26px;
   height: 26px;
   border-radius: 50%;
   box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .15);
 }
 
-#selection-toolbar .highlighter[aria-pressed="true"] .dot {
+#selection-toolbar .highlighter[aria-pressed="true"] .dot,
+#note .highlighter[aria-pressed="true"] .dot {
   box-shadow: 0 0 0 2px #00a4dc, inset 0 0 0 1px rgba(0, 0, 0, .15);
 }
 
 #selection-toolbar .highlighter:focus-visible,
-#selection-toolbar .remove:focus-visible {
+#selection-toolbar .remove:focus-visible,
+#note .highlighter:focus-visible {
   outline: 2px solid #00a4dc;
   outline-offset: -2px;
 }
@@ -732,6 +783,86 @@ body[data-state="rendered"] {
   font: inherit;
   font-size: 11px;
   cursor: pointer;
+}
+
+/* The Note sheet: the text in its colour, the highlighters, the note, Cancel and Save.
+   On a phone it rises only as high as it needs. */
+#note {
+  top: auto;
+  max-height: calc(100% - env(safe-area-inset-top) - 40px);
+}
+
+#note .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 20px 24px;
+}
+
+#note .quote {
+  margin: 0;
+  font-family: 'Literata', Georgia, serif;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#note .quote mark {
+  border-radius: 2px;
+  color: inherit;
+}
+
+#note .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
+#note textarea {
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 255, 255, .12);
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: 15px/1.5 'Noto Sans', sans-serif;
+  resize: vertical;
+}
+
+#note textarea:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 0;
+}
+
+#note .sheet-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+#note .sheet-buttons button {
+  min-height: 48px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+#note .sheet-buttons .save {
+  padding: 0 24px;
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+  font-weight: 600;
+}
+
+#note .sheet-buttons button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
 }
 
 #contents ol {
@@ -1280,13 +1411,15 @@ body[data-state="rendered"] {
 @media (min-width: 600px) {
   #contents-backdrop,
 #prefs-backdrop,
-#search-backdrop {
+#search-backdrop,
+#note-backdrop {
     display: none;
   }
 
   #contents,
 #prefs,
-#search {
+#search,
+#note {
     left: auto;
     width: min(440px, 100%);
     top: calc(env(safe-area-inset-top) + 57px);

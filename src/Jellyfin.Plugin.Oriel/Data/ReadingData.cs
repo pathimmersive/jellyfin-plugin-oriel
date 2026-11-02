@@ -75,6 +75,7 @@ public sealed record ExportedBookmark(
 /// <param name="Colour">Its highlighter's colour.</param>
 /// <param name="Text">The highlighted text.</param>
 /// <param name="CreatedAt">When the highlight was made.</param>
+/// <param name="Note">The reader's note on it, from version 4; empty for none.</param>
 public sealed record ExportedHighlight(
     [property: JsonPropertyName("itemId")] string? ItemId,
     [property: JsonPropertyName("title")] string? Title,
@@ -84,7 +85,8 @@ public sealed record ExportedHighlight(
     [property: JsonPropertyName("fraction")] double? Fraction,
     [property: JsonPropertyName("colour")] string? Colour,
     [property: JsonPropertyName("text")] string? Text,
-    [property: JsonPropertyName("createdAt")] DateTimeOffset? CreatedAt);
+    [property: JsonPropertyName("createdAt")] DateTimeOffset? CreatedAt,
+    [property: JsonPropertyName("note")] string? Note = null);
 
 /// <summary>
 /// A book in an imported file that matched no book the user can see.
@@ -125,7 +127,7 @@ public class ReadingData
     /// <summary>
     /// The newest format version this plugin reads and the one it writes.
     /// </summary>
-    public const int Version = 3;
+    public const int Version = 4;
 
     /// <summary>
     /// The longest CFI accepted, as when the reader saves a position.
@@ -182,7 +184,7 @@ public class ReadingData
             if (_catalog.Find(userId, itemId) is { } book)
             {
                 highlights.Add(new ExportedHighlight(
-                    itemId.ToString("N"), book.Title, book.Authors, book.FileName, highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.CreatedAt));
+                    itemId.ToString("N"), book.Title, book.Authors, book.FileName, highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.CreatedAt, highlight.Note));
             }
         }
 
@@ -291,7 +293,7 @@ public class ReadingData
                 continue;
             }
 
-            if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Colour!, entry.Text!, entry.CreatedAt!.Value).Added)
+            if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Colour!, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
             {
                 highlights++;
             }
@@ -315,6 +317,7 @@ public class ReadingData
     private static bool Valid(ExportedHighlight? entry) =>
         entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Colour: { } colour, Text.Length: <= Controllers.HighlightsController.MaxTextLength, CreatedAt: not null }
         && Controllers.HighlightsController.Colours.Contains(colour)
+        && entry.Note is not { Length: > Controllers.HighlightsController.MaxNoteLength }
         && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));

@@ -258,20 +258,22 @@ export const removeBookmark = async (
     }
 }
 
-/** A highlight as Oriel's store keeps it: the text it covers, its highlighter's colour, and when it was made. */
+/** A highlight as Oriel's store keeps it: the text it covers, its highlighter's colour, its note (empty for none), and when it was made. */
 export interface Highlight {
     id: string
     cfi: string
     fraction: number
     colour: string
     text: string
+    note: string
     createdAt: string
 }
 
 export const isHighlight = (value: unknown): value is Highlight => {
     const highlight = value as Partial<Highlight> | null
     return typeof highlight?.id === 'string' && typeof highlight.cfi === 'string' && typeof highlight.fraction === 'number'
-        && typeof highlight.colour === 'string' && typeof highlight.text === 'string' && typeof highlight.createdAt === 'string'
+        && typeof highlight.colour === 'string' && typeof highlight.text === 'string' && typeof highlight.note === 'string'
+        && typeof highlight.createdAt === 'string'
 }
 
 /** The user's highlights in a book, or null when they cannot be read. */
@@ -307,7 +309,7 @@ const sendHighlight = async (url: string, method: string, authorization: string,
     }
 }
 
-/** Highlights text; returns the highlight as stored (or the one already there, in this colour), or null when that failed. */
+/** Highlights text, with a note; returns the highlight as stored (or the one already there, in this colour and with this note), or null when that failed. */
 export const addHighlight = (
     basePath: string,
     itemId: string,
@@ -316,20 +318,21 @@ export const addHighlight = (
     fraction: number,
     colour: string,
     text: string,
+    note: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<Highlight | null> =>
-    sendHighlight(highlightsUrl(basePath, itemId), 'POST', authorization, { cfi, fraction, colour, text }, fetchImpl)
+    sendHighlight(highlightsUrl(basePath, itemId), 'POST', authorization, { cfi, fraction, colour, text, note }, fetchImpl)
 
-/** Changes a highlight's colour; returns the highlight as stored, or null when that failed. */
-export const recolourHighlight = (
+/** Changes a highlight's colour, its note (empty for none), or both; returns the highlight as stored, or null when that failed. */
+export const updateHighlight = (
     basePath: string,
     itemId: string,
     authorization: string,
     id: string,
-    colour: string,
+    changes: { colour?: string, note?: string },
     fetchImpl: typeof fetch = fetch,
 ): Promise<Highlight | null> =>
-    sendHighlight(highlightsUrl(basePath, itemId, id), 'PATCH', authorization, { colour }, fetchImpl)
+    sendHighlight(highlightsUrl(basePath, itemId, id), 'PATCH', authorization, changes, fetchImpl)
 
 /** Removes a highlight; returns whether it is gone (true too when the server had it no longer). */
 export const removeHighlight = async (

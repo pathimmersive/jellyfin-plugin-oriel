@@ -77,6 +77,7 @@ const ICONS = {
     bookmarkOn: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z',
     trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
+    note: 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z',
     highlight: 'M22 24H2v-4h20v4zM13.06 5.19l3.75 3.75L7.75 18H4v-3.75l9.06-9.06zm4.82 2.68l-3.75-3.75 1.83-1.83c.39-.39 1.02-.39 1.41 0l2.34 2.34c.39.39.39 1.02 0 1.41l-1.83 1.83z',
 }
 
@@ -309,6 +310,11 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         for (const row of rows) {
             const item = element('li')
             const entry = element('a', { href: '#', class: 'entry' }, '<span class="text"><mark></mark></span><span class="where"></span>')
+            if (row.note) {
+                const note = element('span', { class: 'note' }, `${icon(ICONS.note)}<span></span>`)
+                note.lastElementChild!.textContent = row.note
+                entry.querySelector('.where')!.before(note)
+            }
             const mark = entry.querySelector('mark')!
             mark.textContent = row.text
             mark.dataset.colour = row.colour

@@ -1,5 +1,5 @@
 import './reader.css'
-import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlights, readJellyfinPosition, readStoredPosition, recolourHighlight, removeBookmark, removeHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlights, readJellyfinPosition, readStoredPosition, removeBookmark, removeHighlight, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
@@ -113,8 +113,8 @@ const start = async (): Promise<void> => {
         // from the Selected text toolbar, and listed in the Contents panel.
         const highlights = opened.fixedLayout ? null : createHighlights({
             load: () => readHighlights(basePath, itemId, authorization),
-            add: (cfi, fraction, colour, text) => addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text),
-            recolour: (id, colour) => recolourHighlight(basePath, itemId, authorization, id, colour),
+            add: (cfi, fraction, colour, text, note) => addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note),
+            update: (id, change) => updateHighlight(basePath, itemId, authorization, id, change),
             remove: id => removeHighlight(basePath, itemId, authorization, id),
             compare: (a, b) => opened.compare(a, b),
             chapterOf: cfi => opened.chapterOf(cfi),
