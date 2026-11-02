@@ -262,6 +262,13 @@ check_search_in_browser() {
     done
 }
 
+check_bookmarks_in_browser() {
+    local browser
+    for browser in webkit chromium; do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_CBZ_ID="$cbz_id" ORIEL_BROWSER="$browser" node "$reader/e2e/bookmarks.e2e.mjs" || fail "bookmarks in $browser at $1"
+    done
+}
+
 check_hint_in_browser() {
     local browser
     for browser in webkit chromium hybrid; do
@@ -680,7 +687,7 @@ for other_id in "$cbz_id" "$mobi_id" "$azw3_id" "$pdf_id"; do
 done
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
-# Last here, because their slider, Contents, Preferences, pages, page turns, the hint and search move the test EPUB.
+# Last here, because their slider, Contents, Preferences, pages, page turns, the hint, search and bookmarks move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"
 check_preferences_in_browser "$base"
@@ -688,6 +695,7 @@ check_pages_in_browser "$base"
 check_page_turn_in_browser "$base"
 check_hint_in_browser "$base"
 check_search_in_browser "$base"
+check_bookmarks_in_browser "$base"
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
@@ -718,6 +726,7 @@ check_pages_in_browser "http://127.0.0.1:$port/jf"
 check_page_turn_in_browser "http://127.0.0.1:$port/jf"
 check_hint_in_browser "http://127.0.0.1:$port/jf"
 check_search_in_browser "http://127.0.0.1:$port/jf"
+check_bookmarks_in_browser "http://127.0.0.1:$port/jf"
 
 # --- install from a plugin repository --------------------------------------
 

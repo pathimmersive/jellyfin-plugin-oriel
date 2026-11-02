@@ -1,7 +1,9 @@
 // The only module that touches foliate-js.
+import * as CFI from '../../vendor/foliate-js/epubcfi.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import '../../vendor/foliate-js/view.js'
+import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
 import type { SearchSection } from '../controls/search'
 import type { PageCount, PagesShown } from '../controls/progress'
@@ -20,6 +22,7 @@ interface FoliateView extends HTMLElement {
     resolveNavigation(target: string): { index?: unknown, anchor?: (doc: Document) => Element | Range | null } | undefined
     book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?(): Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
     search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoundSection | { progress: number } | 'done'>
+    getProgressOf(index: number, range?: Range): { tocItem?: { label?: string } } | undefined
     clearSearch(): void
     next(): Promise<void>
     prev(): Promise<void>
@@ -49,6 +52,7 @@ interface FoundSection {
 interface Location {
     fraction?: number
     cfi?: string
+    range?: Range
     tocItem?: { label?: string, href?: string }
 }
 
@@ -118,6 +122,16 @@ export interface OpenBook {
     search(query: string): AsyncIterable<SearchSection>
     /** Clears the marks the last search left on the page. */
     clearSearch(): void
+    /**
+     * The page shown, as a bookmark keeps it: the CFI it starts at, the
+     * fraction of the book, and the text it opens with ('Page N' in a comic
+     * or PDF); null before a page is shown.
+     */
+    page(): PageMark | null
+    /** Whether a place (a CFI) is on the page shown, from its first character to its last. */
+    onPage(cfi: string): boolean
+    /** The name of the contents entry a place's section starts in; empty for none. */
+    chapterOf(cfi: string): string
     /**
      * Puts a stylesheet in every section of a reflowable book, now and as
      * sections load; the page lays out again around the place being read.
@@ -365,6 +379,32 @@ export const openBook = async (
         clearSearch() {
             view.clearSearch()
         },
+        page() {
+            const location = view.lastLocation
+            if (!location?.cfi) return null
+            const cfi: string = CFI.collapse(location.cfi)
+            const index = resolve(cfi)?.index
+            const text = view.isFixedLayout ? `Page ${(index ?? 0) + 1}` : location.range ? rangeText(location.range) : ''
+            return { cfi, fraction: location.fraction ?? 0, text }
+        },
+        onPage(cfi) {
+            const shown = view.lastLocation?.cfi
+            if (!shown) return false
+            // A comic's or PDF's page is a section; a spread shows two.
+            if (view.isFixedLayout) {
+                const index = resolve(cfi)?.index
+                return (view.renderer.getContents?.() ?? []).some(contents => contents.index === index)
+            }
+            try {
+                return CFI.compare(cfi, CFI.collapse(shown)) >= 0 && CFI.compare(cfi, CFI.collapse(shown, true)) <= 0
+            } catch {
+                return false
+            }
+        },
+        chapterOf(cfi) {
+            const index = resolve(cfi)?.index
+            return index === undefined ? '' : view.getProgressOf(index)?.tocItem?.label?.trim() ?? ''
+        },
         setStyles,
         setMargins,
         setPageTurn(pageTurn) {
@@ -426,6 +466,32 @@ const fade = async (view: HTMLElement, go: () => Promise<unknown>): Promise<void
     } finally {
         view.style.opacity = '1'
     }
+}
+
+// The text in a range, with a space between blocks (a heading and the
+// paragraph after it), which the range's own text runs together.
+const rangeText = (range: Range): string => {
+    const root = range.commonAncestorContainer
+    const doc = root.ownerDocument ?? (root as Document)
+    const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    // The nearest ancestor laid out as a block; text in another one starts a new block.
+    const blockOf = (node: Node): Element | null => {
+        let element = node.parentElement
+        while (element && doc.defaultView?.getComputedStyle(element).display.startsWith('inline')) element = element.parentElement
+        return element
+    }
+    let text = ''
+    let block: Element | null = null
+    for (let node = walker.currentNode.nodeType === Node.TEXT_NODE ? walker.currentNode : walker.nextNode(); node; node = walker.nextNode()) {
+        if (!range.intersectsNode(node)) continue
+        const value = node.nodeValue ?? ''
+        const start = node === range.startContainer ? range.startOffset : 0
+        const end = node === range.endContainer ? range.endOffset : value.length
+        const here = blockOf(node)
+        text += (text && here !== block ? ' ' : '') + value.slice(start, end)
+        block = here
+    }
+    return text
 }
 
 // A book's title as foliate-js gives it: a string, or a map of language to string.

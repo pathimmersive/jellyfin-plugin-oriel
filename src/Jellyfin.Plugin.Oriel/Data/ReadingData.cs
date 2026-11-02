@@ -13,11 +13,13 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// <param name="Version">The format version.</param>
 /// <param name="ExportedAt">When the file was exported.</param>
 /// <param name="Positions">The user's positions, one per book.</param>
+/// <param name="Bookmarks">The user's bookmarks, from version 2; none in a version 1 file.</param>
 public sealed record ReadingDataFile(
     [property: JsonPropertyName("format")] string? Format,
     [property: JsonPropertyName("version")] int? Version,
     [property: JsonPropertyName("exportedAt")] DateTimeOffset? ExportedAt,
-    [property: JsonPropertyName("positions")] IReadOnlyList<ExportedPosition?>? Positions);
+    [property: JsonPropertyName("positions")] IReadOnlyList<ExportedPosition?>? Positions,
+    [property: JsonPropertyName("bookmarks")] IReadOnlyList<ExportedBookmark?>? Bookmarks = null);
 
 /// <summary>
 /// A position in a file, with what identifies its book on another server.
@@ -39,6 +41,27 @@ public sealed record ExportedPosition(
     [property: JsonPropertyName("savedAt")] DateTimeOffset? SavedAt);
 
 /// <summary>
+/// A bookmark in a file, with what identifies its book on another server.
+/// </summary>
+/// <param name="ItemId">The book's item id on the server it was exported from.</param>
+/// <param name="Title">The book's title.</param>
+/// <param name="Authors">The book's authors.</param>
+/// <param name="FileName">The book file's name.</param>
+/// <param name="Cfi">The EPUB CFI of the start of the page.</param>
+/// <param name="Fraction">How far through the book the page is, from 0 to 1.</param>
+/// <param name="Text">The text the page opens with.</param>
+/// <param name="CreatedAt">When the bookmark was made.</param>
+public sealed record ExportedBookmark(
+    [property: JsonPropertyName("itemId")] string? ItemId,
+    [property: JsonPropertyName("title")] string? Title,
+    [property: JsonPropertyName("authors")] IReadOnlyList<string>? Authors,
+    [property: JsonPropertyName("fileName")] string? FileName,
+    [property: JsonPropertyName("cfi")] string? Cfi,
+    [property: JsonPropertyName("fraction")] double? Fraction,
+    [property: JsonPropertyName("text")] string? Text,
+    [property: JsonPropertyName("createdAt")] DateTimeOffset? CreatedAt);
+
+/// <summary>
 /// A book in an imported file that matched no book the user can see.
 /// </summary>
 /// <param name="Title">The book's title as the file gives it.</param>
@@ -55,10 +78,12 @@ public sealed record UnmatchedBook(
 /// <param name="Imported">Positions stored because they were newer than the server's, or the server had none.</param>
 /// <param name="Kept">Positions not stored because the server's was as new or newer.</param>
 /// <param name="Unmatched">Books that matched no book the user can see.</param>
+/// <param name="Bookmarks">Bookmarks added because the user had none at the same place.</param>
 public sealed record ImportResult(
     [property: JsonPropertyName("imported")] int Imported,
     [property: JsonPropertyName("kept")] int Kept,
-    [property: JsonPropertyName("unmatched")] IReadOnlyList<UnmatchedBook> Unmatched);
+    [property: JsonPropertyName("unmatched")] IReadOnlyList<UnmatchedBook> Unmatched,
+    [property: JsonPropertyName("bookmarks")] int Bookmarks = 0);
 
 /// <summary>
 /// Exports a user's reading data to a file and imports it back, here or on another server.
@@ -73,7 +98,7 @@ public class ReadingData
     /// <summary>
     /// The newest format version this plugin reads and the one it writes.
     /// </summary>
-    public const int Version = 1;
+    public const int Version = 2;
 
     /// <summary>
     /// The longest CFI accepted, as when the reader saves a position.
@@ -97,7 +122,7 @@ public class ReadingData
     }
 
     /// <summary>
-    /// Builds a user's file: each stored position in a book the user can still see.
+    /// Builds a user's file: each stored position and bookmark in a book the user can still see.
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <param name="now">The export time.</param>
@@ -114,7 +139,17 @@ public class ReadingData
             }
         }
 
-        return new ReadingDataFile(Format, Version, now, positions);
+        var bookmarks = new List<ExportedBookmark?>();
+        foreach (var (itemId, bookmark) in _store.ListBookmarksForUser(userId))
+        {
+            if (_catalog.Find(userId, itemId) is { } book)
+            {
+                bookmarks.Add(new ExportedBookmark(
+                    itemId.ToString("N"), book.Title, book.Authors, book.FileName, bookmark.Cfi, bookmark.Fraction, bookmark.Text, bookmark.CreatedAt));
+            }
+        }
+
+        return new ReadingDataFile(Format, Version, now, positions, bookmarks);
     }
 
     /// <summary>
@@ -126,7 +161,7 @@ public class ReadingData
 
     /// <summary>
     /// Reads a file, accepting it only when it is an Oriel file of a version this plugin reads
-    /// and every position in it is complete and in range.
+    /// and every position and bookmark in it is complete and in range.
     /// </summary>
     /// <param name="json">The UTF-8 JSON.</param>
     /// <returns>The file, or null when it is not one this plugin can import.</returns>
@@ -147,13 +182,14 @@ public class ReadingData
             return null;
         }
 
-        return positions.All(Valid) ? file : null;
+        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) ? file : null;
     }
 
     /// <summary>
     /// Imports a file for a user. Each position goes to the book it matches, by item id, else by
     /// title and authors, else by file name, using only a match to exactly one book the user can see.
-    /// It replaces the user's position in that book only when it was saved later.
+    /// It replaces the user's position in that book only when it was saved later. Each bookmark goes
+    /// to its book the same way, and is added unless the user has a bookmark at the same place.
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <param name="file">A file accepted by <see cref="Parse"/>.</param>
@@ -161,14 +197,24 @@ public class ReadingData
     public ImportResult Import(Guid userId, ReadingDataFile file)
     {
         IReadOnlyList<BookInfo>? books = null;
-        int imported = 0, kept = 0;
+        int imported = 0, kept = 0, bookmarks = 0;
         var unmatched = new List<UnmatchedBook>();
+        var reported = new HashSet<string>(StringComparer.Ordinal);
+        void Unmatched(string? title, IReadOnlyList<string>? authors, string? fileName)
+        {
+            // A book is reported once, however many of its positions and bookmarks it holds.
+            if (reported.Add(string.Join('\n', [Normalize(title), Normalize(fileName), .. (authors ?? []).Select(Normalize).Order()])))
+            {
+                unmatched.Add(new UnmatchedBook(title, authors ?? [], fileName));
+            }
+        }
+
         foreach (var entry in file.Positions!)
         {
-            var itemId = Match(userId, entry!, () => books ??= _catalog.Books(userId));
+            var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
-                unmatched.Add(new UnmatchedBook(entry!.Title, entry.Authors ?? [], entry.FileName));
+                Unmatched(entry.Title, entry.Authors, entry.FileName);
                 continue;
             }
 
@@ -184,11 +230,32 @@ public class ReadingData
             imported++;
         }
 
-        return new ImportResult(imported, kept, unmatched);
+        foreach (var entry in file.Bookmarks ?? [])
+        {
+            var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
+            if (itemId is null)
+            {
+                Unmatched(entry.Title, entry.Authors, entry.FileName);
+                continue;
+            }
+
+            if (_store.AddBookmark(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
+            {
+                bookmarks++;
+            }
+        }
+
+        return new ImportResult(imported, kept, unmatched, bookmarks);
     }
 
     private static bool Valid(ExportedPosition? entry) =>
         entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, SavedAt: not null }
+        && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
+        && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
+        && (entry.Authors is null || entry.Authors.All(author => author is not null));
+
+    private static bool Valid(ExportedBookmark? entry) =>
+        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Text.Length: <= Controllers.BookmarksController.MaxTextLength, CreatedAt: not null }
         && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
@@ -201,17 +268,17 @@ public class ReadingData
         return found.Count == 1 ? found[0].ItemId : null;
     }
 
-    private Guid? Match(Guid userId, ExportedPosition entry, Func<IReadOnlyList<BookInfo>> books)
+    private Guid? Match(Guid userId, string? id, string? entryTitle, IReadOnlyList<string>? entryAuthors, string? entryFileName, Func<IReadOnlyList<BookInfo>> books)
     {
-        if (Guid.TryParse(entry.ItemId, out var itemId) && _catalog.Find(userId, itemId) is not null)
+        if (Guid.TryParse(id, out var itemId) && _catalog.Find(userId, itemId) is not null)
         {
             return itemId;
         }
 
-        var title = Normalize(entry.Title);
+        var title = Normalize(entryTitle);
         if (title.Length > 0)
         {
-            var authors = (entry.Authors ?? []).Select(Normalize).Order().ToList();
+            var authors = (entryAuthors ?? []).Select(Normalize).Order().ToList();
             var byTitle = Only(books().Where(book =>
                 Normalize(book.Title) == title && book.Authors.Select(Normalize).Order().SequenceEqual(authors)));
             if (byTitle is not null)
@@ -220,7 +287,7 @@ public class ReadingData
             }
         }
 
-        var fileName = Normalize(entry.FileName);
+        var fileName = Normalize(entryFileName);
         return fileName.Length > 0 ? Only(books().Where(book => Normalize(book.FileName) == fileName)) : null;
     }
 }

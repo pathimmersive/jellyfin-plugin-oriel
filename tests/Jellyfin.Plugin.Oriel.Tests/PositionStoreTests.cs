@@ -81,20 +81,62 @@ public sealed class PositionStoreTests : IDisposable
     {
         var position = new StoredPosition("epubcfi(/6/8!/4/2/1:0)", 0.6, DateTimeOffset.UnixEpoch);
         new PositionStore(DatabasePath).Save(Reader, Book, position);
-        var newer = new[] { PositionStore.Schema[0], "ALTER TABLE positions ADD COLUMN note TEXT" };
+        string[] newer = [.. PositionStore.Schema, "ALTER TABLE positions ADD COLUMN note TEXT"];
 
-        Assert.Equal(2, new PositionStore(DatabasePath, newer).Migrate());
+        Assert.Equal(PositionStore.Schema.Count + 1, new PositionStore(DatabasePath, newer).Migrate());
 
-        Assert.Equal(2, ReadSchemaVersion());
+        Assert.Equal(PositionStore.Schema.Count + 1, ReadSchemaVersion());
         Assert.Equal(position, new PositionStore(DatabasePath, newer).Get(Reader, Book));
     }
 
     [Fact]
     public void RefusesADatabaseFromANewerPlugin()
     {
-        new PositionStore(DatabasePath, [PositionStore.Schema[0], "ALTER TABLE positions ADD COLUMN note TEXT"]).Migrate();
+        new PositionStore(DatabasePath, [.. PositionStore.Schema, "ALTER TABLE positions ADD COLUMN note TEXT"]).Migrate();
 
         Assert.Throws<InvalidOperationException>(() => new PositionStore(DatabasePath).Migrate());
+    }
+
+    [Fact]
+    public void AddsBookmarksToADatabaseFromBeforeThemKeepingItsPositions()
+    {
+        var position = new StoredPosition("epubcfi(/6/8!/4/2/1:0)", 0.6, DateTimeOffset.UnixEpoch);
+        new PositionStore(DatabasePath, [PositionStore.Schema[0]]).Save(Reader, Book, position);
+        var store = new PositionStore(DatabasePath);
+
+        store.AddBookmark(Reader, Book, "epubcfi(/6/8!/4/2/1:0)", 0.6, "Chapter text", DateTimeOffset.UnixEpoch);
+
+        Assert.Equal(position, store.Get(Reader, Book));
+        Assert.Single(store.ListBookmarks(Reader, Book));
+    }
+
+    [Fact]
+    public void ListsBookmarksInBookOrderAndKeepsOnePerPlace()
+    {
+        var store = new PositionStore(DatabasePath);
+        var later = store.AddBookmark(Reader, Book, "epubcfi(/6/10!/4/2/1:0)", 0.7, "Later", DateTimeOffset.UnixEpoch);
+        var earlier = store.AddBookmark(Reader, Book, "epubcfi(/6/4!/4/2/1:0)", 0.2, "Earlier", DateTimeOffset.UnixEpoch.AddHours(1));
+        var again = store.AddBookmark(Reader, Book, "epubcfi(/6/10!/4/2/1:0)", 0.7, "Later, again", DateTimeOffset.UnixEpoch.AddHours(2));
+
+        Assert.True(later.Added && earlier.Added);
+        Assert.False(again.Added);
+        Assert.Equal(later.Bookmark, again.Bookmark);
+        Assert.Equal([earlier.Bookmark, later.Bookmark], store.ListBookmarks(Reader, Book));
+    }
+
+    [Fact]
+    public void RemovesOnlyTheUsersOwnBookmark()
+    {
+        var store = new PositionStore(DatabasePath);
+        var mine = store.AddBookmark(Reader, Book, "epubcfi(/6/4!/4/2/1:0)", 0.2, "Mine", DateTimeOffset.UnixEpoch).Bookmark;
+        store.AddBookmark(OtherReader, Book, "epubcfi(/6/4!/4/2/1:0)", 0.2, "Theirs", DateTimeOffset.UnixEpoch);
+
+        Assert.False(store.RemoveBookmark(OtherReader, Book, mine.Id));
+        Assert.Single(store.ListBookmarks(Reader, Book));
+        Assert.True(store.RemoveBookmark(Reader, Book, mine.Id));
+        Assert.Empty(store.ListBookmarks(Reader, Book));
+        Assert.Single(store.ListBookmarks(OtherReader, Book));
+        Assert.False(store.RemoveBookmark(Reader, Book, mine.Id));
     }
 
     private int ReadSchemaVersion()
