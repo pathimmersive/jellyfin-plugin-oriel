@@ -1895,6 +1895,100 @@ foliate-view {
   color: rgba(255, 255, 255, .87);
 }
 
+/* The notice's action, Sign in for a reader signed out while reading. */
+.notice button {
+  flex: none;
+  min-height: 44px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: #00a4dc;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.notice button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: -2px;
+}
+
+/* A book that cannot open: the failure page in place of the book, as EdgeOffline,
+   EdgeDrm and EdgeNotFound draw it. The status line is its title. */
+#failure {
+  position: fixed;
+  z-index: 10;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 0 32px;
+  background: #101010;
+  color: rgba(255, 255, 255, .5);
+  text-align: center;
+  font-family: 'Noto Sans', system-ui, sans-serif;
+}
+
+#failure #status {
+  max-width: 520px;
+  padding: 0;
+  font-size: 20px;
+  line-height: 1.4;
+  color: rgba(255, 255, 255, .87);
+}
+
+#failure .body {
+  max-width: 520px;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, .7);
+}
+
+#failure .buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#failure .buttons button,
+#failure .buttons a {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+#failure .retry {
+  background: #00a4dc;
+  color: rgba(0, 0, 0, .87);
+}
+
+#failure .back {
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+}
+
+#failure .buttons :focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
 @media (min-width: 600px) {
   .notice {
     left: 50%;
