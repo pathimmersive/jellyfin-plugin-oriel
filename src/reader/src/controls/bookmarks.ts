@@ -16,9 +16,14 @@ export const cutAtWord = (whole: string, limit: number): string => {
 /** The text a bookmark keeps for a page: its opening text, spaces evened, cut at a word to BOOKMARK_TEXT characters. */
 export const bookmarkText = (pageText: string): string => cutAtWord(pageText, BOOKMARK_TEXT)
 
-/** Where a bookmark is, as its row shows it: its chapter's name and the percent of the book. */
-export const bookmarkWhere = (chapter: string, fraction: number): string =>
-    chapter ? `${chapter} · ${percent(fraction)}` : percent(fraction)
+/**
+ * Where a bookmark is, as its row shows it: its chapter's name and the
+ * percent of the book, or the page it is on when the book is counted.
+ */
+export const bookmarkWhere = (chapter: string, fraction: number, page: number | null = null): string => {
+    const at = page === null ? percent(fraction) : `page ${page}`
+    return chapter ? `${chapter} · ${at}` : at
+}
 
 /** The page shown, as a bookmark keeps it: where it starts and the text it opens with. */
 export interface PageMark {
@@ -48,6 +53,8 @@ export interface Bookmarks {
     go(id: string): Promise<void>
     /** Calls `changed` whenever the bookmarks change, as they load or are added or removed. */
     onChange(changed: () => void): void
+    /** Where the bookmarks are (their CFIs), for the page count to place. */
+    places(): string[]
 }
 
 /** What the bookmarks need: the server, and the book shown. */
@@ -61,6 +68,8 @@ export interface BookmarkSources {
     onPage(cfi: string): boolean
     /** The name of the chapter a place is in. */
     chapterOf(cfi: string): string
+    /** The page a place is on, or null while progress shows the percent or the book is not counted. */
+    pageOf(cfi: string): number | null
     go(cfi: string): Promise<void>
 }
 
@@ -88,7 +97,7 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
         changed()
     }
     return {
-        rows: () => kept.map(({ id, cfi, fraction, text }) => ({ id, text, where: bookmarkWhere(sources.chapterOf(cfi), fraction) })),
+        rows: () => kept.map(({ id, cfi, fraction, text }) => ({ id, text, where: bookmarkWhere(sources.chapterOf(cfi), fraction, sources.pageOf(cfi)) })),
         marked: () => kept.some(bookmark => sources.onPage(bookmark.cfi)),
         async toggle() {
             const here = kept.filter(bookmark => sources.onPage(bookmark.cfi))
@@ -111,5 +120,6 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
         onChange(listener) {
             listeners.push(listener)
         },
+        places: () => kept.map(bookmark => bookmark.cfi),
     }
 }

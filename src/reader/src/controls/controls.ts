@@ -60,6 +60,8 @@ export interface Controls {
     locate(chapter: string, fraction: number, progress: ProgressShown, left: number | null): void
     /** Opens Search in this book with a query, searched at once. */
     search(query: string): void
+    /** Fills the Contents panel's tab again, open or not, as when the book has been counted. */
+    refill(): void
 }
 
 // Material icons, as the canvas draws them.
@@ -860,6 +862,9 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             }
             slider.value = String(fraction * 100)
             showBookmark()
+        },
+        refill() {
+            if (state.contents) fills[tabShown]()
         },
     }
 }

@@ -97,6 +97,30 @@ const showControls = async page => {
 const section = page => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index)
 
 // Goes to a chapter from Contents.
+// Waits for the reading footer to show page / total; gives the page shown and the total.
+const counted = async (page, timeout = 60_000) => {
+    const started = Date.now()
+    for (;;) {
+        const text = (await page.locator('#reading-footer .progress').innerText()).trim()
+        const match = /^(\d+)\s*\/\s*(\d+)$/.exec(text)
+        if (match) return { page: Number(match[1]), total: Number(match[2]) }
+        if (Date.now() - started > timeout) fail(`the footer still shows '${text}' after ${timeout / 1000} s, not page / total`)
+        await pause(250)
+    }
+}
+
+// Opens Preferences, runs `change` on it and closes it.
+const preferences = async (page, change) => {
+    await showControls(page)
+    await use(page.getByRole('button', { name: 'Preferences' }))
+    await pause(400)
+    const panel = page.locator('#prefs')
+    if (!await panel.isVisible()) fail('Preferences did not open')
+    await change(panel)
+    await page.keyboard.press('Escape')
+    await pause(300)
+}
+
 const goToChapter = async (page, name) => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
@@ -473,6 +497,31 @@ try {
     if ((await noteButton(page).innerText()).trim() !== 'Note') fail('with its note emptied, the highlight still offers Edit note')
     await page.keyboard.press('Escape')
     pass('saving an empty note removes the note and keeps the highlight')
+
+    // With progress in Pages, a highlight shows the page its start is on, one
+    // of the pages on screen once the reader goes to it.
+    await pause(300)
+    await preferences(page, async panel => {
+        await use(panel.getByRole('radio', { name: 'Pages', exact: true }))
+        await pause(300)
+    })
+    await counted(page)
+    panel = await openHighlights(page)
+    await use(panel.locator('.highlights li a').first())
+    await pause(1500)
+    const shownPages = await page.evaluate(() => {
+        const renderer = document.querySelector('foliate-view').renderer
+        const root = renderer.getContents()[0].doc.documentElement
+        const style = getComputedStyle(root)
+        return Math.max(1, Math.round(renderer.size / (parseFloat(style.columnWidth) + parseFloat(style.columnGap))))
+    })
+    const onIt = await counted(page, 5000)
+    listed = await rows(await openHighlights(page))
+    await page.keyboard.press('Escape')
+    await pause(300)
+    const at = Number(/^Chapter One · page (\d+)$/.exec(listed[0]?.where ?? '')?.[1])
+    if (listed.length !== 1 || !(at >= onIt.page && at < onIt.page + shownPages)) fail(`with Pages the Highlights tab lists ${JSON.stringify(listed)}; the screen shows pages ${onIt.page} to ${onIt.page + shownPages - 1}`)
+    pass(`with Pages the highlight shows '${listed[0].where}', a page on screen when the reader goes to it`)
     await page.close()
 
     // A comic offers no highlighting.

@@ -14,6 +14,39 @@ export interface ColumnLayout {
     place(target: Element | Range): { column: number, atTop: boolean }
 }
 
+/**
+ * Where a target starts on screen. An element's box; a range's first line, or,
+ * for a collapsed range (a place, as a bookmark keeps it), the first character
+ * shown after it, since Chromium gives a collapsed range an empty box at the
+ * frame's corner.
+ */
+const startRect = (target: Element | Range): DOMRect => {
+    if (!('collapsed' in target)) return target.getBoundingClientRect()
+    const [first] = target.getClientRects()
+    if (first) return first
+    const doc = target.startContainer.ownerDocument
+    let node: Node | null = target.startContainer
+    let offset = target.startOffset
+    if (node.nodeType !== Node.TEXT_NODE) {
+        node = node.childNodes[offset] ?? null
+        offset = 0
+    }
+    if (doc?.body && node) {
+        const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+        walker.currentNode = node
+        for (let text = node.nodeType === Node.TEXT_NODE ? node as Text : walker.nextNode() as Text | null; text; text = walker.nextNode() as Text | null, offset = 0) {
+            const at = text.data.slice(offset).search(/\S/)
+            if (at < 0) continue
+            const character = doc.createRange()
+            character.setStart(text, offset + at)
+            character.setEnd(text, offset + at + 1)
+            const [rect] = character.getClientRects()
+            if (rect) return rect
+        }
+    }
+    return target.getBoundingClientRect()
+}
+
 export const columnLayout = (doc: Document, size: number, scrolled = false): ColumnLayout => {
     const root = doc.documentElement
     if (scrolled) {
@@ -24,7 +57,7 @@ export const columnLayout = (doc: Document, size: number, scrolled = false): Col
             perScreen: 1,
             columns: Math.max(1, Math.ceil((content.getBoundingClientRect().bottom - top) / size - 0.01)),
             place(target) {
-                const offset = target.getBoundingClientRect().top - top
+                const offset = startRect(target).top - top
                 const column = Math.max(0, Math.floor(offset / size))
                 return { column, atTop: offset - column * size <= 1 }
             },
@@ -42,7 +75,7 @@ export const columnLayout = (doc: Document, size: number, scrolled = false): Col
         perScreen,
         columns,
         place(target) {
-            const rect = target.getBoundingClientRect()
+            const rect = startRect(target)
             return { column: Math.max(0, Math.floor((rect.left - rootRect.left) / slot)), atTop: rect.top - rootRect.top <= 1 }
         },
     }
@@ -70,8 +103,8 @@ interface Paginator extends HTMLElement {
 /**
  * Counts every section's pages by laying the book out again in a hidden
  * paginator the size of `shown` (the paginator on screen), with the same gap
- * and `styles`, one section at a time. `hrefs` are the contents links, each
- * given the page it starts on. `showing` is the section on screen, which the
+ * and `styles`, one section at a time. `hrefs` are the contents links and
+ * any other places (CFIs), each given the page it starts on. `showing` is the section on screen, which the
  * count leaves loaded. Returns null when `cancelled` turns true first.
  */
 export const countPages = async (

@@ -10,7 +10,7 @@ import { createHighlighterSheet, type HighlighterSheet } from './controls/highli
 import { createHighlighters } from './controls/highlighters'
 import { createHighlights } from './controls/highlights'
 import { lastInput } from './controls/hint'
-import { layoutKey, type PageCount, progressShown, readCount, writeCount } from './controls/progress'
+import { layoutKey, type PageCount, pageNumber, progressShown, readCount, writeCount } from './controls/progress'
 import { createCopy, createHighlighting, type Highlighting } from './controls/toolbar'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
@@ -169,6 +169,7 @@ const start = async (): Promise<void> => {
             remove: id => removeHighlight(basePath, itemId, authorization, id),
             compare: (a, b) => opened.compare(a, b),
             chapterOf: cfi => opened.chapterOf(cfi),
+            pageOf: cfi => pageOf(cfi),
             go: cfi => opened.goTo(cfi),
         })
         // The reader's highlighters, kept on the server, with the sheet that adds and edits them.
@@ -204,6 +205,17 @@ const start = async (): Promise<void> => {
             }
         }
 
+        const bookmarks = createBookmarks({
+            load: () => readBookmarks(basePath, itemId, authorization),
+            add: (cfi, fraction, text) => addBookmark(basePath, itemId, authorization, cfi, fraction, text),
+            remove: id => removeBookmark(basePath, itemId, authorization, id),
+            page: () => opened.page(),
+            onPage: cfi => opened.onPage(cfi),
+            chapterOf: cfi => opened.chapterOf(cfi),
+            pageOf: cfi => pageOf(cfi),
+            go: cfi => opened.goTo(cfi),
+        })
+
         // The reader's controls: a tap in the middle of the page shows them
         // and a page turn hides them; a move with their slider keeps them.
         controls = createControls(document.body, {
@@ -220,15 +232,7 @@ const start = async (): Promise<void> => {
             search: opened.searchable
                 ? { run: query => opened.search(query), clear: () => opened.clearSearch(), go: cfi => opened.goTo(cfi) }
                 : null,
-            bookmarks: createBookmarks({
-                load: () => readBookmarks(basePath, itemId, authorization),
-                add: (cfi, fraction, text) => addBookmark(basePath, itemId, authorization, cfi, fraction, text),
-                remove: id => removeBookmark(basePath, itemId, authorization, id),
-                page: () => opened.page(),
-                onPage: cfi => opened.onPage(cfi),
-                chapterOf: cfi => opened.chapterOf(cfi),
-                go: cfi => opened.goTo(cfi),
-            }),
+            bookmarks,
             highlights,
             highlighters,
             highlighterSheet,
@@ -258,32 +262,65 @@ const start = async (): Promise<void> => {
 
         // Pages mode counts the book for its layout, in the background; a
         // count kept from before for the same layout is used at once.
+        // The count places the bookmarks and highlights too. `force` counts
+        // again for places the count has not tried, keeping the count shown
+        // until the new one lands.
         let count: PageCount | null = null
         let counting: { cancelled: boolean } | null = null
         let countedFor = ''
-        function recount(): void {
+        const tried = new Set<string>()
+        const marked = (): string[] => [...bookmarks.places(), ...(highlights?.all().map(highlight => highlight.cfi) ?? [])]
+        function recount(force = false): void {
             const key = settings.progress === 'pages' && !opened.fixedLayout ? layoutKey(opened.layout()) : ''
-            if (key === countedFor && (count || counting)) return
+            if (!force && key === countedFor && (count || counting)) return
             if (counting) counting.cancelled = true
             counting = null
-            count = null
+            if (!force || key !== countedFor) count = null
             countedFor = key
             if (key) {
-                count = readCount(localStorage, itemId!, key)
-                if (!count) {
+                count ??= force ? null : readCount(localStorage, itemId!, key)
+                if (!count || force) {
+                    const places = marked()
                     const run = { cancelled: false }
                     counting = run
-                    void opened.count(() => run.cancelled).then(result => {
+                    void opened.count(() => run.cancelled, places).then(result => {
                         if (run.cancelled || !result) return
                         counting = null
                         count = result
+                        for (const cfi of places) tried.add(cfi)
                         writeCount(localStorage, itemId!, key, result)
                         showPlace()
+                        shown.refill()
+                        placeMarked()
                     }).catch(error => console.error('counting pages', error))
+                } else {
+                    placeMarked()
                 }
             }
             showPlace()
+            shown.refill()
         }
+        // The page a bookmark or highlight is on: from the count, or, for one
+        // made since on the section shown, from the layout on screen.
+        function pageOf(cfi: string): number | null {
+            if (settings.progress !== 'pages' || !count) return null
+            const kept = count.entries[cfi]
+            if (kept) return kept
+            const here = opened.pageShown(cfi)
+            if (!here || here.section >= count.sections.length) return null
+            count.entries[cfi] = pageNumber(count, here.section, here.page)
+            writeCount(localStorage, itemId!, countedFor, count)
+            return count.entries[cfi]
+        }
+        // Counts again for bookmarks and highlights the count has not placed:
+        // ones loaded after it, or added on another device.
+        function placeMarked(): void {
+            if (!count || counting) return
+            const counted = count
+            if (marked().some(cfi => !counted.entries[cfi] && !tried.has(cfi) && !opened.pageShown(cfi))) recount(true)
+        }
+        bookmarks.onChange(placeMarked)
+        highlights?.onChange(placeMarked)
         recount()
         let resized = 0
         window.addEventListener('resize', () => {
