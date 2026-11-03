@@ -1,10 +1,11 @@
 import './reader.css'
-import { addBookmark, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { createDictionarySheet, type DictionarySheet } from './controls/dictionary'
+import { createOwnFonts } from './controls/fonts'
 import { clearFailure, DrmError, type Failure, failureFor, ICONS, NOTICE_TEXT, saveNotice, showFailure } from './controls/failure'
 import { createHighlighterSheet, type HighlighterSheet } from './controls/highlighter-sheet'
 import { createHighlighters } from './controls/highlighters'
@@ -20,7 +21,7 @@ import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBot
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 import { fontFaces } from './settings/fonts'
-import { bookStyles, marginsFor, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
+import { bookStyles, marginsFor, ownFamilyOf, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -84,7 +85,7 @@ const start = async (): Promise<void> => {
     // The settings kept on this device, applied before the first page shows.
     // The bundled fonts are declared here too, for Preferences' font buttons.
     let settings = readSettings(localStorage)
-    const faces = fontFaces()
+    let faces = fontFaces()
     const fontStyle = document.createElement('style')
     fontStyle.textContent = faces
     document.head.append(fontStyle)
@@ -122,6 +123,28 @@ const start = async (): Promise<void> => {
         clearFailure(status)
         show('loading', 'Loading the book…')
         if (await drmProtected(file)) throw new DrmError()
+
+        // The reader's own fonts, declared like the bundled ones before the
+        // first page shows. A chosen family the reader no longer has goes
+        // back to Default.
+        const ownFonts = createOwnFonts({
+            load: () => readFonts(basePath, authorization),
+            add: font => addFont(basePath, authorization, font),
+            file: id => readFontFile(basePath, authorization, id),
+            remove: family => removeFontFamily(basePath, authorization, family),
+            url: font => URL.createObjectURL(font),
+            forget: url => URL.revokeObjectURL(url),
+        })
+        const declareFonts = (): void => {
+            faces = [fontFaces(), ownFonts.faces()].filter(Boolean).join('\n')
+            fontStyle.textContent = faces
+        }
+        const chosenFamily = ownFamilyOf(settings.font)
+        if (await ownFonts.ready && chosenFamily !== null && !ownFonts.has(chosenFamily)) {
+            settings = { ...settings, font: 'Default' }
+            writeSettings(localStorage, settings)
+        }
+        declareFonts()
         const downloaded = performance.now()
         overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
@@ -236,6 +259,7 @@ const start = async (): Promise<void> => {
             highlights,
             highlighters,
             highlighterSheet,
+            fonts: ownFonts,
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,
@@ -253,6 +277,11 @@ const start = async (): Promise<void> => {
             },
         })
         wide.addEventListener('change', () => opened.setMargins(marginsFor(settings, wide.matches)))
+        ownFonts.onChange(() => {
+            declareFonts()
+            opened.setStyles(bookStyles(settings, faces))
+            recount()
+        })
         const shown = controls
         const showPlace = (): void => {
             const { chapter, fraction, pages } = opened.place()

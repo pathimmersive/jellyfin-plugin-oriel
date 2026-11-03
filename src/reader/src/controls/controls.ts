@@ -1,4 +1,5 @@
-import { FONTS, type FontName, INDENT, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { type FontChoice, FONTS, type FontName, fontStack, INDENT, ownFamilyOf, ownFont, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { type OwnFonts, stylesOf } from './fonts'
 import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
 import type { HighlighterSheet } from './highlighter-sheet'
@@ -32,6 +33,8 @@ export interface ControlsOptions {
     /** The reader's highlighters and the sheet that adds and edits them, with the highlights. */
     highlighters: Highlighters | null
     highlighterSheet: HighlighterSheet | null
+    /** The reader's own fonts, kept on the server. */
+    fonts: OwnFonts
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -85,6 +88,7 @@ const ICONS = {
     bookmarkOff: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2zm0 15l-5-2.18L7 18V5h10v13z',
     bookmarkOn: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z',
     trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
+    upload: 'M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z',
     search: 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z',
     note: 'M3 18h12v-2H3v2zM3 6v2h18V6H3zm0 7h18v-2H3v2z',
     drag: 'M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
@@ -453,13 +457,21 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const prefsBackdrop = element('div', { id: 'prefs-backdrop', 'data-controls': '' })
     const prefs = element('section', { id: 'prefs', 'data-controls': '', 'aria-label': 'Preferences' })
     const prefsClose = closeButton()
+    // Your fonts takes Preferences' place, with Back before its title.
+    const prefsBack = element('button', { type: 'button', class: 'icon-button back', 'aria-label': 'Back', hidden: '' }, icon(ICONS.back))
     const prefsHeader = element('div', { class: 'panel-header' }, '<h2>Preferences</h2>')
+    const prefsTitle = prefsHeader.querySelector('h2')!
+    prefsHeader.prepend(prefsBack)
     prefsHeader.append(prefsClose)
     const prefsBody = element('div', { class: 'panel-body' }, '<p class="note"></p>')
     prefsBody.querySelector('.note')!.textContent = options.highlighters
         ? 'Your preferences apply to this device. Your highlighters follow you on every device.'
         : 'Your preferences apply to this device.'
-    prefs.append(prefsHeader, prefsBody)
+    const fontsBody = element('div', { class: 'panel-body your-fonts', hidden: '' },
+        '<p class="about">Fonts you add are yours and appear on all your devices. TTF, OTF or WOFF2, up to 5 MB each. Only add fonts you are allowed to use.</p>'
+        + `<label class="add-font">${icon(ICONS.upload)}Add a font<input type="file" accept=".ttf,.otf,.woff2"></label>`
+        + '<p class="message" role="status"></p><div class="own-fonts"><span class="group-label">Your fonts</span><ul></ul></div>')
+    prefs.append(prefsHeader, prefsBody, fontsBody)
     let settings = options.settings
     const group = (name: string): { box: HTMLElement, row: HTMLElement } => {
         const box = element('div', { role: 'group', 'aria-label': name, class: 'choices' })
@@ -480,15 +492,22 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return button
     })
     const fonts = group('Font')
-    const fontButtons = (Object.keys(FONTS) as FontName[]).map(name => {
-        const button = element('button', { type: 'button', class: 'font', 'aria-pressed': 'false', 'data-font': name })
-        button.textContent = name
-        button.style.fontFamily = FONTS[name]
-        button.disabled = options.fixedLayout
-        button.addEventListener('click', () => choose({ font: name }))
-        fonts.row.append(button)
-        return button
-    })
+    // The bundled fonts, then the reader's own families, then Add font.
+    let fontButtons: HTMLButtonElement[] = []
+    const addFont = element('button', { type: 'button', class: 'font add', 'aria-label': 'Add font' }, `${icon(ICONS.upload)}Add font`)
+    const fillFontButtons = (): void => {
+        const builtIn = (Object.keys(FONTS) as FontName[]).map(name => ({ name, choice: name as FontChoice, own: false }))
+        const own = options.fonts.families().map(family => ({ name: family.name, choice: ownFont(family.name), own: true }))
+        fontButtons = [...builtIn, ...own].map(({ name, choice, own: mine }) => {
+            const button = element('button', { type: 'button', class: mine ? 'font own' : 'font', 'aria-pressed': 'false', 'data-font': choice }, mine ? icon(ICONS.upload) : '')
+            button.append(name)
+            button.style.fontFamily = fontStack(choice)
+            button.addEventListener('click', () => choose({ font: choice }))
+            return button
+        })
+        fonts.row.replaceChildren(...fontButtons, addFont)
+    }
+    fillFontButtons()
     const smaller = element('button', { type: 'button', class: 'step', 'aria-label': 'Less size' }, '<span class="small-a">A</span>')
     const larger = element('button', { type: 'button', class: 'step', 'aria-label': 'More size' }, '<span class="large-a">A</span>')
     const size = stepper('size', 'Size', smaller, larger)
@@ -709,6 +728,62 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     })
     fillHighlighterList()
 
+    // Your fonts: add a file, and each family with its styles and Remove.
+    const fontFile = fontsBody.querySelector<HTMLInputElement>('input[type="file"]')!
+    const fontMessage = fontsBody.querySelector<HTMLElement>('.message')!
+    const ownList = fontsBody.querySelector('.own-fonts ul')!
+    const fillOwnFonts = (): void => {
+        const families = options.fonts.families()
+        fontsBody.querySelector<HTMLElement>('.own-fonts')!.hidden = !families.length
+        ownList.replaceChildren(...families.map(family => {
+            const row = element('li', {}, '<span class="names"><span class="family"></span><span class="styles"></span></span>')
+            const name = row.querySelector<HTMLElement>('.family')!
+            name.textContent = family.name
+            name.style.fontFamily = fontStack(ownFont(family.name))
+            row.querySelector('.styles')!.textContent = stylesOf(family)
+            const remove = element('button', { type: 'button', class: 'icon-button', 'aria-label': `Remove ${family.name}` }, icon(ICONS.trash))
+            remove.addEventListener('click', async () => {
+                fontMessage.textContent = ''
+                if (!await options.fonts.remove(family.name)) {
+                    fontMessage.textContent = `${family.name} could not be removed. Try again.`
+                    return
+                }
+                if (ownFamilyOf(settings.font) === family.name) choose({ font: 'Default' })
+            })
+            row.append(remove)
+            return row
+        }))
+    }
+    const showFonts = (shown: boolean): void => {
+        prefsBody.hidden = shown
+        fontsBody.hidden = !shown
+        prefsBack.hidden = !shown
+        prefsTitle.textContent = shown ? 'Your fonts' : 'Preferences'
+        prefs.setAttribute('aria-label', prefsTitle.textContent)
+        if (!shown) fontMessage.textContent = ''
+    }
+    addFont.addEventListener('click', () => {
+        showFonts(true)
+        prefsBack.focus()
+    })
+    prefsBack.addEventListener('click', () => {
+        showFonts(false)
+        addFont.focus()
+    })
+    fontFile.addEventListener('change', async () => {
+        const [file] = fontFile.files ?? []
+        fontFile.value = ''
+        if (!file) return
+        fontMessage.textContent = `Adding ${file.name}…`
+        fontMessage.textContent = await options.fonts.add(file) ?? ''
+    })
+    options.fonts.onChange(() => {
+        fillFontButtons()
+        fillOwnFonts()
+        fillPrefs()
+    })
+    fillOwnFonts()
+
     prefsBody.append(themes.box, fonts.box, steppers, margins, pageTurns.box, progressRow, checks)
     if (options.highlighters) prefsBody.append(highlighterGroup)
     prefsBody.append(resetButton)
@@ -789,7 +864,10 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             chooseTab(tabShown)
             close.focus()
         }
-        if (openingPrefs) prefsClose.focus()
+        if (openingPrefs) {
+            showFonts(false)
+            prefsClose.focus()
+        }
         if (openingSearch) searchField.focus()
     }
     show()

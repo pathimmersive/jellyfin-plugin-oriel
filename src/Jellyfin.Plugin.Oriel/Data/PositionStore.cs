@@ -56,6 +56,26 @@ public sealed record HighlighterEntry(string Id, string Name, string Colour);
 public sealed record StoredHighlighter(string Id, string Name, string Colour, bool BuiltIn, int Uses);
 
 /// <summary>
+/// One of a user's font files as listed: its id, what the file says about itself, and when it was added.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Font">Its format, family, style, weight and italic.</param>
+/// <param name="AddedAt">When it was added.</param>
+public sealed record StoredFont(Guid Id, FontFile Font, DateTimeOffset AddedAt);
+
+/// <summary>
+/// What adding a font file came to.
+/// </summary>
+public enum FontAdded
+{
+    /// <summary>The file was added, or replaced the user's file of its family, weight and italic.</summary>
+    Added,
+
+    /// <summary>The user already has <see cref="PositionStore.MaxFonts"/> files and this one replaces none.</summary>
+    TooMany,
+}
+
+/// <summary>
 /// The plugin's own SQLite database: reading positions, one per user and book, bookmarks and highlights.
 /// </summary>
 public class PositionStore
@@ -75,6 +95,11 @@ public class PositionStore
     /// The built-in highlighter a deleted highlighter's highlights move to: Quotes.
     /// </summary>
     public const string FallbackHighlighter = "yellow";
+
+    /// <summary>
+    /// The most font files a user keeps.
+    /// </summary>
+    public const int MaxFonts = 20;
 
     /// <summary>
     /// The schema, one step per version: entry n moves the database from version n to n + 1.
@@ -125,6 +150,20 @@ public class PositionStore
             colour TEXT NOT NULL,
             position INTEGER NOT NULL,
             PRIMARY KEY (user_id, id)
+        )
+        """,
+        """
+        CREATE TABLE fonts (
+            id TEXT NOT NULL PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            family TEXT NOT NULL,
+            style TEXT NOT NULL,
+            weight INTEGER NOT NULL,
+            italic INTEGER NOT NULL,
+            format TEXT NOT NULL,
+            data BLOB NOT NULL,
+            added_at TEXT NOT NULL,
+            UNIQUE (user_id, family, weight, italic)
         )
         """,
     ];
@@ -624,6 +663,123 @@ public class PositionStore
     /// <returns>The ids.</returns>
     public IReadOnlySet<string> HighlighterIds(Guid userId) =>
         ListHighlighters(userId).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Gets a user's font files, without their data: by family, then weight, then upright before italic.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The files.</returns>
+    public IReadOnlyList<StoredFont> ListFonts(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, format, family, style, weight, italic, added_at FROM fonts WHERE user_id = $user ORDER BY family, weight, italic";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        var fonts = new List<StoredFont>();
+        while (reader.Read())
+        {
+            fonts.Add(new StoredFont(
+                Guid.ParseExact(reader.GetString(0), "N"),
+                new FontFile(reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt32(4), reader.GetInt64(5) != 0),
+                DateTimeOffset.Parse(reader.GetString(6), CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind)));
+        }
+
+        return fonts;
+    }
+
+    /// <summary>
+    /// Adds a user's font file, in place of their file of the same family, weight and italic if they have one.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="font">What the file says about itself.</param>
+    /// <param name="data">The file.</param>
+    /// <param name="addedAt">When it was added.</param>
+    /// <returns>The file as listed, or null with <see cref="FontAdded.TooMany"/> when the user has no room for it.</returns>
+    public (StoredFont? Font, FontAdded Result) AddFont(Guid userId, FontFile font, byte[] data, DateTimeOffset addedAt)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        using (var replace = connection.CreateCommand())
+        {
+            replace.Transaction = transaction;
+            replace.CommandText = "DELETE FROM fonts WHERE user_id = $user AND family = $family AND weight = $weight AND italic = $italic";
+            replace.Parameters.AddWithValue("$user", Key(userId));
+            replace.Parameters.AddWithValue("$family", font.Family);
+            replace.Parameters.AddWithValue("$weight", font.Weight);
+            replace.Parameters.AddWithValue("$italic", font.Italic ? 1 : 0);
+            replace.ExecuteNonQuery();
+        }
+
+        using (var count = connection.CreateCommand())
+        {
+            count.Transaction = transaction;
+            count.CommandText = "SELECT COUNT(*) FROM fonts WHERE user_id = $user";
+            count.Parameters.AddWithValue("$user", Key(userId));
+            if ((long)count.ExecuteScalar()! >= MaxFonts)
+            {
+                transaction.Rollback();
+                return (null, FontAdded.TooMany);
+            }
+        }
+
+        var stored = new StoredFont(Guid.NewGuid(), font, addedAt);
+        using (var insert = connection.CreateCommand())
+        {
+            insert.Transaction = transaction;
+            insert.CommandText = "INSERT INTO fonts (id, user_id, family, style, weight, italic, format, data, added_at) VALUES ($id, $user, $family, $style, $weight, $italic, $format, $data, $added)";
+            insert.Parameters.AddWithValue("$id", Key(stored.Id));
+            insert.Parameters.AddWithValue("$user", Key(userId));
+            insert.Parameters.AddWithValue("$family", font.Family);
+            insert.Parameters.AddWithValue("$style", font.Style);
+            insert.Parameters.AddWithValue("$weight", font.Weight);
+            insert.Parameters.AddWithValue("$italic", font.Italic ? 1 : 0);
+            insert.Parameters.AddWithValue("$format", font.Format);
+            insert.Parameters.AddWithValue("$data", data);
+            insert.Parameters.AddWithValue("$added", addedAt.ToString("O", CultureInfo.InvariantCulture));
+            insert.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return (stored, FontAdded.Added);
+    }
+
+    /// <summary>
+    /// Gets one of a user's font files.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="fontId">The file.</param>
+    /// <returns>Its format and data, or null when the user has no such file.</returns>
+    public (string Format, byte[] Data)? GetFontData(Guid userId, Guid fontId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT format, data FROM fonts WHERE id = $id AND user_id = $user";
+        command.Parameters.AddWithValue("$id", Key(fontId));
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? (reader.GetString(0), (byte[])reader.GetValue(1)) : null;
+    }
+
+    /// <summary>
+    /// Removes every file of one of a user's font families.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="family">The family.</param>
+    /// <returns>How many files were removed.</returns>
+    public int RemoveFontFamily(Guid userId, string family)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "DELETE FROM fonts WHERE user_id = $user AND family = $family";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$family", family);
+        return command.ExecuteNonQuery();
+    }
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);
 
