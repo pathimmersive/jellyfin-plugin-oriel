@@ -1,10 +1,11 @@
 import './reader.css'
-import { addBookmark, addHighlight, BookLoadError, downloadBook, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeHighlight, saveHighlighters, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookmarks, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { createDictionarySheet, type DictionarySheet } from './controls/dictionary'
+import { clearFailure, DrmError, type Failure, failureFor, ICONS, NOTICE_TEXT, saveNotice, showFailure } from './controls/failure'
 import { createHighlighterSheet, type HighlighterSheet } from './controls/highlighter-sheet'
 import { createHighlighters } from './controls/highlighters'
 import { createHighlights } from './controls/highlights'
@@ -13,6 +14,7 @@ import { layoutKey, type PageCount, progressShown, readCount, writeCount } from 
 import { createCopy, createHighlighting, type Highlighting } from './controls/toolbar'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
+import { drmProtected } from './engine/drm'
 import { openBook } from './engine/engine'
 import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBoth } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
@@ -38,18 +40,44 @@ const themePage = (settings: Settings): void => {
     document.documentElement.style.setProperty('--page-footer', theme.footer)
 }
 
+// Signs in on the jellyfin-web login page, then comes back to this book.
+const signIn = async (itemId: string | null): Promise<void> => {
+    saveReturnMarker(localStorage, itemId)
+    location.replace(loginUrl(location.pathname, itemId, await publicServerId(serverBasePath(location.pathname))))
+}
+
+// The failure page in place of the book, with Back to Jellyfin to its home.
+const showFailed = (failure: Failure, retry: () => void): void => {
+    showFailure(status, failure, retry, `${serverBasePath(location.pathname)}/web/#/home`)
+    document.body.dataset.state = 'error'
+}
+
+// Resolves when it is time to ask an unreachable server again: after 5
+// seconds, when the browser comes back online, or on Try again.
+const untilRetry = (): { retry: () => void, due: Promise<void> } => {
+    let retry = (): void => {}
+    const due = new Promise<void>(resolve => {
+        const timer = window.setTimeout(() => retry(), 5000)
+        retry = () => {
+            clearTimeout(timer)
+            window.removeEventListener('online', retry)
+            resolve()
+        }
+        window.addEventListener('online', retry)
+    })
+    return { retry, due }
+}
+
 const start = async (): Promise<void> => {
     const itemId = new URLSearchParams(location.search).get('id')
     const session = readSession(localStorage, location.origin)
     if (!session) {
-        // Sign in on the jellyfin-web login page, then come back to this book.
-        saveReturnMarker(localStorage, itemId)
-        location.replace(loginUrl(location.pathname, itemId, await publicServerId(serverBasePath(location.pathname))))
+        await signIn(itemId)
         return
     }
 
     if (!itemId) {
-        show('error', 'No book was chosen. Open a book from your Jellyfin library.')
+        showFailed({ kind: 'other', title: 'No book was chosen.', body: 'Open a book from your Jellyfin library.', retry: false }, () => {})
         return
     }
 
@@ -71,11 +99,29 @@ const start = async (): Promise<void> => {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const basePath = serverBasePath(location.pathname)
         const started = performance.now()
-        const [file, stored, jellyfin] = await Promise.all([
-            downloadBook(basePath, itemId, authorization),
-            readStoredPosition(basePath, itemId, authorization),
-            readJellyfinPosition(basePath, itemId, session.userId, authorization),
-        ])
+        // While the server cannot be reached the failure page says so, and the
+        // book and its saved places are asked for again until it answers.
+        let fetched: [File, StoredPosition | null, JellyfinPosition | null]
+        for (;;) {
+            try {
+                fetched = await Promise.all([
+                    downloadBook(basePath, itemId, authorization),
+                    readStoredPosition(basePath, itemId, authorization),
+                    readJellyfinPosition(basePath, itemId, session.userId, authorization),
+                ])
+                break
+            } catch (error) {
+                const failure = failureFor(error, stage)
+                if (failure === 'signIn' || failure.kind !== 'offline') throw error
+                const { retry, due } = untilRetry()
+                showFailed(failure, retry)
+                await due
+            }
+        }
+        const [file, stored, jellyfin] = fetched
+        clearFailure(status)
+        show('loading', 'Loading the book…')
+        if (await drmProtected(file)) throw new DrmError()
         const downloaded = performance.now()
         overlay?.set('download', `download ${Math.round(downloaded - started)} ms · ${(file.size / 1048576).toFixed(1)} MB`)
         stage = 'opened'
@@ -248,10 +294,34 @@ const start = async (): Promise<void> => {
         // Save the exact position to Oriel's store and the approximate one to
         // Jellyfin, so Resume, Continue Reading and the built-in reader pick up
         // where reading stopped here.
+        // A save refused because the session has ended, or failed another way,
+        // says so at the bottom of the page: signed out until the page is left,
+        // not saved until a save goes through.
+        let saveShown: { kind: 'signedOut' | 'notSaved', element: HTMLElement } | null = null
+        const placeSaveNotice = (kind: 'signedOut' | 'notSaved' | null): void => {
+            if (saveShown?.kind === 'signedOut' || saveShown?.kind === kind) return
+            saveShown?.element.remove()
+            saveShown = kind && {
+                kind,
+                element: kind === 'signedOut'
+                    ? showNotice(NOTICE_TEXT.signedOut, ICONS.person, { label: 'Sign in', run: () => void signIn(itemId) })
+                    : showNotice(NOTICE_TEXT.notSaved, ICONS.cloudOff),
+            }
+        }
         const writer = positionWriter(
-            (position, keepalive) => saveBoth(position, keepalive,
-                (cfi, fraction, keep) => writeStoredPosition(basePath, itemId, authorization, cfi, fraction, keep),
-                (ticks, lastPlayed, keep) => writeJellyfinPosition(basePath, itemId, session.userId, authorization, ticks, lastPlayed, keep)),
+            async (position, keepalive) => {
+                let refused = false
+                const watched: typeof fetch = async (input, init) => {
+                    const response = await fetch(input, init)
+                    if (response.status === 401) refused = true
+                    return response
+                }
+                const saved = await saveBoth(position, keepalive,
+                    (cfi, fraction, keep) => writeStoredPosition(basePath, itemId, authorization, cfi, fraction, keep, watched),
+                    (ticks, lastPlayed, keep) => writeJellyfinPosition(basePath, itemId, session.userId, authorization, ticks, lastPlayed, keep, watched))
+                placeSaveNotice(saveNotice(saved, refused ? 401 : null))
+                return saved
+            },
             opened.openedAt)
         opened.onMoved(position => {
             if (notice && position.cfi !== opened.openedAt) {
@@ -266,27 +336,33 @@ const start = async (): Promise<void> => {
         window.addEventListener('pagehide', () => writer.flush())
     } catch (error) {
         console.error(error)
-        // Name the failing step and the browser's own error, so a failure on a
-        // device without developer tools can still be diagnosed.
-        show('error', error instanceof BookLoadError
-            ? error.message
-            : `The book could not be ${stage}. ${describe(error)}`)
+        // The failure page names what failed; for one it cannot name, the step
+        // and the browser's own error, so a failure on a device without
+        // developer tools can still be diagnosed. An expired session signs in.
+        const failure = failureFor(error, stage)
+        if (failure === 'signIn') await signIn(itemId)
+        else showFailed(failure, () => location.reload())
     }
 }
 
-// A note at the bottom of the page, as the reader's notices are drawn.
-const showNotice = (text: string): HTMLElement => {
+const INFO = 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'
+
+// A note at the bottom of the page, as the reader's notices are drawn, with an icon and an optional action.
+const showNotice = (text: string, icon = INFO, action?: { label: string, run: () => void }): HTMLElement => {
     const notice = document.createElement('div')
     notice.className = 'notice'
     notice.setAttribute('role', 'status')
-    notice.innerHTML = '<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor">'
-        + '<path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z"/></svg><span></span>'
+    notice.innerHTML = `<svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="${icon}"/></svg><span></span>`
     notice.querySelector('span')!.textContent = text
+    if (action) {
+        const button = document.createElement('button')
+        button.type = 'button'
+        button.textContent = action.label
+        button.addEventListener('click', action.run)
+        notice.append(button)
+    }
     document.body.append(notice)
     return notice
 }
-
-const describe = (error: unknown): string =>
-    error instanceof Error ? `${error.name}: ${error.message}` : String(error)
 
 void start()
