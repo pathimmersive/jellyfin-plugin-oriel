@@ -5,9 +5,12 @@ Usage:
   package-plugin.py --version X.Y.Z --out DIR --url-base URL
                     [--manifest EXISTING] [--changelog TEXT] [--jellyfin-version V]
 
-The zip, oriel_X.Y.Z.0.zip, holds the plugin assembly and meta.json. Its
-download address in the manifest is <url-base>/vX.Y.Z/oriel_X.Y.Z.0.zip, the
-layout of GitHub release downloads. With --manifest, the new version is added to
+The zip, oriel_X.Y.Z.0.zip, holds the plugin assembly, meta.json and the
+plugin's image, oriel.png, which meta.json names. Its download address in the
+manifest is <url-base>/vX.Y.Z/oriel_X.Y.Z.0.zip, the layout of GitHub release
+downloads. oriel.png is also written beside the zip, to be released with it:
+the manifest's imageUrl, <url-base>/vX.Y.Z/oriel.png, is what Jellyfin's
+catalog shows. With --manifest, the new version is added to
 that manifest's versions, newest first; without it a new manifest is started.
 A malformed version, or one the manifest already lists, fails before anything
 is written. Needs Python 3 and the .NET 10 SDK.
@@ -25,7 +28,8 @@ import zipfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "src", "Jellyfin.Plugin.Oriel", "Jellyfin.Plugin.Oriel.csproj")
-PLUGIN_FILES = ["Jellyfin.Plugin.Oriel.dll", "meta.json"]
+PLUGIN_FILES = ["Jellyfin.Plugin.Oriel.dll", "meta.json", "oriel.png"]
+IMAGE = "oriel.png"
 # A fixed time inside the zip, so the same build gives the same bytes and checksum.
 ZIP_TIME = (2000, 1, 1, 0, 0, 0)
 
@@ -88,6 +92,9 @@ def main():
                     info.external_attr = 0o644 << 16
                     z.writestr(info, f.read())
 
+        with open(os.path.join(build, IMAGE), "rb") as source, open(os.path.join(args.out, IMAGE), "wb") as target:
+            target.write(source.read())
+
     with open(zip_path, "rb") as f:
         checksum = hashlib.md5(f.read()).hexdigest()
 
@@ -95,6 +102,7 @@ def main():
         plugin = {key: meta[key] for key in ["guid", "name", "description", "overview", "owner", "category"]}
         plugin["versions"] = []
         manifest.append(plugin)
+    plugin["imageUrl"] = f"{args.url_base.rstrip('/')}/v{release}/{IMAGE}"
     plugin["versions"].insert(0, {
         "version": version,
         "changelog": args.changelog,

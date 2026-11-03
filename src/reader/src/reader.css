@@ -9,6 +9,38 @@ body {
   margin: 0;
 }
 
+/* While the book is fetched and opened, Oriel's logo on the dark loading
+   screen, as the canvas's loading board draws it, with the status below. */
+#loading {
+  display: none;
+}
+
+body:is([data-state="starting"], [data-state="loading"]) #loading {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-bottom: 72px;
+  background: #101010;
+}
+
+#loading img {
+  width: 168px;
+  height: auto;
+}
+
+body:is([data-state="starting"], [data-state="loading"]) #status {
+  position: fixed;
+  inset: 50% 0 auto;
+  z-index: 51;
+  margin-top: 40px;
+  text-align: center;
+  font-size: 13px;
+  color: rgba(255, 255, 255, .7);
+}
+
 /* The page around the book takes the theme chosen in Preferences. */
 body[data-state="rendered"] {
   background: var(--page-background, #ffffff);
