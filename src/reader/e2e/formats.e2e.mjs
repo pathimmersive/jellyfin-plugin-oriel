@@ -48,11 +48,12 @@ const frameText = async page => {
     return texts.join('\n')
 }
 
-// The colour at the middle of the first loaded image in any of the book's frames.
+// The colour at the middle of the first loaded image in any of the book's frames
+// (the loading screen's logo, on the reader page itself, is not the book's).
 const pageColour = async page => {
     for (const frame of page.frames()) {
         const colour = await frame.evaluate(() => {
-            const image = [...document.images].find(img => img.complete && img.naturalWidth > 0)
+            const image = [...document.images].find(img => img.complete && img.naturalWidth > 0 && !img.closest('#loading'))
             if (!image) return null
             const canvas = document.createElement('canvas')
             canvas.width = image.naturalWidth

@@ -1,4 +1,9 @@
-# Oriel
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="branding/oriel-lockup-dark.svg">
+    <img alt="Oriel" src="branding/oriel-lockup-light.svg" width="280">
+  </picture>
+</h1>
 
 Oriel is an e-book reader for Jellyfin, hosted by the Jellyfin server as a plugin. It opens EPUB books from your Jellyfin libraries in the browser, on a phone's home screen, and inside the official Jellyfin apps, using the account you are already signed in with.
 

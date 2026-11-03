@@ -1,4 +1,5 @@
 using System;
+using System.Buffers.Binary;
 using System.IO;
 using System.Linq;
 using System.Runtime.Versioning;
@@ -62,5 +63,16 @@ public class PluginShapeTests
 
         Assert.Equal("12.0.0.0", meta.RootElement.GetProperty("targetAbi").GetString());
         Assert.Equal(Plugin.PluginId, meta.RootElement.GetProperty("guid").GetString());
+    }
+
+    [Fact]
+    public void MetaJsonNamesTheCatalogImageShippedBesideIt()
+    {
+        using var meta = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "meta.json")));
+        var image = File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, meta.RootElement.GetProperty("imagePath").GetString()!));
+
+        // A PNG's IHDR chunk holds its width and height, big-endian, after the 8-byte signature and the chunk header.
+        Assert.Equal(new byte[] { 0x89, (byte)'P', (byte)'N', (byte)'G' }, image[..4]);
+        Assert.Equal((1920, 1080), (BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(16)), BinaryPrimitives.ReadInt32BigEndian(image.AsSpan(20))));
     }
 }
