@@ -33,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddHostedService<PositionStoreStartup>();
         serviceCollection.AddSingleton<IBookCatalog, LibraryBookCatalog>();
         serviceCollection.AddSingleton<ReadingData>();
+        serviceCollection.AddSingleton<EnglishDictionary>();
     }
 
     // The plugin's data folder: the one Jellyfin gave the plugin, or the same

@@ -312,6 +312,13 @@ check_selection_actions_in_browser() {
     done
 }
 
+check_define_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"             ORIEL_BROWSER="$browser" node "$reader/e2e/define.e2e.mjs" || fail "define in $browser at $1"
+    done
+}
+
 check_hint_in_browser() {
     local browser
     for browser in $(browsers webkit chromium hybrid); do
@@ -749,6 +756,7 @@ check_bookmarks_in_browser "$base"
 check_highlights_in_browser "$base"
 check_highlighters_in_browser "$base"
 check_selection_actions_in_browser "$base"
+check_define_in_browser "$base"
 
 # The rest is WebKit's share.
 if ! runs webkit; then

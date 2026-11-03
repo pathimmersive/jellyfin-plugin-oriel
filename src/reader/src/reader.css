@@ -348,6 +348,7 @@ body[data-state="rendered"] {
 #prefs-backdrop,
 #search-backdrop,
 #note-backdrop,
+#dictionary-backdrop,
 #highlighter-backdrop {
   position: fixed;
   z-index: 5;
@@ -359,6 +360,7 @@ body[data-state="rendered"] {
 #prefs,
 #search,
 #note,
+#dictionary,
 #highlighter {
   box-sizing: border-box;
   position: fixed;
@@ -810,6 +812,7 @@ body[data-state="rendered"] {
 /* The Note sheet: the text in its colour, the highlighters, the note, Cancel and Save.
    On a phone it rises only as high as it needs. */
 #note,
+#dictionary,
 #highlighter {
   top: auto;
   max-height: calc(100% - env(safe-area-inset-top) - 40px);
@@ -1090,6 +1093,96 @@ body[data-state="rendered"] {
   background: #c62828;
   color: #ffffff;
   font-weight: 600;
+}
+
+#dictionary:focus {
+  outline: none;
+}
+
+#dictionary .panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px 24px;
+  overflow-y: auto;
+}
+
+#dictionary .word {
+  margin: 0;
+  font-family: 'Literata', Georgia, serif;
+  font-size: 26px;
+  line-height: 1.2;
+}
+
+#dictionary .entries {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+#dictionary .entries:empty,
+#dictionary .status:empty {
+  display: none;
+}
+
+#dictionary .part {
+  margin: 0 0 6px;
+  font-size: 14px;
+  font-style: italic;
+  color: rgba(255, 255, 255, .6);
+}
+
+#dictionary ol {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#dictionary .status {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+#dictionary .source {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .6);
+}
+
+#dictionary .sheet-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+#dictionary .sheet-buttons button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 4px;
+  background: #424242;
+  color: rgba(255, 255, 255, .87);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+#dictionary .sheet-buttons button[hidden] {
+  display: none;
+}
+
+#dictionary .sheet-buttons button:focus-visible {
+  outline: 2px solid #00a4dc;
+  outline-offset: 2px;
 }
 
 #note .panel-body {
@@ -1712,7 +1805,8 @@ body[data-state="rendered"] {
   #contents-backdrop,
 #prefs-backdrop,
 #search-backdrop,
-#note-backdrop {
+#note-backdrop,
+#dictionary-backdrop {
     display: none;
   }
 
@@ -1720,6 +1814,7 @@ body[data-state="rendered"] {
 #prefs,
 #search,
 #note,
+#dictionary,
 #highlighter {
     left: auto;
     width: min(440px, 100%);

@@ -8,7 +8,7 @@
 # a bundled library is a .js file or a folder under src/reader/vendor/*/vendor,
 # such as foliate-js's zip.js and fflate, whose minified copies carry no notice
 # of their own, and its pdfjs folder. Each needs a "## " heading in the notices
-# that names it.
+# that names it, as does WordNet, the dictionary the plugin embeds.
 # Exits non-zero listing everything missing.
 set -euo pipefail
 
@@ -51,6 +51,11 @@ for lib in src/reader/vendor/*/vendor/*.js src/reader/vendor/*/vendor/*/; do
     if has_entry "$name"; then pass "notice for $name (bundled in $(basename "$(dirname "$(dirname "$lib")")"))"
     else fail "no '## ' entry for $name ($lib) in $notices"; fi
 done
+
+if [ -e src/Jellyfin.Plugin.Oriel/Data/wordnet.txt.gz ]; then
+    if has_entry WordNet; then pass "notice for WordNet (src/Jellyfin.Plugin.Oriel/Data/wordnet.txt.gz)"
+    else fail "no '## ' entry for WordNet in $notices"; fi
+fi
 
 if [ "$missing" -gt 0 ]; then
     echo "check-community-files: $missing missing" >&2

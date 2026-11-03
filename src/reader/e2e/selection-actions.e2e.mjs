@@ -1,7 +1,7 @@
 // Checks the Selected text toolbar's actions in the browser named by
 // ORIEL_BROWSER: webkit at iPhone size with touch, or chromium at desktop size
-// with a mouse. On the test EPUB, selecting text shows Copy, Translate, Search
-// and Share below the highlighters; Copy puts the text on the clipboard (through
+// with a mouse. On the test EPUB, selecting text shows Copy, Define, Translate,
+// Search and Share below the highlighters; Copy puts the text on the clipboard (through
 // the clipboard API, and the old way where the page is not secure, as on a
 // server reached over plain http) and says Copied; Translate opens the text at
 // the translation address the plugin's setting holds, and is gone when the
@@ -173,7 +173,7 @@ try {
     // The second row, in the canvas's order.
     await select(page, ...FIRST)
     let names = await row(page)
-    if (names.join('|') !== 'Copy|Translate|Search|Share') fail(`for a selection the second row is ${names.join(', ')}`)
+    if (names.join('|') !== 'Copy|Define|Translate|Search|Share') fail(`for a selection the second row is ${names.join(', ')}`)
     for (const box of await toolbar(page).locator('.actions button:not([hidden])').evaluateAll(items => items.map(item => item.getBoundingClientRect()))) {
         if (box.height < 52 || box.width < 44) fail('an action button is under 52 px tall or 44 px wide')
     }
@@ -243,7 +243,7 @@ try {
     await pressPoint(page, line.x, line.y, setup.touch)
     await pause(600)
     names = await row(page)
-    if (names.join('|') !== 'Copy|Translate|Search|Share|Remove') fail(`for a highlight the second row is ${names.join(', ')}`)
+    if (names.join('|') !== 'Copy|Define|Translate|Search|Share|Remove') fail(`for a highlight the second row is ${names.join(', ')}`)
     await use(toolbar(page).getByRole('button', { name: 'Copy' }))
     await pause(500)
     copied = await page.evaluate(() => window.copiedText)
@@ -259,7 +259,7 @@ try {
     await pause(300)
     await select(page, ...FIRST)
     names = await row(page)
-    if (names.join('|') !== 'Copy|Search') fail(`without a share sheet or a translation address the second row is ${names.join(', ')}`)
+    if (names.join('|') !== 'Copy|Define|Search') fail(`without a share sheet or a translation address the second row is ${names.join(', ')}`)
     await use(toolbar(page).getByRole('button', { name: 'Copy' }))
     await pause(500)
     copied = await page.evaluate(() => window.copiedText)

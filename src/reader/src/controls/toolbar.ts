@@ -1,4 +1,5 @@
 import type { Highlight } from '../api/client'
+import { definable } from './dictionary'
 import type { HighlighterSheet } from './highlighter-sheet'
 import { highlightFill, type Highlighters, MAX_HIGHLIGHTERS } from './highlighters'
 import { type Highlights, highlightText, NOTE_LENGTH } from './highlights'
@@ -63,6 +64,10 @@ export interface SelectionActions {
     translateUrl(): string
     /** Opens Search in this book with a query; null for a book without search. */
     search: ((query: string) => void) | null
+    /** Puts text on the clipboard and says so. */
+    copy(text: string): void
+    /** Opens the Dictionary sheet for a word or short phrase; null where there is no dictionary. */
+    define: ((text: string) => void) | null
 }
 
 /** The address Translate opens for `text`: the translation address with the text, URL-encoded, where {text} is. */
@@ -94,6 +99,24 @@ const copyText = (text: string): Promise<boolean> => {
     return Promise.resolve(copyOldWay())
 }
 
+/** Copy, for the toolbar and the sheets: puts text on the clipboard and says 'Copied' for a moment. */
+export const createCopy = (root: HTMLElement): (text: string) => void => {
+    const copied = document.createElement('div')
+    copied.id = 'copied'
+    copied.setAttribute('role', 'status')
+    copied.dataset.controls = ''
+    root.append(copied)
+    let copiedFor = 0
+    return text => {
+        void copyText(text).then(done => {
+            if (!done) return
+            copied.textContent = 'Copied'
+            clearTimeout(copiedFor)
+            copiedFor = window.setTimeout(() => { copied.textContent = '' }, 2000)
+        })
+    }
+}
+
 /** Highlighting, as the page drives it. */
 export interface Highlighting {
     /** Closes the toolbar, as a page turn does. */
@@ -104,6 +127,7 @@ export interface Highlighting {
 
 const TRASH = 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z'
 const COPY = 'M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z'
+const DEFINE = 'M21 5c-1.11-.35-2.33-.5-3.5-.5-1.95 0-4.05.4-5.5 1.5-1.45-1.1-3.55-1.5-5.5-1.5S2.45 4.9 1 6v14.65c0 .25.25.5.5.5.1 0 .15-.05.25-.05C3.1 20.45 5.05 20 6.5 20c1.95 0 4.05.4 5.5 1.5 1.35-.85 3.8-1.5 5.5-1.5 1.65 0 3.35.3 4.75 1.05.1.05.15.05.25.05.25 0 .5-.25.5-.5V6c-.6-.45-1.25-.75-2-1zm0 13.5c-1.1-.35-2.3-.5-3.5-.5-1.7 0-4.15.65-5.5 1.5V8c1.35-.85 3.8-1.5 5.5-1.5 1.2 0 2.4.15 3.5.5v11.5z'
 const TRANSLATE = 'M12.87 15.07l-2.54-2.51.03-.03c1.74-1.94 2.98-4.17 3.71-6.53H17V4h-7V2H8v2H1v1.99h11.17C11.5 7.92 10.44 9.75 9 11.35 8.07 10.32 7.3 9.19 6.69 8h-2c.73 1.63 1.73 3.17 2.98 4.56l-5.09 5.02L4 19l5-5 3.11 3.11.76-2.04zM18.5 10h-2L12 22h2l1.12-3h4.75L21 22h2l-4.5-12zm-2.62 7l1.62-4.33L19.12 17h-3.24z'
 const SEARCH = 'M15.5 14h-.79l-.28-.27C15.41 12.59 16 11.11 16 9.5 16 5.91 13.09 3 9.5 3S3 5.91 3 9.5 5.91 16 9.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z'
 const SHARE = 'M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z'
@@ -150,10 +174,10 @@ const fillHighlighters = (group: HTMLElement, highlighters: Highlighters, presse
  * Save keeps the note with the highlight, making the highlight for a selection.
  * Add a highlighter, after the highlighters on both, opens the New highlighter
  * sheet; the new one highlights the selection (or recolours the highlight) from
- * the toolbar, and is pressed on the Note sheet. Below a divider, Copy,
- * Translate, Search and Share act on the text (Translate where the admin has
- * set an address, Share where the browser has a share sheet), and Remove
- * follows them for a highlight.
+ * the toolbar, and is pressed on the Note sheet. Below a divider, Copy, Define,
+ * Translate, Search and Share act on the text (Define for up to three words,
+ * Translate where the admin has set an address, Share where the browser has a
+ * share sheet), and Remove follows them for a highlight.
  */
 export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean, actions: SelectionActions): Highlighting => {
     const bar = document.createElement('div')
@@ -185,18 +209,12 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         return button
     }
     const copy = action('Copy', COPY)
+    const define = action('Define', DEFINE)
     const translate = action('Translate', TRANSLATE)
     const search = action('Search', SEARCH)
     const share = action('Share', SHARE)
     const remove = action('Remove', TRASH)
     bar.append(top, row)
-    // 'Copied', for a moment, once Copy has put the text on the clipboard.
-    const copied = document.createElement('div')
-    copied.id = 'copied'
-    copied.setAttribute('role', 'status')
-    copied.dataset.controls = ''
-    root.append(copied)
-    let copiedFor = 0
     // A mouse press on the toolbar leaves the selection in the book as it is.
     bar.addEventListener('mousedown', event => event.preventDefault())
 
@@ -236,10 +254,11 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     // The highlighter pressed while the toolbar shows: the highlight's, or none for a selection.
     let pressed: string | null = null
     const fillBar = (): void => fillHighlighters(group, highlighters, pressed ?? undefined, id => choose(id), addFromBar)
-    const show = (around: Box, pressedNow: string | null, noted = false): void => {
+    const show = (around: Box, text: string, pressedNow: string | null, noted = false): void => {
         pressed = pressedNow
         fillBar()
         noteButton.querySelector('span')!.textContent = noted ? 'Edit note' : 'Note'
+        define.hidden = !actions.define || !definable(text)
         translate.hidden = !actions.translateUrl()
         search.hidden = !actions.search
         share.hidden = typeof navigator.share !== 'function'
@@ -285,14 +304,8 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         if ('selection' in chosen) book.clearSelection()
         use('selection' in chosen ? chosen.selection.text : chosen.highlight.text)
     }
-    copy.addEventListener('click', () => act(text => {
-        void copyText(text).then(done => {
-            if (!done) return
-            copied.textContent = 'Copied'
-            clearTimeout(copiedFor)
-            copiedFor = window.setTimeout(() => { copied.textContent = '' }, 2000)
-        })
-    }))
+    copy.addEventListener('click', () => act(text => actions.copy(text)))
+    define.addEventListener('click', () => act(text => actions.define?.(text)))
     translate.addEventListener('click', () => act(text => {
         window.open(translateAddress(actions.translateUrl(), text), '_blank', 'noopener')
     }))
@@ -355,7 +368,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
             const wasRinged = ringed()
             target = { selection }
             if (wasRinged) draw()
-            show(selection.box, null)
+            show(selection.box, selection.text, null)
         } else if (target && 'selection' in target) {
             close()
         }
@@ -366,7 +379,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         if (highlight && box) {
             target = { highlight }
             draw()
-            show(box, highlighters.find(highlight.colour).id, highlight.note !== '')
+            show(box, highlight.text, highlighters.find(highlight.colour).id, highlight.note !== '')
             return true
         }
         if (bar.hidden) return false

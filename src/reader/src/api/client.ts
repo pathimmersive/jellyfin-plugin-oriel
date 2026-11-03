@@ -425,6 +425,48 @@ export const readReaderSettings = async (
     }
 }
 
+/** A word's senses as one part of speech: noun, verb, adjective or adverb. */
+export interface DictionaryEntry {
+    word: string
+    partOfSpeech: string
+    senses: string[]
+}
+
+/** A word's definitions from the server's dictionary: the word as found and its entries. */
+export interface Definition {
+    word: string
+    entries: DictionaryEntry[]
+}
+
+/** A word looked up: its definition, none in the dictionary, or a failure to ask. */
+export type WordLookup = { found: Definition } | { missing: true } | { failed: true }
+
+const isDictionaryEntry = (value: unknown): value is DictionaryEntry => {
+    const entry = value as Partial<DictionaryEntry> | null
+    return typeof entry?.word === 'string' && typeof entry.partOfSpeech === 'string'
+        && Array.isArray(entry.senses) && entry.senses.every(sense => typeof sense === 'string')
+}
+
+/** Looks a word up in the dictionary on the server. */
+export const lookUpWord = async (
+    basePath: string,
+    authorization: string,
+    word: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<WordLookup> => {
+    try {
+        const response = await fetchImpl(`${basePath}/Oriel/Dictionary?word=${encodeURIComponent(word)}`, { headers: { Authorization: authorization } })
+        if (response.status === 404) return { missing: true }
+        if (!response.ok) return { failed: true }
+        const data = await response.json() as Partial<Definition> | null
+        return typeof data?.word === 'string' && Array.isArray(data.entries) && data.entries.length > 0 && data.entries.every(isDictionaryEntry)
+            ? { found: { word: data.word, entries: data.entries } }
+            : { failed: true }
+    } catch {
+        return { failed: true }
+    }
+}
+
 /** The reading data file from /Oriel/Export and the name the server gives it, or why it could not be had. */
 export type ReadingDataFile = { ok: true, blob: Blob, fileName: string } | { ok: false, reason: string }
 
