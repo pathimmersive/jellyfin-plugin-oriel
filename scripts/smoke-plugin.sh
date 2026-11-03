@@ -756,7 +756,8 @@ if ! runs webkit; then
     exit 0
 fi
 
-# Second pass with a BaseUrl.
+# Second pass with a BaseUrl: only the checks a base path can break, as every
+# other check calls the same API address helper the reader's own requests use.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
 [ "$code" = "200" ] || fail "GET network configuration returned $code"
 sed 's/"BaseUrl":"[^"]*"/"BaseUrl":"\/jf"/' "$work/body" > "$work/network.json"
@@ -778,17 +779,13 @@ set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume "$PROGRESS_TEXT"
 set_progress "http://127.0.0.1:$port/jf" 0
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Play
-check_controls_in_browser "http://127.0.0.1:$port/jf"
-check_contents_in_browser "http://127.0.0.1:$port/jf"
-check_preferences_in_browser "http://127.0.0.1:$port/jf"
-check_pages_in_browser "http://127.0.0.1:$port/jf"
-check_page_turn_in_browser "http://127.0.0.1:$port/jf"
-check_hint_in_browser "http://127.0.0.1:$port/jf"
-check_search_in_browser "http://127.0.0.1:$port/jf"
-check_bookmarks_in_browser "http://127.0.0.1:$port/jf"
-check_highlights_in_browser "http://127.0.0.1:$port/jf"
-check_highlighters_in_browser "http://127.0.0.1:$port/jf"
-check_selection_actions_in_browser "http://127.0.0.1:$port/jf"
+# Opens at the saved place and saves it back as pages turn, under /jf.
+set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
+ORIEL_BASE="http://127.0.0.1:$port/jf" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
+ORIEL_ITEM_ID="$item_id" ORIEL_SAVED_TICKS="$PROGRESS_TICKS" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
+    node "$reader/e2e/position.e2e.mjs" || fail "Oriel did not open at or save the reading position at http://127.0.0.1:$port/jf"
+ORIEL_BASE="http://127.0.0.1:$port/jf" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+    node "$reader/e2e/data-page.e2e.mjs" || fail "the reading data page at http://127.0.0.1:$port/jf"
 
 # --- install from a plugin repository --------------------------------------
 
