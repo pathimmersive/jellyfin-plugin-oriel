@@ -29,9 +29,16 @@ jobs:
       - run: npm --prefix src/reader test
       - run: bash scripts/check-community-files.sh
 
-  smoke:
+  # The smoke checks, WebKit's and Chromium's shares in parallel, each with its
+  # own Jellyfin (ORIEL_SMOKE_BROWSERS in scripts/smoke-plugin.sh).
+  smoke-browser:
+    name: smoke-${{ matrix.browser }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [webkit, chromium]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
@@ -44,11 +51,23 @@ jobs:
           cache-dependency-path: src/reader/package-lock.json
       - run: npm ci
         working-directory: src/reader
-      # The smoke script installs WebKit and Chromium itself; the runner also
-      # needs their system libraries. The runner's package mirror sometimes slows
+      # The smoke script installs its browser itself; the runner also needs the
+      # browser's system libraries. The runner's package mirror sometimes slows
       # to a crawl, so the script gives each of three attempts five minutes and
       # puts a different apt mirror first on each.
-      - name: Install WebKit's and Chromium's system libraries
+      - name: Install the browser's system libraries
         working-directory: src/reader
-        run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps webkit chromium
+        run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps ${{ matrix.browser }}
       - run: bash scripts/smoke-plugin.sh
+        env:
+          ORIEL_SMOKE_BROWSERS: ${{ matrix.browser }}
+
+  # The required check: passes only when both shares pass. It runs even when one
+  # fails, because a required check that is skipped counts as passed.
+  smoke:
+    needs: smoke-browser
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: '[ "${{ needs.smoke-browser.result }}" = "success" ] || { echo "smoke-webkit or smoke-chromium did not pass: ${{ needs.smoke-browser.result }}"; exit 1; }'

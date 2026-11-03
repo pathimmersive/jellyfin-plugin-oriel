@@ -6,6 +6,12 @@
 # Needs: bash, curl, docker, Node and npm, the .NET 10 SDK.
 # Override the image with JELLYFIN_IMAGE=jellyfin/jellyfin:<tag>. The plugin is
 # built against the Jellyfin version in the tag; JELLYFIN_VERSION overrides it.
+#
+# Every check runs by default. The argument webkit (or ORIEL_SMOKE_BROWSERS=webkit)
+# runs WebKit's share: the checks that need no browser, every WebKit check, the
+# checks that use WebKit only, the second pass under /jf and the install from a
+# repository. chromium runs only the checks made in Chromium. CI runs the two
+# shares as parallel jobs; together they make every check.
 set -euo pipefail
 
 IMAGE="${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.2.20261005-225228}"
@@ -30,6 +36,21 @@ trap cleanup EXIT
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
 pass() { echo "PASS: $*"; }
+
+SMOKE_BROWSERS="${1:-${ORIEL_SMOKE_BROWSERS:-webkit chromium}}"
+case "$SMOKE_BROWSERS" in
+    "webkit chromium"|webkit|chromium) ;;
+    *) fail "the browsers to run are '$SMOKE_BROWSERS', expected webkit, chromium or nothing for both" ;;
+esac
+# True when this run makes $1's checks.
+runs() { [[ " $SMOKE_BROWSERS " == *" $1 "* ]]; }
+# The browsers of those given that this run makes checks in; hybrid is Chromium with touch.
+browsers() {
+    local browser
+    for browser in "$@"; do
+        if runs "${browser/hybrid/chromium}"; then echo "$browser"; fi
+    done
+}
 
 # Docker Desktop on Windows needs a Windows path for bind mounts.
 hostpath() { if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else echo "$1"; fi; }
@@ -92,7 +113,8 @@ MOBI_TEXT="Oriel smoke MOBI chapter one opens here."
 AZW3_TEXT="Oriel smoke AZW3 chapter one opens here."
 PDF_TEXT="Oriel smoke PDF page one opens here."
 node "$reader/e2e/make-pdf.mjs" "$work/media/books/oriel-smoke.pdf" "$PDF_TEXT" || fail "generate test PDF"
-(cd "$reader" && npx playwright install webkit chromium >/dev/null) || fail "install Playwright WebKit and Chromium"
+# shellcheck disable=SC2086 # one browser name or two
+(cd "$reader" && npx playwright install $SMOKE_BROWSERS >/dev/null) || fail "install Playwright $SMOKE_BROWSERS"
 
 fetch_file_transformation "$work/ft" || fail "fetch File Transformation $FT_VERSION"
 
@@ -203,7 +225,7 @@ check_selection_in_browser() {
 # desktop-sized page, in WebKit and in Chromium.
 check_desktop_input_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_BROWSER="$browser" node "$reader/e2e/desktop-input.e2e.mjs" || fail "desktop page turns in $browser at $1"
     done
@@ -213,7 +235,7 @@ check_desktop_input_in_browser() {
 # desktop size with a mouse.
 check_controls_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_BROWSER="$browser" node "$reader/e2e/controls.e2e.mjs" || fail "the reader's controls in $browser at $1"
     done
@@ -223,7 +245,7 @@ check_controls_in_browser() {
 # Chromium at desktop size.
 check_contents_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/contents.e2e.mjs" || fail "Contents in $browser at $1"
     done
@@ -233,7 +255,7 @@ check_contents_in_browser() {
 # kept after a reload; disabled font and size on the comic and the PDF.
 check_preferences_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/preferences.e2e.mjs" || fail "Preferences in $browser at $1"
     done
@@ -241,7 +263,7 @@ check_preferences_in_browser() {
 
 check_pages_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/pages.e2e.mjs" || fail "pages in $browser at $1"
     done
@@ -249,7 +271,7 @@ check_pages_in_browser() {
 
 check_page_turn_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/page-turn.e2e.mjs" || fail "Page turn in $browser at $1"
     done
@@ -257,42 +279,42 @@ check_page_turn_in_browser() {
 
 check_search_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/search.e2e.mjs" || fail "search in this book in $browser at $1"
     done
 }
 
 check_bookmarks_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_CBZ_ID="$cbz_id" ORIEL_BROWSER="$browser" node "$reader/e2e/bookmarks.e2e.mjs" || fail "bookmarks in $browser at $1"
     done
 }
 
 check_highlights_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_CBZ_ID="$cbz_id" ORIEL_BROWSER="$browser" node "$reader/e2e/highlights.e2e.mjs" || fail "highlights in $browser at $1"
     done
 }
 
 check_highlighters_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_BROWSER="$browser" node "$reader/e2e/highlighters.e2e.mjs" || fail "highlighters in $browser at $1"
     done
 }
 
 check_selection_actions_in_browser() {
     local browser
-    for browser in webkit chromium; do
+    for browser in $(browsers webkit chromium); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_BROWSER="$browser" node "$reader/e2e/selection-actions.e2e.mjs" || fail "selection actions in $browser at $1"
     done
 }
 
 check_hint_in_browser() {
     local browser
-    for browser in webkit chromium hybrid; do
+    for browser in $(browsers webkit chromium hybrid); do
         ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
         ORIEL_CBZ_ID="$cbz_id" ORIEL_PDF_ID="$pdf_id" ORIEL_BROWSER="$browser" node "$reader/e2e/hint.e2e.mjs" || fail "the reading gestures hint in $browser at $1"
     done
@@ -339,6 +361,8 @@ check_reader() {
 }
 
 check_reader "$base"
+# WebKit's share of the first pass: everything that needs no browser or uses WebKit only.
+if runs webkit; then
 check_reader_in_browser "$base"
 # The reader check above turned pages, which saves the position; the selection
 # check expects the book to open at its start.
@@ -346,7 +370,6 @@ curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorizat
     -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
     || fail "could not clear the saved position before the selection check"
 check_selection_in_browser "$base"
-check_desktop_input_in_browser "$base"
 
 code="$(get_status "$base/Oriel/Me")"
 [ "$code" = "401" ] || fail "GET /Oriel/Me without a token returned $code, expected 401"
@@ -708,6 +731,12 @@ for other_id in "$cbz_id" "$mobi_id" "$azw3_id" "$pdf_id"; do
 done
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
+fi
+# The desktop input check, in this run's browsers, from the start of the book.
+curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
+    || fail "could not clear the saved position before the desktop input check"
+check_desktop_input_in_browser "$base"
 # Last here, because their slider, Contents, Preferences, pages, page turns, the hint, search, bookmarks, highlights, highlighters and the selection actions move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"
@@ -720,6 +749,12 @@ check_bookmarks_in_browser "$base"
 check_highlights_in_browser "$base"
 check_highlighters_in_browser "$base"
 check_selection_actions_in_browser "$base"
+
+# The rest is WebKit's share.
+if ! runs webkit; then
+    echo "smoke-plugin: all checks passed"
+    exit 0
+fi
 
 # Second pass with a BaseUrl.
 code="$(get_status -H "Authorization: $token_header" "$base/System/Configuration/network")"
