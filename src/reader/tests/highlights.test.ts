@@ -37,6 +37,7 @@ const sources = (stored: Highlight[] = [], overrides: Partial<HighlightSources> 
         },
         compare: (a, b) => order(a) - order(b),
         chapterOf: cfi => order(cfi) < 5 ? 'Chapter One' : 'Chapter Three',
+        pageOf: () => null,
         go: async () => {},
         ...overrides,
     }
@@ -121,6 +122,13 @@ describe('createHighlights', () => {
             { id: 'x', text: 'Text x', colour: 'pink', note: '', where: 'Chapter Three · 60%' },
         ])
         expect(highlights.at('epubcfi(/6/8!/4/2,/1:0,/1:4)')?.id).toBe('x')
+    })
+
+    it('shows each highlight on the page its start is on when the book is counted', async () => {
+        const highlights = createHighlights(sources([stored('x', 'epubcfi(/6/8!/4/2,/1:0,/1:4)', 'pink', 0.6), stored('y', 'epubcfi(/6/2!/4/2,/1:0,/1:4)', 'yellow')],
+            { pageOf: cfi => cfi.startsWith('epubcfi(/6/8') ? 27 : null }))
+        await settle()
+        expect(highlights.rows(null).map(row => row.where)).toEqual(['Chapter One · 10%', 'Chapter Three · page 27'])
     })
 
     it('filters by colour', async () => {

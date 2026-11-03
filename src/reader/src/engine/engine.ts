@@ -174,9 +174,15 @@ export interface OpenBook {
     layout(): string
     /**
      * Counts the pages of a reflowable book in its current layout, in the
-     * background; null for a fixed layout, or when `cancelled` turns true first.
+     * background, giving each contents link and each of `places` (CFIs) the
+     * page it starts on; null for a fixed layout, or when `cancelled` turns true first.
      */
-    count(cancelled: () => boolean): Promise<PageCount | null>
+    count(cancelled: () => boolean, places?: string[]): Promise<PageCount | null>
+    /**
+     * Where a place (a CFI) is in the section shown, laid out as on screen:
+     * the section and its page there (from 0); null when another section is shown.
+     */
+    pageShown(cfi: string): { section: number, page: number } | null
 }
 
 // foliate-js's widest column: a text area wider than this, in landscape, shows two.
@@ -535,11 +541,18 @@ export const openBook = async (
             const { width, height } = view.renderer.getBoundingClientRect()
             return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
         },
-        async count(cancelled) {
+        async count(cancelled, places = []) {
             if (view.isFixedLayout) return null
             layOut()
-            return countPages(view.renderer, view.book, shownStyles, hrefs, resolve,
+            return countPages(view.renderer, view.book, shownStyles, [...hrefs, ...places], resolve,
                 () => view.renderer.getContents?.()[0]?.index ?? -1, cancelled)
+        },
+        pageShown(cfi) {
+            const contents = view.isFixedLayout ? undefined : view.renderer.getContents?.()[0]
+            const target = resolve(cfi)
+            if (!contents?.doc || !view.renderer.size || target?.index !== contents.index) return null
+            const node = target.anchor?.(contents.doc)
+            return node ? { section: contents.index, page: columnLayout(contents.doc, view.renderer.size, scrolling()).place(node).column } : null
         },
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()

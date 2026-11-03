@@ -5,7 +5,10 @@
 // it with the text the page opens with and where it is, goes to it from another
 // chapter and saves the place, and removes it, leaving the empty state; the
 // button removes a bookmark too. A bookmark made in one browser shows in another,
-// and the server keeps it for the user. A comic page is bookmarked as 'Page N'.
+// and the server keeps it for the user. With progress in Pages, a bookmark's row
+// shows the page the footer showed on its page, the page counted again after a
+// larger size, and, after a reload, the page of one the kept count never placed.
+// A comic page is bookmarked as 'Page N'.
 // Nothing is requested from another host. Configured by environment: ORIEL_BASE
 // (server URL including any BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID,
 // ORIEL_TOKEN, ORIEL_ITEM_ID (the test EPUB), ORIEL_CBZ_ID and ORIEL_BROWSER.
@@ -114,6 +117,43 @@ const rows = panel => panel.locator('.bookmarks li').evaluateAll(items => items.
 })))
 
 const section = page => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index)
+
+// Waits for the reading footer to show page / total; gives the page shown and the total.
+const counted = async (page, timeout = 60_000) => {
+    const started = Date.now()
+    for (;;) {
+        const text = (await page.locator('#reading-footer .progress').innerText()).trim()
+        const match = /^(\d+)\s*\/\s*(\d+)$/.exec(text)
+        if (match) return { page: Number(match[1]), total: Number(match[2]) }
+        if (Date.now() - started > timeout) fail(`the footer still shows '${text}' after ${timeout / 1000} s, not page / total`)
+        await pause(250)
+    }
+}
+
+// Opens Preferences, runs `change` on it and closes it.
+const preferences = async (page, change) => {
+    await showControls(page)
+    await use(page.getByRole('button', { name: 'Preferences' }))
+    await pause(400)
+    const panel = page.locator('#prefs')
+    if (!await panel.isVisible()) fail('Preferences did not open')
+    await change(panel)
+    await page.keyboard.press('Escape')
+    await pause(300)
+}
+
+// The Bookmarks tab's where lines, once every row shows a page or `timeout` passes.
+const pagedRows = async (page, timeout) => {
+    const started = Date.now()
+    for (;;) {
+        const panel = await openBookmarks(page)
+        const listed = await rows(panel)
+        await page.keyboard.press('Escape')
+        await pause(300)
+        if (listed.every(row => / · page \d+$/.test(row.where)) || Date.now() - started > timeout) return listed
+        await pause(1000)
+    }
+}
 
 const browser = await setup.engine.launch()
 let failed = false
@@ -224,6 +264,65 @@ try {
     await pause(800)
     if (!same(await state(readingButton(page)), BOOKMARK) || (await stored(itemId)).length) fail('a second press did not remove the bookmark')
     pass('a second press of the button removes the bookmark')
+
+    // With progress in Pages, a bookmark shows the page the footer shows on it.
+    await preferences(page, async panel => {
+        await use(panel.getByRole('radio', { name: 'Pages', exact: true }))
+        await pause(300)
+    })
+    await showControls(page)
+    await use(page.getByRole('button', { name: 'Contents' }))
+    await pause(400)
+    await use(page.locator('#contents').getByRole('tab', { name: 'Contents' }))
+    await use(page.locator('#contents').getByRole('link', { name: /^Chapter Three/ }))
+    await pause(1500)
+    await page.keyboard.press('ArrowRight')
+    await pause(900)
+    const before = await counted(page)
+    await use(readingButton(page))
+    await pause(800)
+    if ((await stored(itemId)).length !== 1) fail('the page in Chapter Three was not bookmarked')
+    panel = await openBookmarks(page)
+    listed = await rows(panel)
+    if (listed.length !== 1 || listed[0].where !== `Chapter Three · page ${before.page}`) fail(`with Pages the Bookmarks tab lists ${JSON.stringify(listed)}, expected 'Chapter Three · page ${before.page}'`)
+    await page.keyboard.press('Escape')
+    await pause(300)
+    pass(`with Pages the bookmark shows '${listed[0].where}', the page the footer showed`)
+
+    // A larger size counts again, and the row shows the page counted.
+    await preferences(page, async panel => {
+        for (let i = 0; i < 4; i++) {
+            await use(panel.getByRole('button', { name: 'More size', exact: true }))
+            await pause(300)
+        }
+    })
+    const larger = await counted(page)
+    if (larger.total === before.total) fail(`four sizes up the book still counts ${larger.total} pages`)
+    panel = await openBookmarks(page)
+    await use(panel.locator('.bookmarks li a').first())
+    await pause(1500)
+    const onIt = await counted(page, 5000)
+    listed = await rows(await openBookmarks(page))
+    await page.keyboard.press('Escape')
+    await pause(300)
+    if (listed[0]?.where !== `Chapter Three · page ${onIt.page}` || onIt.page === before.page) fail(`four sizes up the Bookmarks tab lists ${JSON.stringify(listed)}; the footer shows page ${onIt.page}, it showed ${before.page} before`)
+    pass(`four sizes up the bookmark shows '${listed[0].where}', the page counted again, not page ${before.page}`)
+
+    // A bookmark the kept count never placed, added elsewhere, is placed after a reload.
+    const addedElsewhere = await fetch(`${base}/Oriel/Bookmarks/${itemId}`, {
+        method: 'POST',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cfi: kept[0].cfi, fraction: kept[0].fraction, text: kept[0].text }),
+    })
+    if (!addedElsewhere.ok) fail(`POST /Oriel/Bookmarks returned ${addedElsewhere.status}`)
+    await page.reload()
+    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
+    await pause(1500)
+    const reloaded = await counted(page, 5000)
+    listed = await pagedRows(page, 30_000)
+    const wanted = [`Chapter One · page 1`, `Chapter Three · page ${reloaded.page}`]
+    if (listed.map(row => row.where).join('|') !== wanted.join('|')) fail(`after a reload with a bookmark added elsewhere the Bookmarks tab lists ${JSON.stringify(listed)}, expected ${wanted.join(', ')}`)
+    pass(`after a reload a bookmark added elsewhere is placed too: ${listed.map(row => `'${row.where}'`).join(', ')}`)
     await page.close()
 
     // A comic page is bookmarked by its number.

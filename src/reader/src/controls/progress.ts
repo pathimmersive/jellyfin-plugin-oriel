@@ -2,7 +2,8 @@ import type { Progress } from '../settings/settings'
 
 /**
  * A book counted for one layout: each section's pages, in reading order, and
- * the page each contents link starts on. A page is one column of text.
+ * the page each contents link and each bookmark and highlight (by CFI)
+ * starts on. A page is one column of text.
  */
 export interface PageCount {
     sections: number[]

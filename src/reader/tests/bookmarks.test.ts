@@ -27,6 +27,7 @@ const sources = (stored: Bookmark[] = [], overrides: Partial<BookmarkSources> = 
         page: () => ({ cfi: book.shown, fraction: book.fraction, text: 'Chapter One  Oriel smoke chapter one opens here.' }),
         onPage: cfi => cfi === book.shown,
         chapterOf: cfi => cfi.includes('/6/2!') ? 'Chapter One' : 'Chapter Three',
+        pageOf: () => null,
         go: async () => {},
         ...overrides,
     }
@@ -49,6 +50,27 @@ describe('bookmarkWhere', () => {
     it('gives the chapter and the percent, or the percent alone', () => {
         expect(bookmarkWhere('Chapter Two', 0.344)).toBe('Chapter Two · 34%')
         expect(bookmarkWhere('', 0.5)).toBe('50%')
+    })
+
+    it('gives the page in place of the percent once the book is counted', () => {
+        expect(bookmarkWhere('Chapter Two', 0.344, 12)).toBe('Chapter Two · page 12')
+        expect(bookmarkWhere('', 0.5, 3)).toBe('page 3')
+        expect(bookmarkWhere('Chapter Two', 0.344, null)).toBe('Chapter Two · 34%')
+    })
+})
+
+describe('createBookmarks pages', () => {
+    it('shows each bookmark on its page when the book is counted, and lists their places for the count', async () => {
+        const pages: Record<string, number> = { 'epubcfi(/6/2!/4/2)': 4 }
+        const bookmarks = createBookmarks(sources([
+            { id: 'a', cfi: 'epubcfi(/6/2!/4/2)', fraction: 0.1, text: 'One', createdAt: '2026-11-02T12:00:00Z' },
+            { id: 'b', cfi: 'epubcfi(/6/8!/4/2)', fraction: 0.6, text: 'Three', createdAt: '2026-11-02T12:00:01Z' },
+        ], { pageOf: cfi => pages[cfi] ?? null }))
+        await settle()
+        expect(bookmarks.rows().map(row => row.where)).toEqual(['Chapter One · page 4', 'Chapter Three · 60%'])
+        expect(bookmarks.places()).toEqual(['epubcfi(/6/2!/4/2)', 'epubcfi(/6/8!/4/2)'])
+        pages['epubcfi(/6/8!/4/2)'] = 31
+        expect(bookmarks.rows().map(row => row.where)).toEqual(['Chapter One · page 4', 'Chapter Three · page 31'])
     })
 })
 

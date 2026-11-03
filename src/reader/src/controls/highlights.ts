@@ -57,6 +57,8 @@ export interface HighlightSources {
     compare(a: string, b: string): number
     /** The name of the chapter a place is in. */
     chapterOf(cfi: string): string
+    /** The page a place is on, or null while progress shows the percent or the book is not counted. */
+    pageOf(cfi: string): number | null
     go(cfi: string): Promise<void>
 }
 
@@ -89,7 +91,7 @@ export const createHighlights = (sources: HighlightSources): Highlights => {
         rows: colour => kept
             .filter(highlight => colour === null || highlight.colour === colour)
             .map(({ id, cfi, fraction, colour, text, note }) => ({
-                id, text, colour, note, where: bookmarkWhere(sources.chapterOf(cfi), fraction),
+                id, text, colour, note, where: bookmarkWhere(sources.chapterOf(cfi), fraction, sources.pageOf(cfi)),
             })),
         all: () => [...kept],
         at: cfi => kept.find(highlight => highlight.cfi === cfi) ?? null,
