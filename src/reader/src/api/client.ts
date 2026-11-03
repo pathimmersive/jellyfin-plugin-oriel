@@ -404,6 +404,98 @@ export const saveHighlighters = async (
     }
 }
 
+/** One of the user's own font files, as Oriel's store keeps it: one style of a family. */
+export interface OwnFont {
+    id: string
+    family: string
+    style: string
+    weight: number
+    italic: boolean
+    format: 'ttf' | 'otf' | 'woff2'
+}
+
+export const isOwnFont = (value: unknown): value is OwnFont => {
+    const font = value as Partial<OwnFont> | null
+    return typeof font?.id === 'string' && typeof font.family === 'string' && typeof font.style === 'string'
+        && typeof font.weight === 'number' && typeof font.italic === 'boolean' && ['ttf', 'otf', 'woff2'].includes(font.format ?? '')
+}
+
+const fontsUrl = (basePath: string): string => `${basePath}/Oriel/Fonts`
+
+/** The user's font files, or null when they cannot be read. */
+export const readFonts = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnFont[] | null> => {
+    try {
+        const response = await fetchImpl(fontsUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isOwnFont) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Why a font file was not added: too large, not a font, one too many, or anything else. */
+export type FontRefusal = 'tooLarge' | 'notAFont' | 'tooMany' | 'failed'
+
+/** Adds a font file; returns it as kept, or why it was refused. */
+export const addFont = async (
+    basePath: string,
+    authorization: string,
+    file: Blob,
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnFont | FontRefusal> => {
+    try {
+        const response = await fetchImpl(fontsUrl(basePath), {
+            method: 'POST',
+            headers: { Authorization: authorization, 'Content-Type': 'application/octet-stream' },
+            body: file,
+        })
+        if (response.status === 413) return 'tooLarge'
+        const data: unknown = await response.json().catch(() => null)
+        if (response.status === 400) {
+            const reason = (data as { reason?: unknown } | null)?.reason
+            return reason === 'tooMany' || reason === 'notAFont' ? reason : 'failed'
+        }
+        return response.ok && isOwnFont(data) ? data : 'failed'
+    } catch {
+        return 'failed'
+    }
+}
+
+/** One of the user's font files, or null when it cannot be read. */
+export const readFontFile = async (
+    basePath: string,
+    authorization: string,
+    id: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<Blob | null> => {
+    try {
+        const response = await fetchImpl(`${fontsUrl(basePath)}/${encodeURIComponent(id)}`, { headers: { Authorization: authorization } })
+        return response.ok ? await response.blob() : null
+    } catch {
+        return null
+    }
+}
+
+/** Removes every file of one of the user's font families; false when that failed. */
+export const removeFontFamily = async (
+    basePath: string,
+    authorization: string,
+    family: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<boolean> => {
+    try {
+        const response = await fetchImpl(`${fontsUrl(basePath)}?family=${encodeURIComponent(family)}`, { method: 'DELETE', headers: { Authorization: authorization } })
+        return response.ok || response.status === 404
+    } catch {
+        return false
+    }
+}
+
 /** What the admin has set for every reader: the translation address, with {text} where the text goes, empty when Translate is off. */
 export interface ReaderSettings {
     translateUrl: string

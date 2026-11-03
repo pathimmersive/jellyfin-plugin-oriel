@@ -25,6 +25,34 @@ export const FONTS = {
 
 export type FontName = keyof typeof FONTS
 
+/** A font as Preferences chooses it: a bundled one by name, or one of the reader's own families as `own:<family>`. */
+export type FontChoice = FontName | `own:${string}`
+
+/** The choice of one of the reader's own families. */
+export const ownFont = (family: string): FontChoice => `own:${family}`
+
+/** The family of a choice of the reader's own, or null for a bundled font. */
+export const ownFamilyOf = (font: FontChoice): string | null => font.startsWith('own:') ? font.slice(4) : null
+
+/** A string as CSS writes it, quoted. */
+const cssString = (text: string): string => `'${text.replace(/[\\'\n\r\f]/g, character => `\\${character.charCodeAt(0).toString(16)} `)}'`
+
+/**
+ * The CSS family a family of the reader's own is declared as: named apart
+ * from the bundled fonts and any installed font of the same name.
+ */
+export const ownFontFamily = (family: string): string => cssString(`Oriel own: ${family}`)
+
+/** The stack a font choice sets. */
+export const fontStack = (font: FontChoice): string => {
+    const family = ownFamilyOf(font)
+    return family === null ? FONTS[font as FontName] : `${ownFontFamily(family)}, Georgia, serif`
+}
+
+/** The @font-face rule of one of the reader's own font files, at `url`. */
+export const ownFontFace = (font: { family: string, weight: number, italic: boolean, format: string }, url: string): string =>
+    `@font-face { font-family: ${ownFontFamily(font.family)}; font-style: ${font.italic ? 'italic' : 'normal'}; font-weight: ${font.weight}; font-display: swap; src: url(${cssString(url)}) format('${({ ttf: 'truetype', otf: 'opentype', woff2: 'woff2' } as Record<string, string>)[font.format] ?? font.format}'); }`
+
 /** How the footers show progress: the percent read, or page / total. */
 export const PROGRESS = ['percent', 'pages'] as const
 
@@ -67,7 +95,7 @@ export const WIDE_MARGINS: Margins = { left: 140, right: 140, top: 48, bottom: 1
 /** What the reader keeps for this device. */
 export interface Settings {
     theme: ThemeId
-    font: FontName
+    font: FontChoice
     size: number
     lineSpacing: number
     paragraphSpacing: number
@@ -103,7 +131,8 @@ const KEY = 'oriel-settings'
 const tenths = (value: number): number => Math.round(value * 10) / 10
 
 const isTheme = (value: unknown): value is ThemeId => typeof value === 'string' && Object.hasOwn(THEMES, value)
-const isFont = (value: unknown): value is FontName => typeof value === 'string' && Object.hasOwn(FONTS, value)
+const isFont = (value: unknown): value is FontChoice =>
+    typeof value === 'string' && (Object.hasOwn(FONTS, value) || (value.startsWith('own:') && value.length > 4))
 const inRange = (range: Range) => (value: unknown): value is number =>
     typeof value === 'number' && value >= range.min && value <= range.max
     && Math.abs(value / range.step - Math.round(value / range.step)) < 1e-6
@@ -186,7 +215,7 @@ export const bookStyles = (settings: Settings, fontFaces: string): string => {
     ]
     if (settings.bookLayout) return rules.join('\n')
     if (settings.font !== 'Default') {
-        rules.push(`body, body *:not(code):not(pre):not(kbd):not(samp) { font-family: ${FONTS[settings.font]} !important; }`)
+        rules.push(`body, body *:not(code):not(pre):not(kbd):not(samp) { font-family: ${fontStack(settings.font)} !important; }`)
     }
     const hyphens = settings.hyphenate ? 'auto' : 'manual'
     rules.push(

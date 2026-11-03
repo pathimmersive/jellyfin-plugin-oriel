@@ -261,6 +261,15 @@ check_preferences_in_browser() {
     done
 }
 
+# Your own fonts: Add font, a TTF and a WOFF2 of one family chosen and kept,
+# another browser, the refusals, and Remove.
+check_fonts_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_BROWSER="$browser" node "$reader/e2e/fonts.e2e.mjs" || fail "your own fonts in $browser at $1"
+    done
+}
+
 check_pages_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -751,10 +760,11 @@ curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorizat
     -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
     || fail "could not clear the saved position before the desktop input check"
 check_desktop_input_in_browser "$base"
-# Last here, because their slider, Contents, Preferences, pages, page turns, the hint, search, bookmarks, highlights, highlighters and the selection actions move the test EPUB.
+# Last here, because their slider, Contents, Preferences, fonts, pages, page turns, the hint, search, bookmarks, highlights, highlighters and the selection actions move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"
 check_preferences_in_browser "$base"
+check_fonts_in_browser "$base"
 check_pages_in_browser "$base"
 check_page_turn_in_browser "$base"
 check_hint_in_browser "$base"
