@@ -1,5 +1,5 @@
 import './reader.css'
-import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookDetails, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
@@ -17,6 +17,7 @@ import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
 import { drmProtected } from './engine/drm'
 import { openBook } from './engine/engine'
+import { loadingScreen } from './loading/loading'
 import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBoth } from './position/position'
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
@@ -100,13 +101,17 @@ const start = async (): Promise<void> => {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const basePath = serverBasePath(location.pathname)
         const started = performance.now()
+        // The loading screen's title and cover come beside the download, and
+        // the download's progress as its bytes arrive.
+        const screen = loadingScreen(document.getElementById('loading')!)
+        void readBookDetails(basePath, itemId, session.userId, authorization).then(screen.details)
         // While the server cannot be reached the failure page says so, and the
         // book and its saved places are asked for again until it answers.
         let fetched: [File, StoredPosition | null, JellyfinPosition | null]
         for (;;) {
             try {
                 fetched = await Promise.all([
-                    downloadBook(basePath, itemId, authorization),
+                    downloadBook(basePath, itemId, authorization, fetch, screen.progress),
                     readStoredPosition(basePath, itemId, authorization),
                     readJellyfinPosition(basePath, itemId, session.userId, authorization),
                 ])
@@ -121,7 +126,8 @@ const start = async (): Promise<void> => {
         }
         const [file, stored, jellyfin] = fetched
         clearFailure(status)
-        show('loading', 'Loading the book…')
+        show('loading', 'Opening the book…')
+        screen.opening()
         if (await drmProtected(file)) throw new DrmError()
 
         // The reader's own fonts, declared like the bundled ones before the

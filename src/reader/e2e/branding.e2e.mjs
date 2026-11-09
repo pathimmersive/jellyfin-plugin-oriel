@@ -3,8 +3,9 @@
 // The reader page names its favicon, apple-touch icon and web app manifest,
 // each served by the plugin with its type; the manifest lists 192 and 512 px
 // icons and a maskable one, each a PNG of its stated size. While the test EPUB
-// downloads (held back here), the dark loading screen shows Oriel's logo above
-// 'Loading the book…', and once the book shows the logo is gone. Nothing is
+// downloads (held back here), the dark loading screen shows Oriel's logo with
+// 'Loading the book…' in its line, and once the book shows the logo is gone.
+// The cover, title and progress are checked by loading.e2e.mjs. Nothing is
 // requested from another host.
 // Configured by environment: ORIEL_BASE (server URL including any BaseUrl),
 // ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID (the test EPUB)
@@ -104,30 +105,27 @@ try {
     if (manifest.name !== 'Oriel') fail(`the manifest names the app '${manifest.name}'`)
     pass('the page names its favicon (SVG and 32 px), its 180 px apple-touch icon and its manifest, whose 192, 512 and maskable 512 px icons the plugin serves')
 
-    // The loading screen: the logo on #101010, above the status.
+    // The loading screen: the logo on #101010, with the line under the bar.
     const loading = await page.evaluate(() => {
         const screen = document.getElementById('loading')
-        const logo = screen?.querySelector('img')
-        const status = document.getElementById('status')
-        if (!screen || !logo) return null
+        const logo = screen?.querySelector('.loading-logo')
+        const line = screen?.querySelector('.loading-line')
+        if (!screen || !logo || !line) return null
         const box = logo.getBoundingClientRect()
         return {
             shown: getComputedStyle(screen).display !== 'none',
             background: getComputedStyle(screen).backgroundColor,
             loaded: logo.complete && logo.naturalWidth > 0,
             width: Math.round(box.width),
-            centre: Math.abs(box.left + box.width / 2 - innerWidth / 2),
-            logoBottom: box.bottom,
-            status: status.textContent,
-            statusTop: status.getBoundingClientRect().top,
-            statusColour: getComputedStyle(status).color,
+            line: line.textContent,
+            lineShown: line.getBoundingClientRect().height > 0,
         }
     })
     if (!loading?.shown || !loading.loaded) fail(`the loading screen does not show the logo: ${JSON.stringify(loading)}`)
     if (loading.background !== 'rgb(16, 16, 16)') fail(`the loading screen is ${loading.background}, not #101010`)
-    if (loading.width !== 168 || loading.centre > 2) fail(`the logo is ${loading.width} px wide, ${loading.centre} px off centre`)
-    if (loading.status !== 'Loading the book…' || loading.statusTop < loading.logoBottom) fail(`the status '${loading.status}' is not below the logo: ${JSON.stringify(loading)}`)
-    pass(`while the book downloads, the logo shows 168 px wide on #101010 above '${loading.status}'`)
+    if (loading.width !== 168) fail(`the logo is ${loading.width} px wide`)
+    if (loading.line !== 'Loading the book…' || !loading.lineShown) fail(`the loading screen's line is not 'Loading the book…': ${JSON.stringify(loading)}`)
+    pass(`while the book downloads, the logo shows 168 px wide on #101010 with '${loading.line}'`)
 
     release()
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the book did not render once released'))

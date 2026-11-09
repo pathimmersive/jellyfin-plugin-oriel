@@ -12,7 +12,17 @@
   <script type="module" src="./src/main.ts"></script>
 </head>
 <body data-state="starting">
-  <div id="loading" aria-hidden="true"><img src="/oriel-logo.svg" alt="" width="168" height="90"></div>
+  <div id="loading">
+    <div class="loading-art">
+      <img class="loading-logo" src="/oriel-logo.svg" alt="" width="168" height="90">
+      <img class="loading-cover" alt="" hidden>
+    </div>
+    <div class="loading-info">
+      <span class="loading-title"></span>
+      <div class="loading-bar" role="progressbar" aria-label="Downloading the book" aria-valuemin="0" aria-valuemax="100" aria-valuetext="Loading the book&hellip;"><span></span></div>
+      <span class="loading-line" aria-hidden="true">Loading the book&hellip;</span>
+    </div>
+  </div>
   <p id="status" role="status"></p>
   <div id="book"></div>
 </body>

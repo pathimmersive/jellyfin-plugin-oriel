@@ -2,8 +2,12 @@
 // It has four chapters of about 4,000 characters each, so a reading position
 // given as a fraction of the book lands in a known chapter: 0.6 is in chapter
 // three, whose first line is "Oriel smoke chapter three starts here."
+// Its cover, a grained 600x900 PNG outside the spine (about 1.4 MB, so the
+// download's progress has megabytes to show), is what Jellyfin shows
+// for the book; the loading screen check reads it back.
 // Usage: node e2e/make-epub.mjs <output.epub> <first-chapter text>
 import { writeFileSync } from 'node:fs'
+import { png } from './png.mjs'
 import { zip } from './zip.mjs'
 
 const [output, chapterText] = process.argv.slice(2)
@@ -47,9 +51,11 @@ const files = [
     <dc:creator>Oriel</dc:creator>
     <dc:language>en</dc:language>
     <meta property="dcterms:modified">2026-01-01T00:00:00Z</meta>
+    <meta name="cover" content="cover"/>
   </metadata>
   <manifest>
     <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>
+    <item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>
 ${chapters.map(([id]) => `    <item id="${id}" href="${id}.xhtml" media-type="application/xhtml+xml"/>`).join('\n')}
   </manifest>
   <spine>
@@ -61,6 +67,7 @@ ${chapters.map(([id]) => `    <itemref idref="${id}"/>`).join('\n')}
 ${chapters.map(([id, title]) => `<li><a href="${id}.xhtml">${title}</a>${id === 'ch2' ? `<ol><li><a href="ch2.xhtml#${NESTED_ID}">${NESTED_TITLE}</a></li></ol>` : ''}</li>`).join('\n')}
 </ol></nav>`)],
     ...chapters.map(([id, title, first]) => [`OEBPS/${id}.xhtml`, xhtml(title, `<h1>${title}</h1><p>${first}</p>${id === 'ch2' ? nestedFiller : filler}`)]),
+    ['OEBPS/cover.png', png([122, 46, 92], 600, 900, { grain: true })],
 ]
 
 // Stored zip entries, mimetype first, as EPUB requires.

@@ -21,25 +21,89 @@ export const downloadErrorMessage = (status: number): string => {
     }
 }
 
+/** Bytes received so far, and the file's size when the server says it. */
+export type DownloadProgress = (done: number, total: number | null) => void
+
+// The file's size from Content-Length, unless the body is encoded, when the
+// header counts the encoded bytes rather than the ones received.
+const declaredSize = (headers: Headers): number | null => {
+    if (headers.get('Content-Encoding')) return null
+    const size = Number(headers.get('Content-Length'))
+    return Number.isInteger(size) && size > 0 ? size : null
+}
+
 /**
  * Fetches a book file through /Items/{id}/Download, which applies the user's
- * library access and download permission. The file takes the name the server
- * gives it, lower-cased, because foliate-js tells some formats (comics) from
- * EPUB by name; without one it is named as an EPUB.
+ * library access and download permission, reporting the bytes as they arrive.
+ * The file takes the name the server gives it, lower-cased, because foliate-js
+ * tells some formats (comics) from EPUB by name; without one it is named as
+ * an EPUB.
  */
 export const downloadBook = async (
     basePath: string,
     itemId: string,
     authorization: string,
     fetchImpl: typeof fetch = fetch,
+    progress: DownloadProgress = () => {},
 ): Promise<File> => {
     const response = await fetchImpl(`${basePath}/Items/${encodeURIComponent(itemId)}/Download`, {
         headers: { Authorization: authorization },
     })
     if (!response.ok) throw new BookLoadError(downloadErrorMessage(response.status), response.status)
-    const blob = await response.blob()
+    const total = declaredSize(response.headers)
+    const chunks: Uint8Array<ArrayBuffer>[] = []
+    let done = 0
+    progress(done, total)
+    if (response.body) {
+        const reader = response.body.getReader()
+        for (;;) {
+            const { done: finished, value } = await reader.read()
+            if (finished) break
+            chunks.push(value as Uint8Array<ArrayBuffer>)
+            done += value.byteLength
+            progress(done, total)
+        }
+    }
+    const type = response.headers.get('Content-Type') ?? ''
     const name = attachmentName(response.headers.get('Content-Disposition'))?.toLowerCase() || `${itemId}.epub`
-    return new File([blob], name, { type: blob.type })
+    return new File(chunks, name, { type })
+}
+
+/** What the loading screen shows of a book before it opens. */
+export interface BookDetails {
+    title: string
+    /** The book's cover from Jellyfin, or null when it has none. */
+    cover: string | null
+}
+
+/**
+ * The book's title and cover from /Items/{id}, or null when they cannot be
+ * read: the loading screen then goes without them.
+ */
+export const readBookDetails = async (
+    basePath: string,
+    itemId: string,
+    userId: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<BookDetails | null> => {
+    try {
+        const id = encodeURIComponent(itemId)
+        const response = await fetchImpl(`${basePath}/Items/${id}?userId=${encodeURIComponent(userId)}`, {
+            headers: { Authorization: authorization },
+        })
+        if (!response.ok) return null
+        const item = await response.json() as { Name?: unknown, ImageTags?: { Primary?: unknown } }
+        const tag = item.ImageTags?.Primary
+        return {
+            title: typeof item.Name === 'string' ? item.Name : '',
+            cover: typeof tag === 'string' && tag
+                ? `${basePath}/Items/${id}/Images/Primary?tag=${encodeURIComponent(tag)}&maxWidth=360`
+                : null,
+        }
+    } catch {
+        return null
+    }
 }
 
 /**
