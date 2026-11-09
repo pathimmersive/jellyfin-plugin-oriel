@@ -20,23 +20,28 @@ export interface TextSelection {
     box: Box
 }
 
-// The toolbar's least space from the screen's edges, its space from the text, and its width on a wider screen.
+// The toolbar's least space from the screen's edges, its space from the text
+// (more on a touch screen, clear of the selection handles Android draws in the
+// 24 px below a line), and its width on a wider screen.
 const EDGE = 16
 const GAP = 8
+const TOUCH_GAP = 32
 const WIDE_WIDTH = 420
 
 /**
  * Where the toolbar goes for the text in `around`, `height` tall, on a screen
  * `view`: below the text, or above it when there is no room below, never
- * covering it when either fits; across the screen 16 px from its sides on a
- * phone, and 420 px wide at the text on a wider screen.
+ * covering it when either fits, 8 px from it or 32 px on a `touch` screen;
+ * across the screen 16 px from its sides on a phone, and 420 px wide at the
+ * text on a wider screen.
  */
-export const toolbarPlace = (around: Box, height: number, view: { width: number, height: number }, wide: boolean): { left: number, top: number, width: number } => {
+export const toolbarPlace = (around: Box, height: number, view: { width: number, height: number }, wide: boolean, touch = false): { left: number, top: number, width: number } => {
+    const gap = touch ? TOUCH_GAP : GAP
     const width = wide ? Math.min(WIDE_WIDTH, view.width - 2 * EDGE) : view.width - 2 * EDGE
     const centre = (around.left + around.right) / 2
     const left = wide ? Math.max(EDGE, Math.min(centre - width / 2, view.width - EDGE - width)) : EDGE
-    const below = around.bottom + GAP
-    const above = around.top - GAP - height
+    const below = around.bottom + gap
+    const above = around.top - gap - height
     const top = below + height <= view.height - EDGE ? below
         : above >= EDGE ? above
             : Math.max(EDGE, view.height - EDGE - height)
@@ -179,7 +184,7 @@ const fillHighlighters = (group: HTMLElement, highlighters: Highlighters, presse
  * Translate where the admin has set an address, Share where the browser has a
  * share sheet), and Remove follows them for a highlight.
  */
-export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean, actions: SelectionActions): Highlighting => {
+export const createHighlighting = (root: HTMLElement, book: HighlightingBook, highlights: Highlights, highlighters: Highlighters, sheetOf: HighlighterSheet, wide: () => boolean, actions: SelectionActions, touch: () => boolean = () => false): Highlighting => {
     const bar = document.createElement('div')
     bar.id = 'selection-toolbar'
     bar.setAttribute('role', 'toolbar')
@@ -265,7 +270,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         remove.hidden = !pressedNow
         row.style.gridTemplateColumns = `repeat(${[...row.children].filter(button => !(button as HTMLElement).hidden).length}, minmax(0, 1fr))`
         bar.hidden = false
-        const place = toolbarPlace(around, bar.offsetHeight, { width: window.innerWidth, height: window.innerHeight }, wide())
+        const place = toolbarPlace(around, bar.offsetHeight, { width: window.innerWidth, height: window.innerHeight }, wide(), touch())
         bar.style.left = `${place.left}px`
         bar.style.top = `${place.top}px`
         bar.style.width = `${place.width}px`

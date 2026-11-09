@@ -238,6 +238,14 @@ check_landscape_in_browser() {
     ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"     node "$reader/e2e/landscape.e2e.mjs" || fail "a phone in landscape in webkit at $1"
 }
 
+# An Android phone: the phone's layout, controls and Preferences, and the
+# Selected text toolbar clear of Android's handles, in Chromium emulating a
+# Pixel 7 at 412x915.
+check_android_in_browser() {
+    runs chromium || return 0
+    ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"     node "$reader/e2e/android.e2e.mjs" || fail "an Android phone in chromium at $1"
+}
+
 check_desktop_input_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -817,6 +825,7 @@ curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorizat
 check_desktop_input_in_browser "$base"
 check_spread_in_browser "$base"
 check_landscape_in_browser "$base"
+check_android_in_browser "$base"
 # Last here, because their slider, Contents, Preferences, fonts, pages, page turns, the hint, search, bookmarks, highlights, highlighters and the selection actions move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"

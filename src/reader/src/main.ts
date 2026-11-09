@@ -237,7 +237,7 @@ const start = async (): Promise<void> => {
                 search,
                 copy,
                 define: text => sheet.open(text),
-            })
+            }, input.touch)
             dictionary = sheet
             for (const win of sectionWindows) {
                 highlighting.watch(win)

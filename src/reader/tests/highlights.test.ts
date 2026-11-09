@@ -209,6 +209,11 @@ describe('toolbarPlace', () => {
         expect(toolbarPlace({ left: 40, top: 100, right: 300, bottom: 140 }, 70, phone, false)).toEqual({ left: 16, top: 148, width: 358 })
     })
 
+    it('keeps 32 px from the text on a touch screen, clear of Android\'s selection handles', () => {
+        expect(toolbarPlace({ left: 40, top: 100, right: 300, bottom: 140 }, 70, phone, false, true)).toEqual({ left: 16, top: 172, width: 358 })
+        expect(toolbarPlace({ left: 40, top: 700, right: 300, bottom: 790 }, 130, phone, false, true).top).toBe(538)
+    })
+
     it('goes above the text when there is no room below', () => {
         expect(toolbarPlace({ left: 40, top: 700, right: 300, bottom: 790 }, 130, phone, false)).toEqual({ left: 16, top: 562, width: 358 })
     })
