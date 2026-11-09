@@ -69,6 +69,22 @@ const drag = (page, select) => page.evaluate(async select => {
     return { before, after, cancelled, index }
 }, select)
 
+// Waits until the page has come to rest: off the paginator's blank lead-in
+// (page 0) and unchanged for half a second. On a slow machine the view can
+// still be moving to its starting place just after the reader reports
+// rendered, and a drag then would be read as a page turn.
+const settledPage = page => page.waitForFunction(() => {
+    const renderer = document.querySelector('foliate-view')?.renderer
+    const at = renderer && `${renderer.getContents()[0]?.index}:${renderer.page}`
+    const now = performance.now()
+    if (!at || renderer.page < 1 || at !== window.__orielAt) {
+        window.__orielAt = at
+        window.__orielSince = now
+        return false
+    }
+    return now - window.__orielSince >= 500
+}, null, { timeout: 15_000, polling: 100 }).catch(() => fail('the page never came to rest after the book rendered'))
+
 const browser = await webkit.launch()
 let failed = false
 try {
@@ -82,6 +98,7 @@ try {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
+    await settledPage(page)
 
     const selected = await drag(page, true)
     if (selected.after !== selected.before) {
@@ -90,6 +107,7 @@ try {
     if (selected.cancelled) fail('with text selected, the drag was cancelled, so iOS could not move the selection handle')
     pass(`with text selected, a one-finger drag at ${base} leaves the page at ${selected.before} and is not cancelled`)
 
+    await settledPage(page)
     const swiped = await drag(page, false)
     if (swiped.after === swiped.before) {
         fail(`with nothing selected, a one-finger swipe left the page at ${swiped.before}`)
