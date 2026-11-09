@@ -25,7 +25,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ReaderSource Include="$(ReaderDir)src\**;$(ReaderDir)vendor\**;$(ReaderDir)index.html;$(ReaderDir)data.html;$(ReaderDir)vite.config.ts;$(ReaderDir)tsconfig.json;$(ReaderDir)package-lock.json" />
+    <ReaderSource Include="$(ReaderDir)src\**;$(ReaderDir)vendor\**;$(ReaderDir)public\**;$(ReaderDir)index.html;$(ReaderDir)data.html;$(ReaderDir)vite.config.ts;$(ReaderDir)tsconfig.json;$(ReaderDir)package-lock.json" />
   </ItemGroup>
 
   <Target Name="RestoreReader" Inputs="$(ReaderDir)package.json;$(ReaderDir)package-lock.json" Outputs="$(ReaderDir)node_modules\.package-lock.json">
@@ -65,6 +65,7 @@
   "name": "Oriel",
   "overview": "Read EPUB books from your Jellyfin library.",
   "owner": "oriel",
+  "imagePath": "oriel.png",
   "targetAbi": "$(JellyfinTargetAbi)",
   "version": "$(Version)"
 }</_PluginMetaJson>
@@ -72,6 +73,8 @@
     <WriteLinesToFile File="$(_PluginMetaPath)" Lines="$(_PluginMetaJson)" Overwrite="true" WriteOnlyWhenDifferent="true" />
     <ItemGroup>
       <None Include="$(_PluginMetaPath)" Link="meta.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+      <!-- The plugin's image, which meta.json names; made from branding/ by scripts/make-branding.mjs. -->
+      <None Include="oriel.png" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
       <FileWrites Include="$(_PluginMetaPath)" />
     </ItemGroup>
   </Target>
