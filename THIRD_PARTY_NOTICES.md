@@ -386,7 +386,7 @@ Princeton University and LICENSEE agrees to preserve same.
 
 ## Reading fonts: Literata, Noto Serif, Noto Sans, Atkinson Hyperlegible
 
-The fonts Preferences offers, as Latin WOFF2 files in regular, italic, bold and bold italic, taken from the Fontsource npm packages (`@fontsource/<name>` 5.3.0) and served by the plugin beside the reader.
+The fonts Preferences offers, as Latin WOFF2 files in regular, italic, bold and bold italic, taken from the Fontsource npm packages (`@fontsource/<name>` 5.3.0) and served by the plugin beside the reader. The name in Oriel's logo (`branding/`) is set in Literata SemiBold, as outlines.
 
 - **Literata:** https://github.com/googlefonts/literata, `@fontsource/literata` 5.3.0. Copyright 2017 The Literata Project Authors (https://github.com/googlefonts/literata)
 - **Noto Serif:** https://github.com/notofonts/latin-greek-cyrillic, `@fontsource/noto-serif` 5.3.0. Copyright 2022 The Noto Project Authors (https://github.com/notofonts/latin-greek-cyrillic)

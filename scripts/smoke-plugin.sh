@@ -328,6 +328,15 @@ check_define_in_browser() {
     done
 }
 
+# Oriel's icons and the logo on the loading screen.
+check_branding_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        ORIEL_BROWSER="$browser" node "$reader/e2e/branding.e2e.mjs" || fail "Oriel's icons and loading screen in $browser at $1"
+    done
+}
+
 check_failures_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -356,6 +365,21 @@ check_plugin_active() {
 }
 
 check_plugin_active "$base" "$PLUGIN_NAME"
+plugin_version="$(echo "$entry" | json_str Version)"
+
+# The plugin's image, which meta.json names: /Plugins reports it and serves the
+# catalog image the plugin ships.
+check_plugin_image() {
+    local prefix="$1" version="$2"
+    code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins")"
+    [ "$code" = "200" ] || fail "GET /Plugins returned $code"
+    entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$PLUGIN_NAME\"" | grep "\"Version\":\"$version\"" || true)"
+    echo "$entry" | grep -q '"HasImage":true' || fail "$PLUGIN_NAME $version does not report an image: $entry"
+    code="$(curl -s -o "$work/image" -w '%{http_code}' -H "Authorization: $token_header" "$prefix/Plugins/$PLUGIN_ID/$version/Image")"
+    [ "$code" = "200" ] || fail "GET /Plugins/$PLUGIN_ID/$version/Image returned $code"
+    cmp -s "$work/image" "$repo/src/Jellyfin.Plugin.Oriel/oriel.png" || fail "the image Jellyfin serves for $PLUGIN_NAME $version is not the plugin's oriel.png"
+    pass "/Plugins shows $PLUGIN_NAME $version with its image, the catalog image the plugin ships"
+}
 
 # Reader page and its assets, served anonymously at a prefix.
 check_reader() {
@@ -384,8 +408,14 @@ check_reader() {
 }
 
 check_reader "$base"
+# The logo images are drawn by Chromium from their sources, so Chromium's share checks them.
+if runs chromium; then
+    node "$repo/scripts/make-branding.mjs" --check || fail "the logo images no longer match their sources in branding/; run node scripts/make-branding.mjs"
+    pass "every logo image matches its source in branding/"
+fi
 # WebKit's share of the first pass: everything that needs no browser or uses WebKit only.
 if runs webkit; then
+check_plugin_image "$base" "$plugin_version"
 check_reader_in_browser "$base"
 # The reader check above turned pages, which saves the position; the selection
 # check expects the book to open at its start.
@@ -775,6 +805,7 @@ check_highlighters_in_browser "$base"
 check_selection_actions_in_browser "$base"
 check_define_in_browser "$base"
 check_failures_in_browser "$base"
+check_branding_in_browser "$base"
 
 # The rest is WebKit's share.
 if ! runs webkit; then
@@ -840,6 +871,12 @@ code="$(get_status -H "Authorization: $token_header" "$prefix/Packages")"
 grep -q "\"name\":\"$PLUGIN_NAME\"" "$work/body" && grep -q "\"version\":\"$repo_version.0\"" "$work/body" \
     || fail "the catalog does not list $PLUGIN_NAME $repo_version.0 from the repository: $(head -c 400 "$work/body")"
 pass "adding the repository lists $PLUGIN_NAME $repo_version.0 in the plugin catalog"
+image_url="$("$py" -c 'import json, sys; print(next(p.get("imageUrl", "") for p in json.load(open(sys.argv[1], encoding="utf-8")) if p["name"] == sys.argv[2]))' "$work/body" "$PLUGIN_NAME")"
+[ "$image_url" = "$repo_inside/v$repo_version/oriel.png" ] || fail "the catalog lists $PLUGIN_NAME's image as '$image_url', expected $repo_inside/v$repo_version/oriel.png"
+code="$(curl -s -o "$work/image" -w '%{http_code}' "$prefix/web/oriel-repo/v$repo_version/oriel.png")"
+[ "$code" = "200" ] || fail "the catalog image at $image_url returned $code"
+cmp -s "$work/image" "$repo/src/Jellyfin.Plugin.Oriel/oriel.png" || fail "the catalog image at $image_url is not the plugin's oriel.png"
+pass "the catalog lists $PLUGIN_NAME with its image, served at $image_url"
 
 repo_url_query="$("$py" -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo_inside/manifest.json")"
 code="$(get_status -X POST -H "Authorization: $token_header" \
@@ -857,5 +894,6 @@ entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$PLUGIN_NAME\"" | gr
 code="$(get_status "$prefix/Oriel/")"
 [ "$code" = "200" ] || fail "after installing from the repository GET /Oriel/ returned $code"
 pass "$PLUGIN_NAME $repo_version.0 installs from the repository, is Active after a restart and serves the reader"
+check_plugin_image "$prefix" "$repo_version.0"
 
 echo "smoke-plugin: all checks passed"

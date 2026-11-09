@@ -31,6 +31,9 @@ public class ReaderAssetsTests
     [InlineData("index.html", "text/html")]
     [InlineData(".js", "text/javascript")]
     [InlineData(".css", "text/css")]
+    [InlineData("manifest.webmanifest", "application/manifest+json")]
+    [InlineData("apple-touch-icon.png", "image/png")]
+    [InlineData("favicon.svg", "image/svg+xml")]
     public void ServesContentTypesByExtension(string suffix, string expected)
     {
         var name = _assets.FileNames.First(n => n.EndsWith(suffix));
