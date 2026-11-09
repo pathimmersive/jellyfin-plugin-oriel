@@ -174,6 +174,8 @@ export interface OpenBook {
      * the space left is too narrow for two.
      */
     setPanel(width: number): void
+    /** Lays a reflowable book out in one column however wide the reading area, as on a phone in landscape. */
+    setOneColumn(on: boolean): void
     /** Turns a page back or forward in the chosen page turn, as the controls' arrows do, leaving the controls as they are. */
     turnPage(direction: 'prev' | 'next'): void
     /** Whether the place shown is the book's first page, and its last. */
@@ -246,6 +248,7 @@ export const openBook = async (
     styles = '',
     margins: Margins | null = null,
     pageTurn: PageTurn = 'none',
+    oneColumnAtFirst = false,
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
     // Keys, edge clicks and the wheel turn pages on a desktop, and a click in
@@ -355,20 +358,23 @@ export const openBook = async (
     // A panel open at the right takes its width and 20 px off the text area.
     let shownMargins = margins
     let panel = 0
+    let oneColumn = oneColumnAtFirst
     const layOut = (): void => {
         if (view.isFixedLayout || !shownMargins) return
         const { width: outerWidth, height: outerHeight } = container.getBoundingClientRect()
         if (!outerWidth) return
         const { left, top, bottom } = shownMargins
         const right = panel ? panel + PANEL_SPACE : shownMargins.right
-        const twoColumns = outerWidth - left - right > COLUMN_WIDTH && outerWidth - left - right > outerHeight - top - bottom
+        const twoColumns = !oneColumn && outerWidth - left - right > COLUMN_WIDTH && outerWidth - left - right > outerHeight - top - bottom
+        const columns = twoColumns ? '2' : '1'
         const gap = twoColumns ? TWO_COLUMN_GAP : ONE_COLUMN_GAP
         const padLeft = Math.max(0, left - gap)
         const padRight = Math.max(0, right - gap)
         container.style.padding = `${top}px ${padRight}px ${bottom}px ${padLeft}px`
         const share = `${(gap / (outerWidth - padLeft - padRight) * 100).toFixed(4)}%`
-        if (view.renderer.getAttribute('gap') === share) return
+        if (view.renderer.getAttribute('gap') === share && view.renderer.getAttribute('max-column-count') === columns) return
         view.renderer.setAttribute('gap', share)
+        view.renderer.setAttribute('max-column-count', columns)
         view.renderer.render?.()
     }
     const setMargins = (margins: Margins): void => {
@@ -554,6 +560,11 @@ export const openBook = async (
             panel = width
             layOut()
         },
+        setOneColumn(on) {
+            if (on === oneColumn) return
+            oneColumn = on
+            layOut()
+        },
         turnPage(direction) {
             turn(direction, false)
         },
@@ -570,7 +581,7 @@ export const openBook = async (
             // The container may have been hidden when the margins were last set.
             layOut()
             const { width, height } = view.renderer.getBoundingClientRect()
-            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
+            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${view.renderer.getAttribute('max-column-count') ?? ''}|${shownStyles}`
         },
         async count(cancelled, places = []) {
             if (view.isFixedLayout) return null

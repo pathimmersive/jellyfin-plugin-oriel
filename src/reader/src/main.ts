@@ -22,7 +22,7 @@ import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBot
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 import { fontFaces } from './settings/fonts'
-import { bookStyles, marginsFor, ownFamilyOf, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
+import { bookStyles, landscapeMargins, type Margins, marginsFor, ownFamilyOf, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -97,6 +97,13 @@ const start = async (): Promise<void> => {
     const wide = matchMedia('(min-width: 600px)')
     // A desktop, where a panel opens beside the book and the book moves clear of it.
     const desk = matchMedia('(min-width: 600px) and (min-height: 501px)')
+    // A phone on its side, where the book is one column clear of the notch.
+    const sideways = matchMedia('(orientation: landscape) and (max-height: 500px)')
+    const marginsShown = (): Margins => {
+        if (!sideways.matches) return marginsFor(settings, wide.matches)
+        const area = getComputedStyle(book)
+        return landscapeMargins(settings, { left: parseFloat(area.left) || 0, right: parseFloat(area.right) || 0 })
+    }
 
     const overlay = debugRequested(location.search) ? new DebugOverlay(document.body) : null
     show('loading', 'Loading the book…')
@@ -181,7 +188,7 @@ const start = async (): Promise<void> => {
             highlighting?.close()
         }
         const opened = await openBook(book, file, view => { watchSections(view); overlay?.timeTurns(view) }, start,
-            () => controls?.middle(), turned, bookStyles(settings, faces), marginsFor(settings, wide.matches), settings.pageTurn)
+            () => controls?.middle(), turned, bookStyles(settings, faces), marginsShown(), settings.pageTurn, sideways.matches)
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -288,7 +295,7 @@ const start = async (): Promise<void> => {
                 writeSettings(localStorage, settings)
                 themePage(settings)
                 if (restyle) opened.setStyles(bookStyles(settings, faces))
-                opened.setMargins(marginsFor(settings, wide.matches))
+                opened.setMargins(marginsShown())
                 opened.setPageTurn(settings.pageTurn)
                 recount()
             },
@@ -303,7 +310,12 @@ const start = async (): Promise<void> => {
                 showPlace()
             },
         })
-        wide.addEventListener('change', () => opened.setMargins(marginsFor(settings, wide.matches)))
+        const turnedOver = (): void => {
+            opened.setOneColumn(sideways.matches)
+            opened.setMargins(marginsShown())
+        }
+        wide.addEventListener('change', turnedOver)
+        sideways.addEventListener('change', turnedOver)
         desk.addEventListener('change', () => {
             opened.setPanel(beside() ? PANEL_WIDTH : 0)
             recount()

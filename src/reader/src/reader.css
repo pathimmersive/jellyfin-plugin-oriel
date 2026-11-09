@@ -2138,6 +2138,38 @@ body[data-state="rendered"] {
   }
 }
 
+/* A phone on its side, as the canvas's LandRead and LandPrefs draw it: the
+   reading footer lines up with the text, and a panel covers the right half
+   of the screen, its full height, over the dimmed page. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #reading-footer {
+    left: 122px;
+    right: 122px;
+    font-size: 12px;
+  }
+
+  #contents-backdrop,
+#prefs-backdrop,
+#search-backdrop,
+#note-backdrop,
+#dictionary-backdrop {
+    display: block;
+  }
+
+  #contents,
+#prefs,
+#search,
+#note,
+#dictionary,
+#highlighter {
+    width: 50%;
+    top: 0;
+    bottom: 0;
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
 body:not([data-state="rendered"]) #book {
   display: none;
 }
