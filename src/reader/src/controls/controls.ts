@@ -47,6 +47,12 @@ export interface ControlsOptions {
     storage: Pick<Storage, 'getItem' | 'setItem'>
     /** Applies and keeps settings chosen in Preferences. */
     change(settings: Settings): void
+    /** Turns a page back or forward, from the arrows at a desktop's edges. */
+    turnPage(direction: 'prev' | 'next'): void
+    /** Whether the place shown is the book's first page, and its last. */
+    edges(): { start: boolean, end: boolean }
+    /** A panel beside the page (Contents, Preferences, Search) opened or closed. */
+    panel(open: boolean): void
 }
 
 /** The reader's controls, as the page drives them. */
@@ -94,6 +100,10 @@ const ICONS = {
     drag: 'M11 18c0 1.1-.9 2-2 2s-2-.9-2-2 .9-2 2-2 2 .9 2 2zm-2-8c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0-6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm6 4c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
     edit: 'M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z',
     plus: 'M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z',
+    previous: 'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z',
+    next: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
+    fullScreen: 'M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z',
+    leaveFullScreen: 'M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z',
     highlight: 'M22 24H2v-4h20v4zM13.06 5.19l3.75 3.75L7.75 18H4v-3.75l9.06-9.06zm4.82 2.68l-3.75-3.75 1.83-1.83c.39-.39 1.02-.39 1.41 0l2.34 2.34c.39.39.39 1.02 0 1.41l-1.83 1.83z',
 }
 
@@ -196,12 +206,31 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     header.append(back, title, contentsButton, prefsButton, moreButton)
 
     const place = placeRow()
+    // Full screen, at the end of the footer on a desktop, where the browser allows it.
+    const fullScreen = element('button', { type: 'button', class: 'icon-button full-screen', 'aria-label': 'Full screen' }, icon(ICONS.fullScreen))
+    fullScreen.hidden = !document.fullscreenEnabled
+    fullScreen.addEventListener('click', () => {
+        if (document.fullscreenElement) void document.exitFullscreen().catch(() => {})
+        else void document.documentElement.requestFullscreen().catch(() => {})
+    })
+    document.addEventListener('fullscreenchange', () => {
+        const full = document.fullscreenElement !== null
+        fullScreen.setAttribute('aria-label', full ? 'Leave full screen' : 'Full screen')
+        fullScreen.innerHTML = icon(full ? ICONS.leaveFullScreen : ICONS.fullScreen)
+    })
+    place.row.append(fullScreen)
     const slider = element('input', { type: 'range', min: '0', max: '100', step: 'any', value: '0', 'aria-label': 'Position in the book' })
     const footer = element('footer')
     footer.append(place.row, slider)
 
+    // On a desktop, arrows at the edges turn the page while the controls show.
+    const previous = element('button', { type: 'button', class: 'page-arrow previous' }, icon(ICONS.previous))
+    const next = element('button', { type: 'button', class: 'page-arrow next' }, icon(ICONS.next))
+    previous.addEventListener('click', () => options.turnPage('prev'))
+    next.addEventListener('click', () => options.turnPage('next'))
+
     const bar = element('div', { id: 'controls', 'data-controls': '' })
-    bar.append(header, footer)
+    bar.append(header, footer, previous, next)
 
     const backdrop = element('div', { id: 'more-backdrop', 'data-controls': '' })
     const more = element('nav', { id: 'more', 'data-controls': '', 'aria-label': 'More' })
@@ -838,7 +867,23 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     })
 
     let state: ControlsState = HIDDEN
+    let panelOpen = false
+    // The arrows read as the page turns, and hide at the book's ends and while a panel is open.
+    const showArrows = (): void => {
+        const scrolling = !options.fixedLayout && settings.pageTurn === 'scroll'
+        previous.setAttribute('aria-label', scrolling ? 'Scroll up' : 'Previous page')
+        next.setAttribute('aria-label', scrolling ? 'Scroll down' : 'Next page')
+        const { start, end } = options.edges()
+        previous.hidden = panelOpen || start
+        next.hidden = panelOpen || end
+    }
     const show = (): void => {
+        const panel = state.contents || state.prefs || state.search
+        if (panel !== panelOpen) {
+            panelOpen = panel
+            options.panel(panel)
+        }
+        showArrows()
         bar.hidden = !state.shown
         reading.row.hidden = state.shown
         more.hidden = !state.more
@@ -940,6 +985,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             }
             slider.value = String(fraction * 100)
             showBookmark()
+            showArrows()
         },
         refill() {
             if (state.contents) fills[tabShown]()

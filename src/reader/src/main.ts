@@ -11,7 +11,7 @@ import { createHighlighterSheet, type HighlighterSheet } from './controls/highli
 import { createHighlighters } from './controls/highlighters'
 import { createHighlights } from './controls/highlights'
 import { lastInput } from './controls/hint'
-import { layoutKey, type PageCount, pageNumber, progressShown, readCount, writeCount } from './controls/progress'
+import { layoutKey, type PageCount, pageNumber, progressShown, type ProgressShown, readCount, writeCount } from './controls/progress'
 import { createCopy, createHighlighting, type Highlighting } from './controls/toolbar'
 import { debugRequested } from './debug/frames'
 import { DebugOverlay } from './debug/overlay'
@@ -27,6 +27,8 @@ import { bookStyles, marginsFor, ownFamilyOf, readSettings, type Settings, THEME
 declare const __ORIEL_VERSION__: string
 
 const status = document.getElementById('status')!
+// The panel beside the page on a desktop, as reader.css draws it.
+const PANEL_WIDTH = 440
 const book = document.getElementById('book')!
 
 // data-state on <body> is what the page reports: loading, rendered or error.
@@ -93,6 +95,8 @@ const start = async (): Promise<void> => {
     themePage(settings)
     // A phone or a wider screen, for the margins the reader has not changed.
     const wide = matchMedia('(min-width: 600px)')
+    // A desktop, where a panel opens beside the book and the book moves clear of it.
+    const desk = matchMedia('(min-width: 600px) and (min-height: 501px)')
 
     const overlay = debugRequested(location.search) ? new DebugOverlay(document.body) : null
     show('loading', 'Loading the book…')
@@ -246,7 +250,14 @@ const start = async (): Promise<void> => {
         })
 
         // The reader's controls: a tap in the middle of the page shows them
-        // and a page turn hides them; a move with their slider keeps them.
+        // and a page turn hides them; a move with their slider, or a turn
+        // with their arrows on a desktop, keeps them.
+        // Whether a panel is open beside the page, and whether the book is laid
+        // out beside it. The book's pages are those of its layout without the
+        // panel: while it lays out beside one, the count and the page numbers
+        // shown stay those of the layout without it.
+        let panelOpen = false
+        const beside = (): boolean => panelOpen && desk.matches
         controls = createControls(document.body, {
             title: opened.title,
             detailsUrl: `${basePath}/web/#/details?id=${encodeURIComponent(itemId)}`,
@@ -281,17 +292,42 @@ const start = async (): Promise<void> => {
                 opened.setPageTurn(settings.pageTurn)
                 recount()
             },
+            turnPage: direction => opened.turnPage(direction),
+            edges: () => opened.edges(),
+            panel: open => {
+                // The bookmarks and highlights on the page shown are placed first, in the layout without the panel.
+                if (open) for (const cfi of marked()) pageOf(cfi)
+                panelOpen = open
+                opened.setPanel(beside() ? PANEL_WIDTH : 0)
+                recount()
+                showPlace()
+            },
         })
         wide.addEventListener('change', () => opened.setMargins(marginsFor(settings, wide.matches)))
+        desk.addEventListener('change', () => {
+            opened.setPanel(beside() ? PANEL_WIDTH : 0)
+            recount()
+            showPlace()
+        })
         ownFonts.onChange(() => {
             declareFonts()
             opened.setStyles(bookStyles(settings, faces))
             recount()
         })
         const shown = controls
+        // Beside a panel the chapter and percent follow the place, and the page
+        // number stays the last one shown while the place has not moved.
+        let lastShown: { fraction: number, progress: ProgressShown, left: number | null } | null = null
         const showPlace = (): void => {
             const { chapter, fraction, pages } = opened.place()
-            shown.locate(chapter, fraction, progressShown(settings.progress, fraction, count, pages), pages?.left ?? null)
+            if (beside()) {
+                const same = lastShown !== null && Math.abs(lastShown.fraction - fraction) < 0.005
+                shown.locate(chapter, fraction, same ? lastShown!.progress : progressShown('percent', fraction, null, null), same ? lastShown!.left : null)
+                return
+            }
+            const progress = progressShown(settings.progress, fraction, count, pages)
+            lastShown = { fraction, progress, left: pages?.left ?? null }
+            shown.locate(chapter, fraction, progress, lastShown.left)
         }
         opened.onPlace(showPlace)
 
@@ -306,6 +342,7 @@ const start = async (): Promise<void> => {
         const tried = new Set<string>()
         const marked = (): string[] => [...bookmarks.places(), ...(highlights?.all().map(highlight => highlight.cfi) ?? [])]
         function recount(force = false): void {
+            if (beside()) return
             const key = settings.progress === 'pages' && !opened.fixedLayout ? layoutKey(opened.layout()) : ''
             if (!force && key === countedFor && (count || counting)) return
             if (counting) counting.cancelled = true
@@ -341,6 +378,7 @@ const start = async (): Promise<void> => {
             if (settings.progress !== 'pages' || !count) return null
             const kept = count.entries[cfi]
             if (kept) return kept
+            if (beside()) return null
             const here = opened.pageShown(cfi)
             if (!here || here.section >= count.sections.length) return null
             count.entries[cfi] = pageNumber(count, here.section, here.page)

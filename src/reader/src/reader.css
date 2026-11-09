@@ -270,6 +270,54 @@ body[data-state="rendered"] {
   accent-color: #00a4dc;
 }
 
+/* On a desktop, as the canvas's DeskControls draws them: arrows at the edges
+   in the theme's footer colour, and Full screen at the end of the footer. */
+.page-arrow,
+#controls .full-screen {
+  display: none;
+}
+
+@media (min-width: 600px) and (min-height: 501px) {
+  .page-arrow {
+    all: unset;
+    position: fixed;
+    z-index: 2;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 96px;
+    margin-top: -48px;
+    border-radius: 4px;
+    color: var(--page-footer, #6b6b6b);
+    cursor: pointer;
+  }
+
+  .page-arrow svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .page-arrow.previous {
+    left: calc(env(safe-area-inset-left) + 16px);
+  }
+
+  .page-arrow.next {
+    right: calc(env(safe-area-inset-right) + 16px);
+  }
+
+  .page-arrow:focus-visible {
+    outline: 2px solid #00a4dc;
+  }
+
+  #controls .full-screen {
+    display: flex;
+    width: 44px;
+    height: 44px;
+  }
+}
+
 /* More: a sheet from the bottom on a phone, a menu under its button on a wider screen. */
 #more-backdrop {
   position: fixed;

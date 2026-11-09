@@ -223,6 +223,14 @@ check_selection_in_browser() {
 
 # Keys, edge clicks, the mouse wheel and a trackpad swipe turn pages on a
 # desktop-sized page, in WebKit and in Chromium.
+# The desktop layout: the spread, the arrows at the edges, the panels beside the
+# page and Full screen, in Chromium at 1280x800.
+check_spread_in_browser() {
+    runs chromium || return 0
+    ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+    node "$reader/e2e/spread.e2e.mjs" || fail "the desktop spread, arrows and panels in chromium at $1"
+}
+
 check_desktop_input_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -800,6 +808,7 @@ curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorizat
     -d '{"PlaybackPositionTicks":0}' "$base/UserItems/$item_id/UserData?userId=$user_id" \
     || fail "could not clear the saved position before the desktop input check"
 check_desktop_input_in_browser "$base"
+check_spread_in_browser "$base"
 # Last here, because their slider, Contents, Preferences, fonts, pages, page turns, the hint, search, bookmarks, highlights, highlighters and the selection actions move the test EPUB.
 check_controls_in_browser "$base"
 check_contents_in_browser "$base"
