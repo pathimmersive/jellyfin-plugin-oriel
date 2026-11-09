@@ -337,6 +337,16 @@ check_branding_in_browser() {
     done
 }
 
+# The loading screen's cover, title and download progress, the download
+# handed to the reader in steps.
+check_loading_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        ORIEL_BROWSER="$browser" node "$reader/e2e/loading.e2e.mjs" || fail "the loading screen's cover, title and progress in $browser at $1"
+    done
+}
+
 check_failures_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -806,6 +816,7 @@ check_selection_actions_in_browser "$base"
 check_define_in_browser "$base"
 check_failures_in_browser "$base"
 check_branding_in_browser "$base"
+check_loading_in_browser "$base"
 
 # The rest is WebKit's share.
 if ! runs webkit; then
