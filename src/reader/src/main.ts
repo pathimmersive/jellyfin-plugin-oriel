@@ -1,11 +1,12 @@
 import './reader.css'
-import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookDetails, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookDetails, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, readThemes, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, saveThemes, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { createDictionarySheet, type DictionarySheet } from './controls/dictionary'
 import { createOwnFonts } from './controls/fonts'
+import { createOwnThemes } from './controls/themes'
 import { clearFailure, DrmError, type Failure, failureFor, ICONS, NOTICE_TEXT, saveNotice, showFailure } from './controls/failure'
 import { createHighlighterSheet, type HighlighterSheet } from './controls/highlighter-sheet'
 import { createHighlighters } from './controls/highlighters'
@@ -22,7 +23,7 @@ import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBot
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 import { fontFaces } from './settings/fonts'
-import { bookStyles, landscapeMargins, type Margins, marginsFor, ownFamilyOf, readSettings, type Settings, THEMES, writeSettings } from './settings/settings'
+import { bookStyles, controlsColours, landscapeMargins, type Margins, marginsFor, ownFamilyOf, type OwnTheme, pageColours, readSettings, type Settings, themeShown, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -37,11 +38,20 @@ const show = (state: string, message = ''): void => {
     status.textContent = message
 }
 
-// The page around the book takes the theme: its background and the reading footer's colour.
-const themePage = (settings: Settings): void => {
-    const theme = THEMES[settings.theme]
-    document.documentElement.style.setProperty('--page-background', theme.background)
-    document.documentElement.style.setProperty('--page-footer', theme.footer)
+// The page around the book takes the theme: its background and the reading
+// footer's colour, and with a custom theme the controls' colours too.
+const themePage = (settings: Settings, own: readonly OwnTheme[] = []): void => {
+    const shown = themeShown(settings.theme, own)
+    const theme = pageColours(shown)
+    const root = document.documentElement
+    root.style.setProperty('--page-background', theme.background)
+    root.style.setProperty('--page-footer', theme.footer)
+    const controls = typeof shown === 'string' ? null : controlsColours(shown)
+    for (const name of ['--chrome', '--chrome-ink', '--sub', '--accent', '--accent-ink', '--divider', '--raised', '--grayed']) {
+        if (controls) root.style.setProperty(name, controls[name])
+        else root.style.removeProperty(name)
+    }
+    root.toggleAttribute('data-own-theme', !!controls)
 }
 
 // Signs in on the jellyfin-web login page, then comes back to this book.
@@ -156,8 +166,16 @@ const start = async (): Promise<void> => {
             faces = [fontFaces(), ownFonts.faces()].filter(Boolean).join('\n')
             fontStyle.textContent = faces
         }
+        // The reader's own themes, applied before the first page shows.
+        const ownThemes = createOwnThemes({
+            load: () => readThemes(basePath, authorization),
+            save: list => saveThemes(basePath, authorization, list),
+        })
+        const styles = (chosen: Settings): string => bookStyles(chosen, faces, ownThemes.list())
         const chosenFamily = ownFamilyOf(settings.font)
-        if (await ownFonts.ready && chosenFamily !== null && !ownFonts.has(chosenFamily)) {
+        const [fontsRead] = await Promise.all([ownFonts.ready, ownThemes.ready])
+        themePage(settings, ownThemes.list())
+        if (fontsRead && chosenFamily !== null && !ownFonts.has(chosenFamily)) {
             settings = { ...settings, font: 'Default' }
             writeSettings(localStorage, settings)
         }
@@ -188,7 +206,7 @@ const start = async (): Promise<void> => {
             highlighting?.close()
         }
         const opened = await openBook(book, file, view => { watchSections(view); overlay?.timeTurns(view) }, start,
-            () => controls?.middle(), turned, bookStyles(settings, faces), marginsShown(), settings.pageTurn, sideways.matches)
+            () => controls?.middle(), turned, styles(settings), marginsShown(), settings.pageTurn, sideways.matches)
         // A saved place that is not in this copy of the book (another edition,
         // or an import from another server): open somewhere sensible and say so.
         let notice: HTMLElement | null = null
@@ -284,17 +302,18 @@ const start = async (): Promise<void> => {
             highlighters,
             highlighterSheet,
             fonts: ownFonts,
+            themes: ownThemes,
             settings,
             fixedLayout: opened.fixedLayout,
             wide: () => wide.matches,
             touch: input.touch,
             storage: localStorage,
             change(changed) {
-                const restyle = bookStyles(changed, faces) !== bookStyles(settings, faces)
+                const restyle = styles(changed) !== styles(settings)
                 settings = changed
                 writeSettings(localStorage, settings)
-                themePage(settings)
-                if (restyle) opened.setStyles(bookStyles(settings, faces))
+                themePage(settings, ownThemes.list())
+                if (restyle) opened.setStyles(styles(settings))
                 opened.setMargins(marginsShown())
                 opened.setPageTurn(settings.pageTurn)
                 recount()
@@ -323,8 +342,13 @@ const start = async (): Promise<void> => {
         })
         ownFonts.onChange(() => {
             declareFonts()
-            opened.setStyles(bookStyles(settings, faces))
+            opened.setStyles(styles(settings))
             recount()
+        })
+        // A theme edited or deleted recolours the reader at once.
+        ownThemes.onChange(() => {
+            themePage(settings, ownThemes.list())
+            opened.setStyles(styles(settings))
         })
         const shown = controls
         // Beside a panel the chapter and percent follow the place, and the page

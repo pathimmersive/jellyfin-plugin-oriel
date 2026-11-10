@@ -1,4 +1,5 @@
 import { type ImportResult, isImportResult } from '../data/summary'
+import { type OwnTheme, THEME_ROLES } from '../settings/settings'
 
 /** A book could not be fetched; the message is meant for the reader. */
 export class BookLoadError extends Error {
@@ -463,6 +464,52 @@ export const saveHighlighters = async (
         if (!response.ok) return null
         const data: unknown = await response.json()
         return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** One of the user's own themes as Oriel's store keeps it: its id, name and ten colours, each #rrggbb. */
+export const isThemeRecord = (value: unknown): value is OwnTheme => {
+    const theme = value as Record<string, unknown> | null
+    return typeof theme?.id === 'string' && typeof theme.name === 'string'
+        && THEME_ROLES.every(([colour]) => typeof theme[colour] === 'string')
+}
+
+const themesUrl = (basePath: string): string => `${basePath}/Oriel/Themes`
+
+/** The user's own themes in their order, or null when they cannot be read. */
+export const readThemes = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnTheme[] | null> => {
+    try {
+        const response = await fetchImpl(themesUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Keeps the user's whole list of themes (a new one without an id); returns them as kept, or null when that failed. */
+export const saveThemes = async (
+    basePath: string,
+    authorization: string,
+    list: (Omit<OwnTheme, 'id'> & { id?: string })[],
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnTheme[] | null> => {
+    try {
+        const response = await fetchImpl(themesUrl(basePath), {
+            method: 'PUT',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(list),
+        })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
     } catch {
         return null
     }

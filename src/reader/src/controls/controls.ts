@@ -1,4 +1,4 @@
-import { type FontChoice, FONTS, type FontName, fontStack, INDENT, ownFamilyOf, ownFont, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, stepIn, stepSize, THEMES, type ThemeId } from '../settings/settings'
+import { type FontChoice, FONTS, type FontName, fontStack, INDENT, MAX_THEMES, ownFamilyOf, ownFont, ownTheme, type OwnTheme, ownThemeOf, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, startingColours, stepIn, stepSize, type ThemeChoice, themeShown, THEMES, type ThemeId } from '../settings/settings'
 import { type OwnFonts, stylesOf } from './fonts'
 import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
@@ -9,6 +9,8 @@ import { createHint, hintDue, hintKind, readHintsSeen, sawHint } from './hint'
 import { pagesLeftName, percent, type ProgressShown } from './progress'
 import { type BookSearch, noMatches } from './search'
 import { type ControlsEvent, type ControlsState, HIDDEN, nextControls } from './state'
+import { createThemeSheet } from './theme-sheet'
+import type { OwnThemes } from './themes'
 
 /** What the controls show and where their links go. */
 export interface ControlsOptions {
@@ -35,6 +37,8 @@ export interface ControlsOptions {
     highlighterSheet: HighlighterSheet | null
     /** The reader's own fonts, kept on the server. */
     fonts: OwnFonts
+    /** The reader's own themes, kept on the server. */
+    themes: OwnThemes
     /** The settings the reader opened with. */
     settings: Settings
     /** True for comics and PDFs, whose pages have no text to restyle. */
@@ -486,7 +490,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const prefsBackdrop = element('div', { id: 'prefs-backdrop', 'data-controls': '' })
     const prefs = element('section', { id: 'prefs', 'data-controls': '', 'aria-label': 'Preferences' })
     const prefsClose = closeButton()
-    // Your fonts takes Preferences' place, with Back before its title.
+    // Your fonts, New theme and Edit theme take Preferences' place, with Back before the title.
     const prefsBack = element('button', { type: 'button', class: 'icon-button back', 'aria-label': 'Back', hidden: '' }, icon(ICONS.back))
     const prefsHeader = element('div', { class: 'panel-header' }, '<h2>Preferences</h2>')
     const prefsTitle = prefsHeader.querySelector('h2')!
@@ -511,15 +515,40 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         return { box, row }
     }
     const themes = group('Theme')
-    const themeButtons = (Object.keys(THEMES) as ThemeId[]).map(id => {
-        const theme = THEMES[id]
-        const button = element('button', { type: 'button', class: 'theme', 'aria-label': theme.name, 'aria-pressed': 'false', 'data-theme': id }, '<span class="swatch">Aa</span><span class="name"></span>')
-        button.querySelector<HTMLElement>('.swatch')!.style.cssText = `background: ${theme.background}; color: ${theme.text}`
-        button.querySelector('.name')!.textContent = theme.name
-        button.addEventListener('click', () => choose({ theme: id }))
-        themes.row.append(button)
+    // The built-in themes, then the reader's own with an edit badge, then Add
+    // while the reader has fewer than 12. A custom theme's card, once chosen,
+    // opens Edit theme.
+    let themeButtons: HTMLButtonElement[] = []
+    const addTheme = element('button', { type: 'button', class: 'theme add', 'aria-label': 'Add a theme' }, '<span class="swatch">+</span><span class="name">Add</span>')
+    const themeCard = (choice: ThemeChoice, name: string, label: string, colours: { background: string, text: string }): HTMLButtonElement => {
+        const button = element('button', { type: 'button', class: 'theme', 'aria-label': label, 'aria-pressed': 'false', 'data-theme': choice }, '<span class="swatch">Aa</span><span class="name"></span>')
+        button.querySelector<HTMLElement>('.swatch')!.style.cssText = `background: ${colours.background}; color: ${colours.text}`
+        button.querySelector('.name')!.textContent = name
         return button
-    })
+    }
+    const fillThemeButtons = (): void => {
+        const builtIn = (Object.keys(THEMES) as ThemeId[]).map(id => {
+            const button = themeCard(id, THEMES[id].name, THEMES[id].name, THEMES[id])
+            button.addEventListener('click', () => choose({ theme: id }))
+            return button
+        })
+        const own = options.themes.list().map(theme => {
+            const choice = ownTheme(theme.id)
+            const button = themeCard(choice, theme.name, `${theme.name}, a custom theme; open it to edit`, theme)
+            const badge = element('span', { class: 'badge' }, icon(ICONS.edit))
+            badge.style.cssText = `background: ${theme.controls}; color: ${theme.controlsText}`
+            button.querySelector('.swatch')!.append(badge)
+            button.addEventListener('click', () => {
+                if (settings.theme === choice) openTheme(theme)
+                else choose({ theme: choice })
+            })
+            return button
+        })
+        themeButtons = [...builtIn, ...own]
+        addTheme.hidden = own.length >= MAX_THEMES
+        themes.row.replaceChildren(...themeButtons, addTheme)
+    }
+    fillThemeButtons()
     const fonts = group('Font')
     // The bundled fonts, then the reader's own families, then Add font.
     let fontButtons: HTMLButtonElement[] = []
@@ -783,22 +812,53 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             return row
         }))
     }
-    const showFonts = (shown: boolean): void => {
-        prefsBody.hidden = shown
-        fontsBody.hidden = !shown
-        prefsBack.hidden = !shown
-        prefsTitle.textContent = shown ? 'Your fonts' : 'Preferences'
-        prefs.setAttribute('aria-label', prefsTitle.textContent)
-        if (!shown) fontMessage.textContent = ''
+    // New theme and Edit theme, and the dialog Delete theme asks in.
+    const themeSheet = createThemeSheet({
+        themes: options.themes,
+        title: options.title,
+        inUse: () => ownThemeOf(settings.theme),
+        saved: (id, added) => {
+            if (added) choose({ theme: ownTheme(id) })
+        },
+        deletedInUse: () => choose({ theme: 'light' }),
+        done: () => backToPrefs(),
+    })
+    prefs.append(themeSheet.body)
+    const openTheme = (editing: OwnTheme | null): void => {
+        const start = startingColours(editing ?? themeShown(settings.theme, options.themes.list()))
+        showSheet('theme', themeSheet.open(editing, start))
+        prefsBack.focus()
+    }
+    addTheme.addEventListener('click', () => openTheme(null))
+    options.themes.onChange(() => {
+        fillThemeButtons()
+        fillPrefs()
+    })
+
+    // Which of Preferences, Your fonts and the theme sheet shows.
+    const showSheet = (sheet: 'fonts' | 'theme' | null, title = 'Preferences'): void => {
+        prefsBody.hidden = sheet !== null
+        fontsBody.hidden = sheet !== 'fonts'
+        themeSheet.body.hidden = sheet !== 'theme'
+        prefsBack.hidden = sheet === null
+        prefsTitle.textContent = title
+        prefs.setAttribute('aria-label', title)
+        if (sheet) prefs.dataset.sheet = sheet
+        else delete prefs.dataset.sheet
+        if (sheet !== 'fonts') fontMessage.textContent = ''
+    }
+    // Back to Preferences, focusing what opened the sheet.
+    const backToPrefs = (): void => {
+        const from = prefs.dataset.sheet
+        showSheet(null)
+        if (from === 'fonts') addFont.focus()
+        else (themeButtons.find(button => button.dataset.theme === settings.theme) ?? addTheme).focus()
     }
     addFont.addEventListener('click', () => {
-        showFonts(true)
+        showSheet('fonts', 'Your fonts')
         prefsBack.focus()
     })
-    prefsBack.addEventListener('click', () => {
-        showFonts(false)
-        addFont.focus()
-    })
+    prefsBack.addEventListener('click', backToPrefs)
     fontFile.addEventListener('change', async () => {
         const [file] = fontFile.files ?? []
         fontFile.value = ''
@@ -855,7 +915,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     }
     fillPrefs()
 
-    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, searchBackdrop, searchPanel, resetDialog, deleteDialog)
+    root.append(reading.row, bar, backdrop, more, contentsBackdrop, contents, prefsBackdrop, prefs, searchBackdrop, searchPanel, resetDialog, deleteDialog, themeSheet.dialog)
 
     // The reading gestures hint, over everything: by itself the first time
     // this device opens a book, and from More at any time.
@@ -910,7 +970,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             close.focus()
         }
         if (openingPrefs) {
-            showFonts(false)
+            showSheet(null)
             prefsClose.focus()
         }
         if (openingSearch) searchField.focus()
@@ -934,6 +994,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         if (hint.shown) hint.close()
         else if (!resetDialog.hidden) closeReset()
         else if (!deleteDialog.hidden) closeDelete()
+        else if (themeSheet.closeDialog()) return
         else if (state.more || state.contents || state.prefs || state.search) {
             // Escape in the search field would also clear it; the search stays for next time.
             event.preventDefault()

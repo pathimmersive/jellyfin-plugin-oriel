@@ -293,6 +293,15 @@ check_fonts_in_browser() {
     done
 }
 
+# Custom themes: New theme from the theme in use, a theme saved, chosen and
+# kept, its colours across the reader, Edit theme, and Delete theme in use.
+check_themes_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_BROWSER="$browser" node "$reader/e2e/themes.e2e.mjs" || fail "custom themes in $browser at $1"
+    done
+}
+
 check_pages_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -831,6 +840,7 @@ check_controls_in_browser "$base"
 check_contents_in_browser "$base"
 check_preferences_in_browser "$base"
 check_fonts_in_browser "$base"
+check_themes_in_browser "$base"
 check_pages_in_browser "$base"
 check_page_turn_in_browser "$base"
 check_hint_in_browser "$base"

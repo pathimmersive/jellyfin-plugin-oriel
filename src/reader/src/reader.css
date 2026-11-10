@@ -1,6 +1,20 @@
 :root {
   color-scheme: light dark;
   font-family: system-ui, sans-serif;
+  /* The controls' colours: Jellyfin's, until a custom theme sets its own (main.ts). */
+  --chrome: #202020;
+  --chrome-ink: rgba(255, 255, 255, .87);
+  --sub: rgba(255, 255, 255, .7);
+  --accent: #00a4dc;
+  --accent-ink: rgba(0, 0, 0, .87);
+  --divider: rgba(255, 255, 255, .12);
+  --raised: #424242;
+}
+
+/* A custom theme's Grayed colours what is unavailable, in place of fading it. */
+:root[data-own-theme] :is(button:disabled, label:has(input:disabled)) {
+  opacity: 1 !important;
+  color: var(--grayed) !important;
 }
 
 html,
@@ -62,7 +76,7 @@ body:is([data-state="starting"], [data-state="loading"]) #loading {
   min-height: 1.3em;
   font-size: 18px;
   line-height: 1.3;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
 }
 
 .loading-bar {
@@ -77,7 +91,7 @@ body:is([data-state="starting"], [data-state="loading"]) #loading {
   display: block;
   width: 0;
   height: 100%;
-  background: #00a4dc;
+  background: var(--accent);
 }
 
 /* With no size from the server, the bar moves without a share. */
@@ -93,7 +107,7 @@ body:is([data-state="starting"], [data-state="loading"]) #loading {
 
 .loading-line {
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 @media (min-width: 600px), (orientation: landscape) {
@@ -210,8 +224,8 @@ body[data-state="rendered"] {
   z-index: 2;
   left: 0;
   right: 0;
-  background: #202020;
-  color: rgba(255, 255, 255, .87);
+  background: var(--chrome);
+  color: var(--chrome-ink);
 }
 
 #controls header {
@@ -221,7 +235,7 @@ body[data-state="rendered"] {
   gap: 2px;
   height: calc(56px + env(safe-area-inset-top));
   padding: env(safe-area-inset-top) calc(env(safe-area-inset-right) + 4px) 0 calc(env(safe-area-inset-left) + 4px);
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 #controls header .title {
@@ -244,22 +258,22 @@ body[data-state="rendered"] {
   width: 48px;
   height: 48px;
   border-radius: 4px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   cursor: pointer;
 }
 
 .icon-button:focus-visible,
 #more a:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 #controls footer {
   bottom: 0;
   padding: 0 calc(env(safe-area-inset-right) + 16px) calc(env(safe-area-inset-bottom) + 10px) calc(env(safe-area-inset-left) + 16px);
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #controls footer input {
@@ -267,7 +281,7 @@ body[data-state="rendered"] {
   width: 100%;
   height: 32px;
   margin: 0;
-  accent-color: #00a4dc;
+  accent-color: var(--accent);
 }
 
 /* On a desktop, as the canvas's DeskControls draws them: arrows at the edges
@@ -308,7 +322,7 @@ body[data-state="rendered"] {
   }
 
   .page-arrow:focus-visible {
-    outline: 2px solid #00a4dc;
+    outline: 2px solid var(--accent);
   }
 
   #controls .full-screen {
@@ -337,7 +351,7 @@ body[data-state="rendered"] {
   flex-direction: column;
   padding: 8px 0 calc(env(safe-area-inset-bottom) + 24px);
   border-radius: 12px 12px 0 0;
-  background: #202020;
+  background: var(--chrome);
 }
 
 #more a,
@@ -351,19 +365,19 @@ body[data-state="rendered"] {
   min-height: 52px;
   padding: 0 20px;
   font-size: 15px;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   text-decoration: none;
 }
 
 #more button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 #more a svg,
 #more button svg {
   flex: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 /* The reading gestures hint, over everything: zones on a touch screen or in Scroll, tiles on a desktop. */
@@ -424,7 +438,7 @@ body[data-state="rendered"] {
 #hint .hint-line {
   margin: 0;
   font-size: 14px;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   text-align: center;
 }
 
@@ -437,8 +451,8 @@ body[data-state="rendered"] {
   min-height: 48px;
   padding: 0 32px;
   border-radius: 4px;
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 15px;
   font-weight: 600;
 }
@@ -463,14 +477,14 @@ body[data-state="rendered"] {
   gap: 22px;
   padding: 28px;
   border-radius: 8px;
-  background: #202020;
+  background: var(--chrome);
 }
 
 #hint .desktop-hint h2 {
   margin: 0;
   font-size: 22px;
   font-weight: 400;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
 }
 
 #hint .tiles {
@@ -499,7 +513,7 @@ body[data-state="rendered"] {
   padding: 0 16px;
   font-size: 14px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   text-align: center;
 }
 
@@ -538,8 +552,8 @@ body[data-state="rendered"] {
   overflow: hidden;
   padding-bottom: env(safe-area-inset-bottom);
   border-radius: 12px 12px 0 0;
-  background: #202020;
-  color: rgba(255, 255, 255, .87);
+  background: var(--chrome);
+  color: var(--chrome-ink);
 }
 
 .panel-header {
@@ -549,7 +563,7 @@ body[data-state="rendered"] {
   gap: 4px;
   height: 56px;
   padding: 0 4px 0 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 .panel-header h2 {
@@ -590,11 +604,11 @@ body[data-state="rendered"] {
 }
 
 .place .bookmark[aria-pressed="true"] {
-  color: #00a4dc;
+  color: var(--accent);
 }
 
 .place .bookmark:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -4px;
 }
 
@@ -604,7 +618,7 @@ body[data-state="rendered"] {
   display: grid;
   grid-auto-flow: column;
   grid-auto-columns: minmax(0, 1fr);
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 #contents [role="tab"] {
@@ -612,19 +626,19 @@ body[data-state="rendered"] {
   padding: 0;
   border: 0;
   background: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
 }
 
 #contents [role="tab"][aria-selected="true"] {
-  color: #00a4dc;
-  box-shadow: inset 0 -2px 0 #00a4dc;
+  color: var(--accent);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 #contents [role="tab"]:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -639,7 +653,7 @@ body[data-state="rendered"] {
   align-items: flex-start;
   gap: 8px;
   padding: 12px 4px 12px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 #contents .bookmarks .entry {
@@ -665,12 +679,12 @@ body[data-state="rendered"] {
 
 #contents .bookmarks .where {
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .bookmarks .icon-button {
   flex: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .bookmarks .empty {
@@ -693,13 +707,13 @@ body[data-state="rendered"] {
 #contents .bookmarks .empty .hint {
   font-size: 15px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .bookmarks .empty svg {
   width: 48px;
   height: 48px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 /* The Highlights tab: chips choosing a colour, then each highlight marked in its colour. */
@@ -720,8 +734,8 @@ body[data-state="rendered"] {
   padding: 0 12px;
   border: 0;
   border-radius: 18px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: inherit;
   font-size: 14px;
   white-space: nowrap;
@@ -729,12 +743,12 @@ body[data-state="rendered"] {
 }
 
 #contents .highlights .chip[aria-pressed="true"] {
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 #contents .highlights .chip:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -755,7 +769,7 @@ body[data-state="rendered"] {
   align-items: flex-start;
   gap: 8px;
   padding: 14px 4px 14px 20px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 #contents .highlights .entry {
@@ -792,24 +806,24 @@ body[data-state="rendered"] {
   flex: none;
   width: 18px;
   height: 18px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .highlights .where {
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .highlights .icon-button {
   flex: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .highlights .none {
   margin: 0;
   padding: 24px 20px;
   font-size: 15px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .highlights .empty {
@@ -832,13 +846,13 @@ body[data-state="rendered"] {
 #contents .highlights .empty .hint {
   font-size: 15px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .highlights .empty svg {
   width: 48px;
   height: 48px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 /* The Selected text toolbar, beside the text selected or the highlight tapped. */
@@ -851,8 +865,8 @@ body[data-state="rendered"] {
   gap: 6px;
   padding: 8px;
   border-radius: 8px;
-  background: #202020;
-  color: rgba(255, 255, 255, .87);
+  background: var(--chrome);
+  color: var(--chrome-ink);
   box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
 }
 
@@ -891,7 +905,7 @@ body[data-state="rendered"] {
 }
 
 #selection-toolbar .note:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -919,20 +933,20 @@ body[data-state="rendered"] {
 
 #selection-toolbar .highlighter[aria-pressed="true"] .dot,
 #note .highlighter[aria-pressed="true"] .dot {
-  box-shadow: 0 0 0 2px #00a4dc, inset 0 0 0 1px rgba(0, 0, 0, .15);
+  box-shadow: 0 0 0 2px var(--accent), inset 0 0 0 1px rgba(0, 0, 0, .15);
 }
 
 #selection-toolbar .highlighter:focus-visible,
 #selection-toolbar .action:focus-visible,
 #note .highlighter:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 #selection-toolbar .actions {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
   padding-top: 6px;
 }
 
@@ -962,8 +976,8 @@ body[data-state="rendered"] {
   transform: translateX(-50%);
   padding: 10px 16px;
   border-radius: 4px;
-  background: #202020;
-  color: rgba(255, 255, 255, .87);
+  background: var(--chrome);
+  color: var(--chrome-ink);
   font-size: 14px;
   box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
   pointer-events: none;
@@ -1000,17 +1014,17 @@ body[data-state="rendered"] {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #highlighter input[type="text"] {
   box-sizing: border-box;
   height: 44px;
   padding: 0 12px;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--divider);
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: 15px 'Noto Sans', sans-serif;
 }
 
@@ -1039,7 +1053,7 @@ body[data-state="rendered"] {
 }
 
 #highlighter .swatches [aria-checked="true"] .dot {
-  box-shadow: 0 0 0 3px #00a4dc, inset 0 0 0 1px rgba(0, 0, 0, .15);
+  box-shadow: 0 0 0 3px var(--accent), inset 0 0 0 1px rgba(0, 0, 0, .15);
 }
 
 #highlighter .another {
@@ -1055,7 +1069,7 @@ body[data-state="rendered"] {
   width: 44px;
   height: 32px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--divider);
   border-radius: 4px;
   background: none;
 }
@@ -1087,8 +1101,8 @@ body[data-state="rendered"] {
   padding: 0 20px;
   border: 0;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1096,14 +1110,14 @@ body[data-state="rendered"] {
 
 #highlighter .sheet-buttons .save {
   padding: 0 24px;
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
 #highlighter button:focus-visible,
 #highlighter input:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1119,7 +1133,7 @@ body[data-state="rendered"] {
   padding: 0;
   border: 0;
   background: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   cursor: pointer;
 }
 
@@ -1131,7 +1145,7 @@ body[data-state="rendered"] {
   justify-content: center;
   width: 24px;
   height: 24px;
-  border: 1px dashed rgba(255, 255, 255, .7);
+  border: 1px dashed var(--sub);
   border-radius: 50%;
 }
 
@@ -1153,7 +1167,7 @@ body[data-state="rendered"] {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
 }
 
 #prefs .highlighter-list li {
@@ -1161,8 +1175,8 @@ body[data-state="rendered"] {
   align-items: center;
   gap: 4px;
   min-height: 52px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
-  background: #202020;
+  border-bottom: 1px solid var(--divider);
+  background: var(--chrome);
 }
 
 #prefs .highlighter-list li.dragging {
@@ -1181,7 +1195,7 @@ body[data-state="rendered"] {
   padding: 0;
   border: 0;
   background: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   cursor: grab;
   touch-action: none;
 }
@@ -1210,12 +1224,12 @@ body[data-state="rendered"] {
 
 #prefs .highlighter-list .default {
   font-size: 12px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .highlighter-list .icon-button {
   flex: none;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .highlighter-list .icon-button svg {
@@ -1234,10 +1248,10 @@ body[data-state="rendered"] {
   justify-content: center;
   gap: 8px;
   min-height: 48px;
-  border: 1px dashed rgba(255, 255, 255, .7);
+  border: 1px dashed var(--sub);
   border-radius: 4px;
   background: none;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1249,11 +1263,11 @@ body[data-state="rendered"] {
 }
 
 #prefs .highlighter-list button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
-:is(#reset-dialog, #highlighter-dialog) .confirm.danger {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) .confirm.danger {
   background: #c62828;
   color: #ffffff;
   font-weight: 600;
@@ -1333,8 +1347,8 @@ body[data-state="rendered"] {
   padding: 0 16px;
   border: 0;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: inherit;
   font-size: 14px;
   cursor: pointer;
@@ -1345,7 +1359,7 @@ body[data-state="rendered"] {
 }
 
 #dictionary .sheet-buttons button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1373,22 +1387,22 @@ body[data-state="rendered"] {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #note textarea {
   box-sizing: border-box;
   padding: 10px 12px;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--divider);
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: 15px/1.5 'Noto Sans', sans-serif;
   resize: vertical;
 }
 
 #note textarea:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 0;
 }
 
@@ -1403,8 +1417,8 @@ body[data-state="rendered"] {
   padding: 0 20px;
   border: 0;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font: inherit;
   font-size: 15px;
   cursor: pointer;
@@ -1412,13 +1426,13 @@ body[data-state="rendered"] {
 
 #note .sheet-buttons .save {
   padding: 0 24px;
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
 #note .sheet-buttons button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1436,7 +1450,7 @@ body[data-state="rendered"] {
   min-height: 48px;
   padding: 0 20px 0 calc(20px + var(--depth, 0) * 20px);
   font-size: 15px;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   text-decoration: none;
 }
 
@@ -1445,14 +1459,14 @@ body[data-state="rendered"] {
 }
 
 #contents .entry:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
 #contents .where {
   flex: none;
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #contents .empty {
@@ -1472,7 +1486,7 @@ body[data-state="rendered"] {
 #contents .empty svg {
   width: 48px;
   height: 48px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 /* Search in this book: the field, then each chapter's matches, as the canvas draws them. */
@@ -1500,12 +1514,12 @@ body[data-state="rendered"] {
   height: 44px;
   padding: 0 12px;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .7);
+  background: var(--raised);
+  color: var(--sub);
 }
 
 #search .field:focus-within {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
 }
 
 #search .field svg {
@@ -1520,7 +1534,7 @@ body[data-state="rendered"] {
   min-width: 0;
   border: 0;
   background: none;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   font: 16px 'Noto Sans', system-ui, sans-serif;
   outline: none;
 }
@@ -1541,29 +1555,29 @@ body[data-state="rendered"] {
 #search .searching {
   margin: 0;
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #search ul {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
 }
 
 #search li a {
   display: block;
   padding: 12px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
   font-family: 'Literata', Georgia, serif;
   font-size: 15px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
   text-decoration: none;
 }
 
 #search li a:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -1587,7 +1601,7 @@ body[data-state="rendered"] {
 #search .no-matches svg {
   width: 44px;
   height: 44px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #search .no-matches p {
@@ -1602,7 +1616,7 @@ body[data-state="rendered"] {
 #search .no-matches .next {
   font-size: 14px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 /* Preferences: groups of choices, as the canvas draws them. */
@@ -1618,7 +1632,7 @@ body[data-state="rendered"] {
   padding: 0 20px;
   font-size: 13px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .choices {
@@ -1630,7 +1644,7 @@ body[data-state="rendered"] {
 #prefs .group-label {
   padding: 0 20px;
   font-size: 13px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .choice-row {
@@ -1647,7 +1661,7 @@ body[data-state="rendered"] {
 }
 
 #prefs button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1672,7 +1686,7 @@ body[data-state="rendered"] {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--divider);
   border-radius: 6px;
   font-family: 'Literata', Georgia, serif;
   font-size: 20px;
@@ -1680,16 +1694,271 @@ body[data-state="rendered"] {
 
 #prefs .theme .name {
   font-size: 12px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   white-space: nowrap;
 }
 
 #prefs .theme[aria-pressed="true"] .swatch {
-  box-shadow: 0 0 0 3px #00a4dc;
+  box-shadow: 0 0 0 3px var(--accent);
 }
 
 #prefs .theme[aria-pressed="true"] .name {
-  color: #00a4dc;
+  color: var(--accent);
+}
+
+/* A custom theme's card: an edit badge in its Controls colours at the corner. */
+#prefs .theme .swatch {
+  position: relative;
+}
+
+#prefs .theme .badge {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+#prefs .theme .badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Add: a dashed card in the muted ink. */
+#prefs .theme.add .swatch {
+  border: 1px dashed var(--sub);
+  background: transparent;
+  color: var(--sub);
+  font-family: 'Noto Sans', system-ui, sans-serif;
+  font-size: 24px;
+}
+
+/* New theme and Edit theme, as the canvas's PhoneThemeNew and PhoneThemeEdit draw them. */
+#prefs .theme-sheet {
+  gap: 18px;
+  padding: 16px 20px 24px;
+}
+
+#prefs .theme-sheet .field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--sub);
+}
+
+#prefs .theme-sheet .field input {
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 12px;
+  border: 1px solid var(--divider);
+  border-radius: 4px;
+  background: var(--raised);
+  color: var(--chrome-ink);
+  font: 15px 'Noto Sans', system-ui, sans-serif;
+}
+
+#prefs .theme-sheet .preview {
+  flex: none;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 6px;
+}
+
+#prefs .theme-sheet .preview-header {
+  height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--separator);
+  background: var(--controls);
+  color: var(--controlsText);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+#prefs .theme-sheet .preview-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+#prefs .theme-sheet .preview-mark {
+  display: flex;
+  color: var(--accent);
+}
+
+#prefs .theme-sheet .preview-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 14px 12px;
+  background: var(--background);
+  color: var(--text);
+  font: 15px/1.5 'Literata', Georgia, serif;
+}
+
+#prefs .theme-sheet .preview-selection {
+  background: var(--selection);
+}
+
+#prefs .theme-sheet .preview-separator {
+  height: 1px;
+  background: var(--separator);
+}
+
+#prefs .theme-sheet .preview-chapters {
+  display: flex;
+  justify-content: space-between;
+  font: 12px 'Noto Sans', system-ui, sans-serif;
+}
+
+#prefs .theme-sheet .preview-chapters .secondary {
+  color: var(--secondary);
+}
+
+#prefs .theme-sheet .preview-chapters .accent {
+  color: var(--accent);
+}
+
+#prefs .theme-sheet .preview-chapters .grayed {
+  color: var(--grayed);
+}
+
+#prefs .theme-sheet .preview-buttons {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--controls);
+  font-size: 12px;
+}
+
+#prefs .theme-sheet .preview-buttons span {
+  padding: 6px 14px;
+  border-radius: 4px;
+}
+
+#prefs .theme-sheet .preview-buttons .button {
+  background: var(--buttons);
+  color: var(--controlsText);
+}
+
+#prefs .theme-sheet .preview-buttons .selected {
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+#prefs .theme-sheet .roles {
+  display: flex;
+  flex-direction: column;
+}
+
+#prefs .theme-sheet .role {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--divider);
+  cursor: pointer;
+}
+
+#prefs .theme-sheet .role-names {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+#prefs .theme-sheet .role-name {
+  font-size: 15px;
+}
+
+#prefs .theme-sheet .role-use {
+  font-size: 12px;
+  color: var(--sub);
+}
+
+#prefs .theme-sheet .hex {
+  font: 13px ui-monospace, monospace;
+  color: var(--sub);
+}
+
+#prefs .theme-sheet .role input {
+  width: 44px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--divider);
+  border-radius: 4px;
+  background: none;
+}
+
+#prefs .theme-sheet .message {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+#prefs .theme-sheet .message:empty {
+  display: none;
+}
+
+#prefs .theme-sheet .sheet-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+#prefs .theme-sheet .sheet-buttons .spacer {
+  flex: 1;
+}
+
+#prefs .theme-sheet .sheet-buttons button {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 20px;
+  border-radius: 4px;
+  font-size: 15px;
+}
+
+#prefs .theme-sheet .sheet-buttons .delete {
+  padding: 0 16px;
+  color: #ff8a80;
+}
+
+#prefs .theme-sheet .sheet-buttons .delete svg {
+  width: 20px;
+  height: 20px;
+}
+
+#prefs .theme-sheet .sheet-buttons .cancel {
+  background: var(--raised);
+  color: var(--chrome-ink);
+}
+
+#prefs .theme-sheet .sheet-buttons .save {
+  padding: 0 24px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* On a phone held upright the theme sheet rises to 47 px from the top. */
+@media (max-width: 599px) {
+  #prefs[data-sheet="theme"] {
+    top: calc(env(safe-area-inset-top) + 47px);
+  }
 }
 
 #prefs .font {
@@ -1699,15 +1968,15 @@ body[data-state="rendered"] {
   min-height: 44px;
   padding: 0 14px;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font-size: 15px;
   white-space: nowrap;
 }
 
 #prefs .font[aria-pressed="true"] {
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 #prefs .font svg {
@@ -1719,9 +1988,9 @@ body[data-state="rendered"] {
 
 /* Add font: dashed, in the muted ink, set in the interface's font. */
 #prefs .font.add {
-  border: 1px dashed rgba(255, 255, 255, .7);
+  border: 1px dashed var(--sub);
   background: transparent;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   font-family: 'Noto Sans', system-ui, sans-serif;
 }
 
@@ -1737,7 +2006,7 @@ body[data-state="rendered"] {
 #prefs .your-fonts .about {
   margin: 0;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   padding: 0;
   font-size: 14px;
 }
@@ -1751,8 +2020,8 @@ body[data-state="rendered"] {
   min-height: 48px;
   padding: 0 18px;
   border-radius: 4px;
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-size: 15px;
   font-weight: 600;
   cursor: pointer;
@@ -1771,7 +2040,7 @@ body[data-state="rendered"] {
 }
 
 #prefs .add-font:focus-within {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -1799,7 +2068,7 @@ body[data-state="rendered"] {
   list-style: none;
   margin: 0;
   padding: 0;
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
 }
 
 #prefs .own-fonts li {
@@ -1807,7 +2076,7 @@ body[data-state="rendered"] {
   align-items: center;
   gap: 12px;
   min-height: 60px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
 }
 
 #prefs .own-fonts .names {
@@ -1825,7 +2094,7 @@ body[data-state="rendered"] {
 
 #prefs .own-fonts .styles {
   font-size: 12px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .own-fonts .icon-button {
@@ -1835,7 +2104,7 @@ body[data-state="rendered"] {
   justify-content: center;
   width: 44px;
   height: 44px;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #prefs .own-fonts .icon-button svg {
@@ -1865,8 +2134,8 @@ body[data-state="rendered"] {
   align-items: center;
   justify-content: center;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font-family: 'Literata', Georgia, serif;
 }
 
@@ -1934,8 +2203,8 @@ body[data-state="rendered"] {
   min-height: 44px;
   padding: 0 14px;
   border-radius: 4px;
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
   font-size: 15px;
   white-space: nowrap;
 }
@@ -1946,8 +2215,8 @@ body[data-state="rendered"] {
 }
 
 #prefs .page-turn[aria-pressed="true"] {
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 #prefs .progress-row {
@@ -1965,7 +2234,7 @@ body[data-state="rendered"] {
   width: 224px;
   border-radius: 4px;
   overflow: hidden;
-  background: #424242;
+  background: var(--raised);
 }
 
 #prefs .segments button {
@@ -1978,15 +2247,15 @@ body[data-state="rendered"] {
 }
 
 #prefs .segments button[aria-checked="true"] {
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 #prefs .checks {
   display: flex;
   flex-direction: column;
   margin: 0 20px;
-  border-top: 1px solid rgba(255, 255, 255, .12);
+  border-top: 1px solid var(--divider);
 }
 
 #prefs .checks label {
@@ -1994,7 +2263,7 @@ body[data-state="rendered"] {
   align-items: center;
   gap: 14px;
   min-height: 48px;
-  border-bottom: 1px solid rgba(255, 255, 255, .12);
+  border-bottom: 1px solid var(--divider);
   font-size: 15px;
   cursor: pointer;
 }
@@ -2003,7 +2272,7 @@ body[data-state="rendered"] {
   width: 20px;
   height: 20px;
   margin: 0;
-  accent-color: #00a4dc;
+  accent-color: var(--accent);
 }
 
 #prefs .checks label:has(input:disabled) {
@@ -2018,7 +2287,7 @@ body[data-state="rendered"] {
   gap: 10px;
   min-height: 48px;
   margin: 0 20px;
-  border: 1px solid rgba(255, 255, 255, .12);
+  border: 1px solid var(--divider);
   border-radius: 4px;
   font-size: 15px;
 }
@@ -2029,7 +2298,7 @@ body[data-state="rendered"] {
 }
 
 /* Reset's question, over everything. */
-:is(#reset-dialog, #highlighter-dialog) {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) {
   position: fixed;
   z-index: 8;
   inset: 0;
@@ -2040,7 +2309,7 @@ body[data-state="rendered"] {
   background: rgba(0, 0, 0, .6);
 }
 
-:is(#reset-dialog, #highlighter-dialog) [role="alertdialog"] {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) [role="alertdialog"] {
   box-sizing: border-box;
   width: 100%;
   max-width: 400px;
@@ -2049,31 +2318,31 @@ body[data-state="rendered"] {
   gap: 14px;
   padding: 24px;
   border-radius: 8px;
-  background: #202020;
-  color: rgba(255, 255, 255, .87);
+  background: var(--chrome);
+  color: var(--chrome-ink);
 }
 
-:is(#reset-dialog, #highlighter-dialog) h2 {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) h2 {
   margin: 0;
   font-size: 19px;
   font-weight: 600;
 }
 
-:is(#reset-dialog, #highlighter-dialog) p {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) p {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
-:is(#reset-dialog, #highlighter-dialog) .dialog-buttons {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) .dialog-buttons {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
   margin-top: 6px;
 }
 
-:is(#reset-dialog, #highlighter-dialog) button {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) button {
   all: unset;
   box-sizing: border-box;
   cursor: pointer;
@@ -2082,19 +2351,19 @@ body[data-state="rendered"] {
   min-height: 44px;
   padding: 0 18px;
   border-radius: 4px;
-  background: #424242;
+  background: var(--raised);
   font-size: 15px;
 }
 
-:is(#reset-dialog, #highlighter-dialog) button:focus-visible {
-  outline: 2px solid #00a4dc;
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) button:focus-visible {
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-:is(#reset-dialog, #highlighter-dialog) .confirm {
+:is(#reset-dialog, #highlighter-dialog, #theme-dialog) .confirm {
   padding: 0 20px;
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
   font-weight: 600;
 }
 
@@ -2119,7 +2388,7 @@ body[data-state="rendered"] {
     bottom: calc(env(safe-area-inset-bottom) + 83px);
     padding-bottom: 0;
     border-radius: 0;
-    border-left: 1px solid rgba(255, 255, 255, .12);
+    border-left: 1px solid var(--divider);
   }
 
   #reading-footer {
@@ -2210,7 +2479,7 @@ foliate-view {
   border-radius: 4px;
   background: #303030;
   box-shadow: 0 4px 16px rgba(0, 0, 0, .4);
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
   font-size: 14px;
   line-height: 1.45;
 }
@@ -2221,7 +2490,7 @@ foliate-view {
 
 .notice span {
   flex: 1;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
 }
 
 /* The notice's action, Sign in for a reader signed out while reading. */
@@ -2232,7 +2501,7 @@ foliate-view {
   border: 0;
   border-radius: 4px;
   background: none;
-  color: #00a4dc;
+  color: var(--accent);
   font: inherit;
   font-size: 14px;
   font-weight: 600;
@@ -2240,7 +2509,7 @@ foliate-view {
 }
 
 .notice button:focus-visible {
-  outline: 2px solid #00a4dc;
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -2268,7 +2537,7 @@ foliate-view {
   padding: 0;
   font-size: 20px;
   line-height: 1.4;
-  color: rgba(255, 255, 255, .87);
+  color: var(--chrome-ink);
 }
 
 #failure .body {
@@ -2276,7 +2545,7 @@ foliate-view {
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, .7);
+  color: var(--sub);
 }
 
 #failure .buttons {
@@ -2304,13 +2573,13 @@ foliate-view {
 }
 
 #failure .retry {
-  background: #00a4dc;
-  color: rgba(0, 0, 0, .87);
+  background: var(--accent);
+  color: var(--accent-ink);
 }
 
 #failure .back {
-  background: #424242;
-  color: rgba(255, 255, 255, .87);
+  background: var(--raised);
+  color: var(--chrome-ink);
 }
 
 #failure .buttons :focus-visible {
