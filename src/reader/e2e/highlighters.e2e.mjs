@@ -176,7 +176,8 @@ try {
         fail(`Preferences' Highlighters shows ${JSON.stringify(list)}`)
     }
     const note = (await page.locator('#prefs .note').innerText()).trim()
-    if (note !== 'Your preferences apply to this device. Your highlighters follow you on every device.') fail(`the Preferences note reads '${note}'`)
+    const device = setup.touch ? 'phone' : 'computer'
+    if (note !== `Size, spacing, margins and page turn apply to this ${device}. Themes, fonts and highlighters follow you on every device.`) fail(`the Preferences note reads '${note}'`)
     pass(`Preferences lists the four built-ins (${list.count}), each with Move and Edit, and Add a highlighter`)
 
     // Add a highlighter from Preferences.

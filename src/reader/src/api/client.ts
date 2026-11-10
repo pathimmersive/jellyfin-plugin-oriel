@@ -1,4 +1,5 @@
 import { type ImportResult, isImportResult } from '../data/summary'
+import { type Choices, type KeptChoices, type OwnTheme, THEME_ROLES } from '../settings/settings'
 
 /** A book could not be fetched; the message is meant for the reader. */
 export class BookLoadError extends Error {
@@ -463,6 +464,99 @@ export const saveHighlighters = async (
         if (!response.ok) return null
         const data: unknown = await response.json()
         return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** One of the user's own themes as Oriel's store keeps it: its id, name and ten colours, each #rrggbb. */
+export const isThemeRecord = (value: unknown): value is OwnTheme => {
+    const theme = value as Record<string, unknown> | null
+    return typeof theme?.id === 'string' && typeof theme.name === 'string'
+        && THEME_ROLES.every(([colour]) => typeof theme[colour] === 'string')
+}
+
+const themesUrl = (basePath: string): string => `${basePath}/Oriel/Themes`
+
+const choicesUrl = (basePath: string): string => `${basePath}/Oriel/Choices`
+
+const isKeptChoices = (value: unknown): value is KeptChoices => {
+    const kept = value as Record<string, unknown> | null
+    return !!kept && typeof kept === 'object' && ['theme', 'font'].every(key => kept[key] == null || typeof kept[key] === 'string')
+}
+
+/** The theme and font the user has chosen, as the server keeps them, or null when they cannot be read. */
+export const readChoices = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<KeptChoices | null> => {
+    try {
+        const response = await fetchImpl(choicesUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        // The server leaves out a choice not made yet.
+        return isKeptChoices(data) ? { theme: data.theme ?? null, font: data.font ?? null } : null
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Keeps the theme and font the user has chosen: true once the server has
+ * them, or refused them as ones the user no longer has; false while it
+ * cannot be reached.
+ */
+export const saveChoices = async (
+    basePath: string,
+    authorization: string,
+    choices: Choices,
+    fetchImpl: typeof fetch = fetch,
+): Promise<boolean> => {
+    try {
+        const response = await fetchImpl(choicesUrl(basePath), {
+            method: 'PUT',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(choices),
+        })
+        return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 408 && response.status !== 429)
+    } catch {
+        return false
+    }
+}
+
+/** The user's own themes in their order, or null when they cannot be read. */
+export const readThemes = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnTheme[] | null> => {
+    try {
+        const response = await fetchImpl(themesUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
+    } catch {
+        return null
+    }
+}
+
+/** Keeps the user's whole list of themes (a new one without an id); returns them as kept, or null when that failed. */
+export const saveThemes = async (
+    basePath: string,
+    authorization: string,
+    list: (Omit<OwnTheme, 'id'> & { id?: string })[],
+    fetchImpl: typeof fetch = fetch,
+): Promise<OwnTheme[] | null> => {
+    try {
+        const response = await fetchImpl(themesUrl(basePath), {
+            method: 'PUT',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(list),
+        })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
     } catch {
         return null
     }

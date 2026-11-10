@@ -22,8 +22,9 @@
   <main>
     <section aria-labelledby="export-h">
       <h2 id="export-h">Export</h2>
-      <p>Download everything Oriel keeps for you as one file, including your place in each book. Keep it somewhere safe: Jellyfin’s own backup does not include it.</p>
+      <p>Download everything Oriel keeps for you as one file: your places in each book, bookmarks, highlights and notes, highlighters, custom themes, the fonts you added, and your preferences. Keep it somewhere safe: Jellyfin’s own backup does not include it.</p>
       <a id="download" class="button primary" href="#"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>Download reading data</a>
+      <p class="fine">Fonts make the file larger. A file without fonts is usually well under 1 MB.</p>
       <p id="download-error" class="error" role="alert" hidden></p>
     </section>
 
@@ -31,7 +32,7 @@
 
     <section aria-labelledby="import-h">
       <h2 id="import-h">Import</h2>
-      <p>Load a file you exported, on this server or another one. Where you have read further on this server, your place here is kept.</p>
+      <p>Load a file you exported, on this server or another one. Bookmarks, highlights, notes, themes and fonts are added to what you have here. Where you have read further on this server, your place here is kept.</p>
       <div class="choose">
         <label class="button secondary"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/></svg>Choose a file<input id="file" type="file" accept=".json,application/json"></label>
         <span id="file-name">No file chosen</span>

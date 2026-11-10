@@ -1,12 +1,16 @@
 // Checks exporting and importing reading data through the plugin's API on a
-// running server: the export (format version 5, with positions, bookmarks, highlights with their notes, and highlighters)
-// holds only the caller's own positions; importing
+// running server: the export (format version 6, with positions, bookmarks, highlights with their notes, highlighters,
+// themes, fonts with their files, and the chosen theme and font) holds only the caller's own data; importing
+// another user's themes, fonts and choices adds them once, however often the file is imported; importing
 // keeps whichever position was saved last; a book whose id is unknown is
 // matched by title and author; books that cannot be matched are reported; bad
 // files are rejected. Configured by environment: ORIEL_BASE (server URL
 // including any BaseUrl), ORIEL_TOKEN, ORIEL_ITEM_ID, ORIEL_OTHER_TOKEN (a
 // second user's token) and ORIEL_OTHER_CFI (a position only that user saved).
 // Exits non-zero on the first failed check.
+import { forgetChoices } from './choices.mjs'
+import { makeFont } from './make-font.mjs'
+
 const env = name => {
     const value = process.env[name]
     if (!value) {
@@ -40,6 +44,22 @@ const importData = (authorization, file) => call('/Oriel/Import', authorization,
 const position = async () => (await call(`/Oriel/Positions/${itemId}`, mine)).body
 
 const id = value => value.replaceAll('-', '').toLowerCase()
+
+// The user's setup: Night Blue, a font made from Atkinson Hyperlegible (SIL Open Font License) and renamed, and both chosen.
+const NIGHT_BLUE = {
+    name: 'Night Blue',
+    background: '#0f1a2a', text: '#d7dee8', secondary: '#9fb0c4', accent: '#7cc4ff', selection: '#2e5a85',
+    separator: '#2b4466', controls: '#14243a', controlsText: '#e6edf5', buttons: '#23395a', grayed: '#6c7f96',
+}
+const FAMILY = 'Oriel Export Sans'
+const font = makeFont(new URL('../node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff', import.meta.url), FAMILY, 'ttf')
+const json = (method, body) => ({ method, body: JSON.stringify(body) })
+const clearSetup = async authorization => {
+    await call('/Oriel/Themes', authorization, json('PUT', []))
+    for (const family of new Set(((await call('/Oriel/Fonts', authorization)).body ?? []).map(kept => kept.family))) {
+        await call(`/Oriel/Fonts?family=${encodeURIComponent(family)}`, authorization, { method: 'DELETE' })
+    }
+}
 const later = (iso, ms) => new Date(Date.parse(iso) + ms).toISOString()
 
 let failed = false
@@ -48,7 +68,7 @@ try {
     if (exported.status !== 200) fail(`GET /Oriel/Export returned ${exported.status}`)
     if (!/attachment/i.test(exported.headers.get('content-disposition') ?? '')) fail('the export is not served as a download')
     const file = exported.body
-    if (file?.format !== 'oriel-reading-data' || file.version !== 5 || !Array.isArray(file.positions) || !Array.isArray(file.bookmarks) || !Array.isArray(file.highlights)) {
+    if (file?.format !== 'oriel-reading-data' || file.version !== 6 || !Array.isArray(file.positions) || !Array.isArray(file.bookmarks) || !Array.isArray(file.highlights)) {
         fail(`the export is not an Oriel reading data file: ${exported.text.slice(0, 200)}`)
     }
     const entry = file.positions.find(p => id(p.itemId) === id(itemId))
@@ -102,6 +122,34 @@ try {
     }
     if ((await exportData(other)).text.includes(titleCfi)) fail("another user's export contains this user's position")
     pass('bad files are rejected with 400 and change nothing; without a token both are 401')
+
+    // Themes, fonts and the chosen theme and font travel in the file and are added once.
+    await clearSetup(mine)
+    await clearSetup(other)
+    const [theme] = (await call('/Oriel/Themes', mine, json('PUT', [NIGHT_BLUE]))).body
+    const added = await fetch(`${base}/Oriel/Fonts`, { method: 'POST', headers: { Authorization: mine }, body: font })
+    if (!added.ok) fail(`POST /Oriel/Fonts returned ${added.status}`)
+    const chosen = { theme: `own:${theme.id}`, font: `own:${FAMILY}` }
+    await call('/Oriel/Choices', mine, json('PUT', chosen))
+    const setup = (await exportData(mine)).body
+    const exportedFont = setup.fonts?.find(kept => kept.family === FAMILY)
+    if (setup.themes?.length !== 1 || setup.themes[0].name !== 'Night Blue' || setup.themes[0].grayed !== '#6c7f96') fail(`the export's themes are ${JSON.stringify(setup.themes)}`)
+    if (!exportedFont || Buffer.from(exportedFont.data, 'base64').length !== font.length) fail(`the export does not hold ${FAMILY}'s file`)
+    if (JSON.stringify(setup.choices) !== JSON.stringify(chosen)) fail(`the export's choices are ${JSON.stringify(setup.choices)}`)
+    const otherChoices = (await call('/Oriel/Choices', other)).body
+    result = await importData(other, setup)
+    const counts = body => [body?.themes, body?.fonts, body?.choices]
+    const wantChoices = otherChoices?.theme == null
+    if (JSON.stringify(counts(result.body)) !== JSON.stringify([1, 1, wantChoices])) fail(`importing for another user, whose choices were ${JSON.stringify(otherChoices)}, gave ${result.text}`)
+    if ((await call('/Oriel/Themes', other)).body?.[0]?.id !== theme.id) fail('the other user does not have the imported theme')
+    if (!(await call('/Oriel/Fonts', other)).body?.some(kept => kept.family === FAMILY)) fail(`the other user does not have ${FAMILY}`)
+    if (wantChoices && JSON.stringify((await call('/Oriel/Choices', other)).body) !== JSON.stringify(chosen)) fail('the other user did not take the chosen theme and font')
+    result = await importData(other, setup)
+    if (JSON.stringify(counts(result.body)) !== JSON.stringify([0, 0, false])) fail(`importing the same file again added more: ${result.text}`)
+    pass(`the export holds Night Blue, ${FAMILY}'s file and the chosen theme and font; importing it for another user adds them once`)
+    await clearSetup(mine)
+    await clearSetup(other)
+    await forgetChoices(base, env('ORIEL_TOKEN'))
 
     // The positions above are made up; put back the real one so later checks
     // open the book at a place that exists in it.

@@ -14,6 +14,107 @@ export const THEMES = {
 
 export type ThemeId = keyof typeof THEMES
 
+/** A theme as Preferences chooses it: a built-in one by id, or one of the reader's own as `own:<id>`. */
+export type ThemeChoice = ThemeId | `own:${string}`
+
+/** A custom theme's ten colours, each #rrggbb. */
+export interface ThemeColours {
+    background: string
+    text: string
+    secondary: string
+    accent: string
+    selection: string
+    separator: string
+    controls: string
+    controlsText: string
+    buttons: string
+    grayed: string
+}
+
+/** One of the reader's own themes, as the server keeps it. */
+export interface OwnTheme extends ThemeColours {
+    id: string
+    name: string
+}
+
+/** The ten colours as New theme lists them: the colour, its name and its use. */
+export const THEME_ROLES: readonly [keyof ThemeColours, string, string][] = [
+    ['background', 'Background', 'The page'],
+    ['text', 'Text', "The book's text"],
+    ['secondary', 'Secondary text', 'Chapter names, progress, labels'],
+    ['accent', 'Accent', 'Selected items, links, the slider'],
+    ['selection', 'Selection', 'Selected text'],
+    ['separator', 'Separator', 'Lines between rows'],
+    ['controls', 'Controls', 'The header, footer and panels'],
+    ['controlsText', 'Controls text', 'Text and icons in the controls'],
+    ['buttons', 'Buttons', 'Buttons in the controls'],
+    ['grayed', 'Grayed', 'Unavailable items'],
+]
+
+/** The most themes of their own a reader keeps, and the longest name one takes. */
+export const MAX_THEMES = 12
+export const THEME_NAME_LENGTH = 40
+
+// The controls' colours with a built-in theme: Jellyfin's, as #rrggbb.
+const JELLYFIN_CONTROLS = { accent: '#00a4dc', separator: '#2e2e2e', controls: '#202020', controlsText: '#dedede', buttons: '#424242', grayed: '#6b6b6b' }
+
+// The accent over each built-in theme's page, as a solid colour.
+const BUILT_IN_SELECTION: Record<ThemeId, string> = { light: '#b8e6f5', sepia: '#b0d8d9', dark: '#00506b' }
+
+/** The colours New theme starts from: the custom theme in use, else the built-in one's page with Jellyfin's controls. */
+export const startingColours = (theme: ThemeId | OwnTheme): ThemeColours => {
+    if (typeof theme !== 'string') {
+        const { id: _id, name: _name, ...colours } = theme
+        return colours
+    }
+    const { background, text, footer } = THEMES[theme]
+    return { background, text, secondary: footer, selection: BUILT_IN_SELECTION[theme], ...JELLYFIN_CONTROLS }
+}
+
+/** The choice of one of the reader's own themes. */
+export const ownTheme = (id: string): ThemeChoice => `own:${id}`
+
+/** The id of a choice of the reader's own theme, or null for a built-in one. */
+export const ownThemeOf = (theme: ThemeChoice): string | null => theme.startsWith('own:') ? theme.slice(4) : null
+
+/** The theme a choice shows: the reader's own when they have it, else the built-in one, Light for a theme that is gone. */
+export const themeShown = (choice: ThemeChoice, own: readonly OwnTheme[]): ThemeId | OwnTheme => {
+    const id = ownThemeOf(choice)
+    if (id === null) return choice as ThemeId
+    return own.find(theme => theme.id === id) ?? 'light'
+}
+
+/** The page's colours for a theme: its background, text and reading footer. */
+export const pageColours = (theme: ThemeId | OwnTheme): Theme =>
+    typeof theme === 'string' ? THEMES[theme] : { name: theme.name, background: theme.background, text: theme.text, footer: theme.secondary }
+
+// A colour's relative luminance, from 0 (black) to 1 (white).
+const luminance = (hex: string): number => {
+    const [red, green, blue] = [1, 3, 5].map(at => {
+        const channel = parseInt(hex.slice(at, at + 2), 16) / 255
+        return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * red + 0.7152 * green + 0.0722 * blue
+}
+
+/** Whether a colour is dark, so what sits on it reads in light text. */
+export const isDark = (hex: string): boolean => luminance(hex) < 0.18
+
+/** The text on the accent: near-black, or white on a dark accent. */
+export const accentInk = (accent: string): string => isDark(accent) ? '#ffffff' : 'rgba(0, 0, 0, .87)'
+
+/** The controls' CSS colours for a custom theme. */
+export const controlsColours = (theme: OwnTheme): Record<string, string> => ({
+    '--chrome': theme.controls,
+    '--chrome-ink': theme.controlsText,
+    '--sub': theme.secondary,
+    '--accent': theme.accent,
+    '--accent-ink': accentInk(theme.accent),
+    '--divider': theme.separator,
+    '--raised': theme.buttons,
+    '--grayed': theme.grayed,
+})
+
 /** The fonts Preferences offers, by name, with the stack each sets. Default keeps the book's own. */
 export const FONTS = {
     'Default': "Georgia, 'Times New Roman', serif",
@@ -94,7 +195,7 @@ export const WIDE_MARGINS: Margins = { left: 140, right: 140, top: 48, bottom: 1
 
 /** What the reader keeps for this device. */
 export interface Settings {
-    theme: ThemeId
+    theme: ThemeChoice
     font: FontChoice
     size: number
     lineSpacing: number
@@ -130,7 +231,8 @@ const KEY = 'oriel-settings'
 // To one decimal, so steps of 0.1 do not gather floating-point error.
 const tenths = (value: number): number => Math.round(value * 10) / 10
 
-const isTheme = (value: unknown): value is ThemeId => typeof value === 'string' && Object.hasOwn(THEMES, value)
+const isTheme = (value: unknown): value is ThemeChoice =>
+    typeof value === 'string' && (Object.hasOwn(THEMES, value) || (value.startsWith('own:') && value.length > 4))
 const isFont = (value: unknown): value is FontChoice =>
     typeof value === 'string' && (Object.hasOwn(FONTS, value) || (value.startsWith('own:') && value.length > 4))
 const inRange = (range: Range) => (value: unknown): value is number =>
@@ -171,6 +273,32 @@ export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
         pageTurn: pick('pageTurn', isPageTurn),
     }
 }
+
+/** The theme and font the reader has chosen: what follows them from device to device. */
+export interface Choices {
+    theme: ThemeChoice
+    font: FontChoice
+}
+
+/** The theme and font as the server keeps them, each null until the reader first chooses. */
+export interface KeptChoices {
+    theme: string | null
+    font: string | null
+}
+
+/** The theme and font of `settings`. */
+export const choicesOf = (settings: Settings): Choices => ({ theme: settings.theme, font: settings.font })
+
+/**
+ * `settings` with the theme and font the server keeps for the reader; the
+ * rest of them, and a choice the server does not have or that is not one
+ * Oriel knows, stay as this device has them.
+ */
+export const withChoices = (settings: Settings, kept: KeptChoices | null): Settings => ({
+    ...settings,
+    theme: isTheme(kept?.theme) ? kept.theme : settings.theme,
+    font: isFont(kept?.font) ? kept.font : settings.font,
+})
 
 /** Keeps `settings` in `storage`; a browser that refuses storage keeps them for this visit only. */
 export const writeSettings = (storage: Pick<Storage, 'setItem'>, settings: Settings): void => {
@@ -221,15 +349,17 @@ export const resetLayout = (settings: Settings): Settings =>
  * except for code, and the spacing, indent, alignment and hyphenation of
  * its paragraphs and list items.
  */
-export const bookStyles = (settings: Settings, fontFaces: string): string => {
-    const theme = THEMES[settings.theme]
+export const bookStyles = (settings: Settings, fontFaces: string, own: readonly OwnTheme[] = []): string => {
+    const shown = themeShown(settings.theme, own)
+    const theme = pageColours(shown)
     const rules = [
         fontFaces,
-        `html { color-scheme: ${settings.theme === 'dark' ? 'dark' : 'light'}; font-size: ${settings.size}px !important; }`,
+        `html { color-scheme: ${isDark(theme.background) ? 'dark' : 'light'}; font-size: ${settings.size}px !important; }`,
         `html, body { color: ${theme.text} !important; background: ${theme.background} !important; }`,
         'body { font-size: 1rem !important; }',
         'body *:not(a) { color: inherit !important; background-color: transparent !important; }',
     ]
+    if (typeof shown !== 'string') rules.push(`::selection { background: ${shown.selection}; }`)
     if (settings.bookLayout) return rules.join('\n')
     if (settings.font !== 'Default') {
         rules.push(`body, body *:not(code):not(pre):not(kbd):not(samp) { font-family: ${fontStack(settings.font)} !important; }`)

@@ -15,6 +15,7 @@
 import { readFileSync } from 'node:fs'
 import { chromium, devices, webkit } from 'playwright'
 import { makeFont } from './make-font.mjs'
+import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
 
 const env = name => {
@@ -143,6 +144,7 @@ const elsewhere = []
 const browser = await setup.engine.launch()
 let failed = false
 try {
+    await forgetChoices(base, token)
     await clear()
     const context = await newContext()
     let page = await open(context)
@@ -249,6 +251,7 @@ try {
     console.error(`FAIL: ${browserName}: ${error.message}`)
     failed = true
 } finally {
+    await forgetChoices(base, token).catch(() => {})
     await clear().catch(() => {})
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }

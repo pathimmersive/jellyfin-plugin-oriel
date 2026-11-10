@@ -64,6 +64,22 @@ public sealed record StoredHighlighter(string Id, string Name, string Colour, bo
 public sealed record StoredFont(Guid Id, FontFile Font, DateTimeOffset AddedAt);
 
 /// <summary>
+/// One of a user's own themes: its id, its name and its ten colours, each #rrggbb, in the order of <see cref="PositionStore.ThemeColours"/>.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Colours">Its colours.</param>
+public sealed record ThemeEntry(string Id, string Name, IReadOnlyList<string> Colours);
+
+/// <summary>
+/// The theme and font a user has chosen, as the reader names them: a built-in theme or <c>own:&lt;id&gt;</c>,
+/// a bundled font or <c>own:&lt;family&gt;</c>.
+/// </summary>
+/// <param name="Theme">The theme.</param>
+/// <param name="Font">The font.</param>
+public sealed record StoredChoices(string Theme, string Font);
+
+/// <summary>
 /// What adding a font file came to.
 /// </summary>
 public enum FontAdded
@@ -100,6 +116,17 @@ public class PositionStore
     /// The most font files a user keeps.
     /// </summary>
     public const int MaxFonts = 20;
+
+    /// <summary>
+    /// The most themes of their own a user keeps.
+    /// </summary>
+    public const int MaxThemes = 12;
+
+    /// <summary>
+    /// A theme's colours, in the order they are kept.
+    /// </summary>
+    public static readonly IReadOnlyList<string> ThemeColours =
+        ["background", "text", "secondary", "accent", "selection", "separator", "controls", "controlsText", "buttons", "grayed"];
 
     /// <summary>
     /// The schema, one step per version: entry n moves the database from version n to n + 1.
@@ -164,6 +191,23 @@ public class PositionStore
             data BLOB NOT NULL,
             added_at TEXT NOT NULL,
             UNIQUE (user_id, family, weight, italic)
+        )
+        """,
+        """
+        CREATE TABLE themes (
+            user_id TEXT NOT NULL,
+            id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            colours TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (user_id, id)
+        )
+        """,
+        """
+        CREATE TABLE choices (
+            user_id TEXT NOT NULL PRIMARY KEY,
+            theme TEXT NOT NULL,
+            font TEXT NOT NULL
         )
         """,
     ];
@@ -779,6 +823,100 @@ public class PositionStore
         command.Parameters.AddWithValue("$user", Key(userId));
         command.Parameters.AddWithValue("$family", family);
         return command.ExecuteNonQuery();
+    }
+
+    /// <summary>
+    /// Gets a user's own themes in their order.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The themes; none for a user who has made none.</returns>
+    public IReadOnlyList<ThemeEntry> ListThemes(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT id, name, colours FROM themes WHERE user_id = $user ORDER BY position";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        var themes = new List<ThemeEntry>();
+        while (reader.Read())
+        {
+            themes.Add(new ThemeEntry(reader.GetString(0), reader.GetString(1), reader.GetString(2).Split(' ')));
+        }
+
+        return themes;
+    }
+
+    /// <summary>
+    /// Replaces a user's own themes with a whole, checked list; those left out are deleted.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="themes">The list, in its order.</param>
+    /// <returns>The themes as <see cref="ListThemes"/> gives them.</returns>
+    public IReadOnlyList<ThemeEntry> ReplaceThemes(Guid userId, IReadOnlyList<ThemeEntry> themes)
+    {
+        EnsureMigrated();
+        using (var connection = Open())
+        using (var transaction = connection.BeginTransaction())
+        {
+            using (var clear = connection.CreateCommand())
+            {
+                clear.Transaction = transaction;
+                clear.CommandText = "DELETE FROM themes WHERE user_id = $user";
+                clear.Parameters.AddWithValue("$user", Key(userId));
+                clear.ExecuteNonQuery();
+            }
+
+            for (var position = 0; position < themes.Count; position++)
+            {
+                using var insert = connection.CreateCommand();
+                insert.Transaction = transaction;
+                insert.CommandText = "INSERT INTO themes (user_id, id, name, colours, position) VALUES ($user, $id, $name, $colours, $position)";
+                insert.Parameters.AddWithValue("$user", Key(userId));
+                insert.Parameters.AddWithValue("$id", themes[position].Id);
+                insert.Parameters.AddWithValue("$name", themes[position].Name);
+                insert.Parameters.AddWithValue("$colours", string.Join(' ', themes[position].Colours));
+                insert.Parameters.AddWithValue("$position", position);
+                insert.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+
+        return ListThemes(userId);
+    }
+
+    /// <summary>
+    /// Gets the theme and font a user has chosen.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The choices; null for a user who has made none.</returns>
+    public StoredChoices? GetChoices(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT theme, font FROM choices WHERE user_id = $user";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? new StoredChoices(reader.GetString(0), reader.GetString(1)) : null;
+    }
+
+    /// <summary>
+    /// Keeps the theme and font a user has chosen, in place of any kept before.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="choices">The checked choices.</param>
+    public void SaveChoices(Guid userId, StoredChoices choices)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO choices (user_id, theme, font) VALUES ($user, $theme, $font) ON CONFLICT (user_id) DO UPDATE SET theme = excluded.theme, font = excluded.font";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$theme", choices.Theme);
+        command.Parameters.AddWithValue("$font", choices.Font);
+        command.ExecuteNonQuery();
     }
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);

@@ -178,7 +178,7 @@ public sealed class FontsControllerTests : IDisposable
     }
 
     // A font from the reader's Fontsource packages, which building the plugin installs.
-    private static string Fontsource(string file)
+    internal static string Fontsource(string file)
     {
         for (var folder = new DirectoryInfo(AppContext.BaseDirectory); folder is not null; folder = folder.Parent)
         {
