@@ -2,7 +2,8 @@
 import * as CFI from '../../vendor/foliate-js/epubcfi.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
-import '../../vendor/foliate-js/view.js'
+import { makeBook } from '../../vendor/foliate-js/view.js'
+import { stripSections } from './scripts'
 import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
 import type { Box, TextSelection } from '../controls/toolbar'
@@ -15,7 +16,8 @@ import { columnLayout, countPages } from './pages'
 import { guardSelectionDrag } from './selection'
 
 interface FoliateView extends HTMLElement {
-    open(book: Blob): Promise<void>
+    // A file, or a book foliate-js's makeBook has made from one.
+    open(book: Blob | object): Promise<void>
     init(options: { lastLocation?: unknown, showTextStart?: boolean }): Promise<void>
     goTo(target: string): Promise<unknown>
     goToFraction(fraction: number): Promise<void>
@@ -333,7 +335,10 @@ export const openBook = async (
     })
     onView?.(view)
     container.replaceChildren(view)
-    await view.open(file)
+    // The book is made here so its sections are stripped of scripts before any of them loads.
+    const book = await makeBook(file)
+    stripSections(book)
+    await view.open(book)
     // Slide animates a turn; Scroll lays the book out as one vertical column.
     const applyPageTurn = (): void => {
         if (view.isFixedLayout) return

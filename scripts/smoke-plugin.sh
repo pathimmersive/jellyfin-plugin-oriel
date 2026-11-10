@@ -105,6 +105,7 @@ pass "publish output bundles no host assemblies"
 reader="$repo/src/reader"
 mkdir -p "$work/media/books"
 node "$reader/e2e/make-epub.mjs" "$work/media/books/oriel-smoke.epub" "$BOOK_TEXT" || fail "generate test EPUB"
+node "$reader/e2e/make-scripted-epub.mjs" "$work/media/books/oriel-scripts.epub" || fail "generate the scripted test EPUB"
 # A comic with an upper-case extension, as some libraries have.
 node "$reader/e2e/make-cbz.mjs" "$work/media/books/oriel-smoke-comic.CBZ" || fail "generate test CBZ"
 # Kindle books, made with Calibre by e2e/fixtures/make-kindle-books.sh.
@@ -184,27 +185,29 @@ book_id() {
 }
 # A library added while the startup scan is still running is left out of that
 # scan, and its own refresh is dropped, so ask for another scan every 10 s.
-item_id="" cbz_id="" mobi_id="" azw3_id="" pdf_id=""
+item_id="" scripts_id="" cbz_id="" mobi_id="" azw3_id="" pdf_id=""
 for i in $(seq 1 60); do
     if [ $((i % 10)) = 0 ]; then
         curl -sf -X POST -H "Authorization: $token_header" "$base/Library/Refresh" >/dev/null || true
     fi
     books="$(curl -sf -H "Authorization: $token_header" \
         "$base/Items?userId=$user_id&Recursive=true&IncludeItemTypes=Book&Fields=Path" || true)"
-    item_id="$(book_id .epub <<< "$books")"
+    # Two EPUBs, told apart by file name.
+    item_id="$(book_id oriel-smoke.epub <<< "$books")"
+    scripts_id="$(book_id oriel-scripts.epub <<< "$books")"
     cbz_id="$(book_id .cbz <<< "$books")"
     mobi_id="$(book_id .mobi <<< "$books")"
     azw3_id="$(book_id .azw3 <<< "$books")"
     pdf_id="$(book_id .pdf <<< "$books")"
-    [ -n "$item_id" ] && [ -n "$cbz_id" ] && [ -n "$mobi_id" ] && [ -n "$azw3_id" ] && [ -n "$pdf_id" ] && break
+    [ -n "$item_id" ] && [ -n "$scripts_id" ] && [ -n "$cbz_id" ] && [ -n "$mobi_id" ] && [ -n "$azw3_id" ] && [ -n "$pdf_id" ] && break
     sleep 1
 done
-if [ -z "$item_id" ] || [ -z "$cbz_id" ] || [ -z "$mobi_id" ] || [ -z "$azw3_id" ] || [ -z "$pdf_id" ]; then
+if [ -z "$item_id" ] || [ -z "$scripts_id" ] || [ -z "$cbz_id" ] || [ -z "$mobi_id" ] || [ -z "$azw3_id" ] || [ -z "$pdf_id" ]; then
     docker logs "$container" 2>&1 | tail -60 >&2
     echo "INFO: the books library lists: $(grep -o '"Path":"[^"]*"' <<< "$books" | tr '\n' ' ')" >&2
-    fail "the books library does not list all of the test EPUB ($item_id), comic ($cbz_id), MOBI ($mobi_id), AZW3 ($azw3_id) and PDF ($pdf_id)"
+    fail "the books library does not list all of the test EPUB ($item_id), scripted EPUB ($scripts_id), comic ($cbz_id), MOBI ($mobi_id), AZW3 ($azw3_id) and PDF ($pdf_id)"
 fi
-pass "books library lists the test EPUB as $item_id, the comic as $cbz_id, the MOBI as $mobi_id, the AZW3 as $azw3_id and the PDF as $pdf_id"
+pass "books library lists the test EPUB as $item_id, the scripted EPUB as $scripts_id, the comic as $cbz_id, the MOBI as $mobi_id, the AZW3 as $azw3_id and the PDF as $pdf_id"
 
 # The reader in WebKit: renders the book, reports an unknown item, and sends
 # a signed-out visitor to the login page.
@@ -295,6 +298,14 @@ check_fonts_in_browser() {
 
 # Custom themes: New theme from the theme in use, a theme saved, chosen and
 # kept, its colours across the reader, Edit theme, and Delete theme in use.
+check_book_scripts_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_SCRIPTS_ID="$scripts_id" \
+        ORIEL_BROWSER="$browser" node "$reader/e2e/book-scripts.e2e.mjs" || fail "a script inside a book ran in $browser at $1"
+    done
+}
+
 check_themes_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -892,6 +903,7 @@ check_highlighters_in_browser "$base"
 check_selection_actions_in_browser "$base"
 check_define_in_browser "$base"
 check_failures_in_browser "$base"
+check_book_scripts_in_browser "$base"
 check_branding_in_browser "$base"
 check_loading_in_browser "$base"
 
