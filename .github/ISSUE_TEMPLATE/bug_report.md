@@ -19,4 +19,4 @@ labels: bug
 - Oriel version or commit:
 - Browser or app, and its version:
 - Device and operating system:
-- jellyfin-web integration (File Transformation) on or off:
+- jellyfin-web integration (Play opens Oriel) on or off:

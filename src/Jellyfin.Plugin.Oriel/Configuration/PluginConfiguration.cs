@@ -8,10 +8,10 @@ namespace Jellyfin.Plugin.Oriel.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Gets or sets a value indicating whether the optional jellyfin-web integration is on.
-    /// Off by default so a jellyfin-web change can only break the integration, never the reader.
+    /// Gets or sets a value indicating whether the jellyfin-web integration is on: Play and Resume on a book open Oriel.
+    /// On by default; a jellyfin-web change can only break the integration, never the reader.
     /// </summary>
-    public bool EnableWebIntegration { get; set; }
+    public bool EnableWebIntegration { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the address the reader's Translate opens, with {text} where the selected text goes.

@@ -12,6 +12,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="Jellyfin.Plugin.Oriel.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The host provides these at runtime; ExcludeAssets keeps them out of the plugin folder. -->
     <PackageReference Include="Jellyfin.Controller" Version="$(JellyfinVersion)" ExcludeAssets="runtime" />
     <!-- SQLite for the plugin's own store, at the versions the Jellyfin 12.2 server ships and loads. -->

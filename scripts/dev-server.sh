@@ -8,14 +8,14 @@
 #   scripts/dev-server.sh down                             # stop the server (its data is kept)
 #   scripts/dev-server.sh logs                             # follow the server log
 #   scripts/dev-server.sh reset                            # remove the server and its data
-#   scripts/dev-server.sh integration on|off               # jellyfin-web integration, via File Transformation
+#   scripts/dev-server.sh integration on|off               # jellyfin-web integration (Play opens Oriel)
 #   scripts/dev-server.sh progress "<book title>" <0-1>    # save a reading position for your user
 #
 # The server listens on port 8096 on every interface (ORIEL_DEV_PORT to change
 # it), so phones on the same network can reach it. Server settings, users and
 # the library index live in Docker volumes and survive restarts. ORIEL_BOOKS is
-# read only when the server is first created. "integration on" installs the
-# pinned File Transformation plugin on this server only and restarts it.
+# read only when the server is first created. "integration on|off" writes
+# Oriel's setting on this server and restarts it.
 # "progress" asks for a Jellyfin user name and password on this server and
 # writes the position the way jellyfin-web's book player stores it.
 #
@@ -28,7 +28,6 @@ CONTAINER="oriel-dev"
 PLUGIN_DIR_NAME="Oriel_0.1.0.0"
 
 repo="$(cd "$(dirname "$0")/.." && pwd)"
-. "$repo/scripts/file-transformation.sh"
 plugin_dir="$repo/.dev/plugins/$PLUGIN_DIR_NAME"
 
 fail() { echo "dev-server: $*" >&2; exit 1; }
@@ -62,13 +61,7 @@ set_integration() {
         *) fail "usage: $0 integration on|off" ;;
     esac
     exists || fail "no server yet; run '$0 up' first"
-    if [ "$value" = true ]; then
-        local ft="$repo/.dev/FileTransformation_$FT_VERSION"
-        [ -f "$ft/Jellyfin.Plugin.FileTransformation.dll" ] || fetch_file_transformation "$ft" || fail "fetch File Transformation $FT_VERSION"
-        MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" mkdir -p /config/plugins/configurations
-        MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$ft")/." "$CONTAINER:/config/plugins/FileTransformation_$FT_VERSION" >/dev/null \
-            || fail "copy File Transformation into the server"
-    fi
+    MSYS_NO_PATHCONV=1 docker exec "$CONTAINER" mkdir -p /config/plugins/configurations
     oriel_config "$value" > "$repo/.dev/Jellyfin.Plugin.Oriel.xml"
     MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$repo/.dev/Jellyfin.Plugin.Oriel.xml")" \
         "$CONTAINER:/config/plugins/configurations/Jellyfin.Plugin.Oriel.xml" >/dev/null || fail "write the plugin settings"

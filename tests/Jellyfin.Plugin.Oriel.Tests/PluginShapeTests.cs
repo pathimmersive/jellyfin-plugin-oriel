@@ -51,12 +51,6 @@ public class PluginShapeTests
     }
 
     [Fact]
-    public void WebIntegrationIsOffByDefault()
-    {
-        Assert.False(new PluginConfiguration().EnableWebIntegration);
-    }
-
-    [Fact]
     public void MetaJsonDeclaresTheTargetAbiAndThePluginId()
     {
         using var meta = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "meta.json")));

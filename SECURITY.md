@@ -12,4 +12,4 @@ Oriel has no release yet. Fixes go into `main`; once releases exist, the latest 
 
 ## Scope
 
-Oriel runs inside the Jellyfin server and serves a reader page that uses the signed-in user's Jellyfin session. Problems in Jellyfin itself, or in the File Transformation plugin, belong with those projects.
+Oriel runs inside the Jellyfin server and serves a reader page that uses the signed-in user's Jellyfin session. Problems in Jellyfin itself belong with that project.

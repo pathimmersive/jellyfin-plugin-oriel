@@ -2,7 +2,7 @@
 
 Oriel is licensed under the GNU General Public License v3.0 or later. It ships the third-party code, fonts and data below, each under its own license. The code's licenses are compatible with GPL-3.0. The fonts are under free font licenses, such as the SIL Open Font License, and ship as separate font files beside the code, not combined with it.
 
-Not shipped, and so not listed: the Jellyfin libraries, which the server provides at runtime; the npm packages used only to build and test the reader; and the File Transformation plugin, which an admin installs separately to turn on the optional jellyfin-web integration.
+Not shipped, and so not listed: the Jellyfin libraries, which the server provides at runtime; and the npm packages used only to build and test the reader.
 
 ## foliate-js
 
