@@ -14,6 +14,7 @@
 // ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID (the test EPUB) and ORIEL_BROWSER.
 // Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
+import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
 
 const env = name => {
@@ -151,6 +152,7 @@ const expectColours = (shown, theme, what) => {
 const browser = await setup.engine.launch()
 let failed = false
 try {
+    await forgetChoices(base, token)
     await clear()
     const context = await browser.newContext(setup.context)
     await context.addInitScript(value => {
@@ -252,6 +254,7 @@ try {
     console.error(`FAIL: ${browserName}: ${error.message}`)
     failed = true
 } finally {
+    await forgetChoices(base, token).catch(() => {})
     await clear().catch(() => {})
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }

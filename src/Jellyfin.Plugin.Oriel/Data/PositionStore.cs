@@ -72,6 +72,14 @@ public sealed record StoredFont(Guid Id, FontFile Font, DateTimeOffset AddedAt);
 public sealed record ThemeEntry(string Id, string Name, IReadOnlyList<string> Colours);
 
 /// <summary>
+/// The theme and font a user has chosen, as the reader names them: a built-in theme or <c>own:&lt;id&gt;</c>,
+/// a bundled font or <c>own:&lt;family&gt;</c>.
+/// </summary>
+/// <param name="Theme">The theme.</param>
+/// <param name="Font">The font.</param>
+public sealed record StoredChoices(string Theme, string Font);
+
+/// <summary>
 /// What adding a font file came to.
 /// </summary>
 public enum FontAdded
@@ -193,6 +201,13 @@ public class PositionStore
             colours TEXT NOT NULL,
             position INTEGER NOT NULL,
             PRIMARY KEY (user_id, id)
+        )
+        """,
+        """
+        CREATE TABLE choices (
+            user_id TEXT NOT NULL PRIMARY KEY,
+            theme TEXT NOT NULL,
+            font TEXT NOT NULL
         )
         """,
     ];
@@ -869,6 +884,39 @@ public class PositionStore
         }
 
         return ListThemes(userId);
+    }
+
+    /// <summary>
+    /// Gets the theme and font a user has chosen.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>The choices; null for a user who has made none.</returns>
+    public StoredChoices? GetChoices(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT theme, font FROM choices WHERE user_id = $user";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        using var reader = command.ExecuteReader();
+        return reader.Read() ? new StoredChoices(reader.GetString(0), reader.GetString(1)) : null;
+    }
+
+    /// <summary>
+    /// Keeps the theme and font a user has chosen, in place of any kept before.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="choices">The checked choices.</param>
+    public void SaveChoices(Guid userId, StoredChoices choices)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "INSERT INTO choices (user_id, theme, font) VALUES ($user, $theme, $font) ON CONFLICT (user_id) DO UPDATE SET theme = excluded.theme, font = excluded.font";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$theme", choices.Theme);
+        command.Parameters.AddWithValue("$font", choices.Font);
+        command.ExecuteNonQuery();
     }
 
     private static string Key(Guid id) => id.ToString("N", CultureInfo.InvariantCulture);

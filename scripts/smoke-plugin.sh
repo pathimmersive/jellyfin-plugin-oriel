@@ -302,6 +302,13 @@ check_themes_in_browser() {
     done
 }
 
+check_sync_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"         ORIEL_BROWSER="$browser" node "$reader/e2e/sync.e2e.mjs" || fail "the theme and font following the user in $browser at $1"
+    done
+}
+
 check_pages_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -841,6 +848,7 @@ check_contents_in_browser "$base"
 check_preferences_in_browser "$base"
 check_fonts_in_browser "$base"
 check_themes_in_browser "$base"
+check_sync_in_browser "$base"
 check_pages_in_browser "$base"
 check_page_turn_in_browser "$base"
 check_hint_in_browser "$base"

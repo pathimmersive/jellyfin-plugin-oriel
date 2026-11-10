@@ -497,9 +497,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     prefsHeader.prepend(prefsBack)
     prefsHeader.append(prefsClose)
     const prefsBody = element('div', { class: 'panel-body' }, '<p class="note"></p>')
-    prefsBody.querySelector('.note')!.textContent = options.highlighters
-        ? 'Your preferences apply to this device. Your highlighters follow you on every device.'
-        : 'Your preferences apply to this device.'
+    const prefsNote = prefsBody.querySelector<HTMLElement>('.note')!
     const fontsBody = element('div', { class: 'panel-body your-fonts', hidden: '' },
         '<p class="about">Fonts you add are yours and appear on all your devices. TTF, OTF or WOFF2, up to 5 MB each. Only add fonts you are allowed to use.</p>'
         + `<label class="add-font">${icon(ICONS.upload)}Add a font<input type="file" accept=".ttf,.otf,.woff2"></label>`
@@ -627,7 +625,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
         resetButton.focus()
     }
     resetButton.addEventListener('click', () => {
-        dialog.querySelector('p')!.textContent = `Size, spacing, margins and page turn on this ${options.wide() ? 'computer' : 'phone'} go back to the defaults. Your theme and font stay as they are.`
+        dialog.querySelector('p')!.textContent = `Size, spacing, margins and page turn on this ${options.wide() ? 'computer' : 'phone'} go back to the defaults. Your themes, fonts and highlighters stay as they are.`
         resetDialog.hidden = false
         cancel.focus()
     })
@@ -877,6 +875,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     if (options.highlighters) prefsBody.append(highlighterGroup)
     prefsBody.append(resetButton)
     const fillPrefs = (): void => {
+        // What stays on this screen, and what follows the reader.
+        prefsNote.textContent = `Size, spacing, margins and page turn apply to this ${options.wide() ? 'computer' : 'phone'}. Themes, fonts and highlighters follow you on every device.`
         const fixed = options.fixedLayout
         const own = settings.bookLayout
         for (const button of themeButtons) button.setAttribute('aria-pressed', String(button.dataset.theme === settings.theme))

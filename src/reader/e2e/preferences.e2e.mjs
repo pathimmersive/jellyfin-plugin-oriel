@@ -19,6 +19,7 @@
 // test EPUB), ORIEL_CBZ_ID (the test comic), ORIEL_PDF_ID (the test PDF) and
 // ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
+import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
 
 const env = name => {
@@ -196,6 +197,7 @@ const checkTheme = async (page, name) => {
 const browser = await setup.engine.launch()
 let failed = false
 try {
+    await forgetChoices(base, env('ORIEL_TOKEN'))
     const context = await browser.newContext(setup.context)
     await context.addInitScript(value => {
         localStorage.setItem('jellyfin_credentials', value)
@@ -373,7 +375,7 @@ try {
     if (heading !== 'Reset layout to the defaults?') fail(`the reset dialog is titled '${heading}'`)
     const body = (await dialog.locator('p').innerText()).trim()
     const device = setup.touch ? 'phone' : 'computer'
-    if (body !== `Size, spacing, margins and page turn on this ${device} go back to the defaults. Your theme and font stay as they are.`) fail(`the reset dialog says '${body}'`)
+    if (body !== `Size, spacing, margins and page turn on this ${device} go back to the defaults. Your themes, fonts and highlighters stay as they are.`) fail(`the reset dialog says '${body}'`)
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
     await pause(300)
     if (await dialog.isVisible()) fail('Cancel did not close the reset dialog')
@@ -421,6 +423,7 @@ try {
     console.error(`FAIL: ${browserName}: ${error.message}`)
     failed = true
 } finally {
+    await forgetChoices(base, env('ORIEL_TOKEN')).catch(() => {})
     // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }

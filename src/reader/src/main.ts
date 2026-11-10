@@ -1,10 +1,11 @@
 import './reader.css'
-import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookDetails, readBookmarks, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, readThemes, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveHighlighters, saveThemes, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
+import { addBookmark, addFont, addHighlight, downloadBook, type JellyfinPosition, publicServerId, readBookDetails, readBookmarks, readChoices, readFontFile, readFonts, readHighlighters, readHighlights, readJellyfinPosition, readReaderSettings, readStoredPosition, readThemes, lookUpWord, removeBookmark, removeFontFamily, removeHighlight, saveChoices, saveHighlighters, saveThemes, type StoredPosition, updateHighlight, writeJellyfinPosition, writeStoredPosition } from './api/client'
 import { serverBasePath } from './base'
 import { createBookmarks } from './controls/bookmarks'
 import { contentsRows } from './controls/contents'
 import { type Controls, createControls } from './controls/controls'
 import { createDictionarySheet, type DictionarySheet } from './controls/dictionary'
+import { createChoices } from './controls/choices'
 import { createOwnFonts } from './controls/fonts'
 import { createOwnThemes } from './controls/themes'
 import { clearFailure, DrmError, type Failure, failureFor, ICONS, NOTICE_TEXT, saveNotice, showFailure } from './controls/failure'
@@ -23,7 +24,7 @@ import { chooseStart, fallbackStart, missingPlaceNotice, positionWriter, saveBot
 import { authorizationHeader, deviceId, loginUrl, readSession } from './session/credentials'
 import { saveReturnMarker } from './session/return'
 import { fontFaces } from './settings/fonts'
-import { bookStyles, controlsColours, landscapeMargins, type Margins, marginsFor, ownFamilyOf, type OwnTheme, pageColours, readSettings, type Settings, themeShown, writeSettings } from './settings/settings'
+import { bookStyles, choicesOf, controlsColours, landscapeMargins, type Margins, marginsFor, ownFamilyOf, type OwnTheme, pageColours, readSettings, type Settings, themeShown, withChoices, writeSettings } from './settings/settings'
 
 declare const __ORIEL_VERSION__: string
 
@@ -122,6 +123,14 @@ const start = async (): Promise<void> => {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const basePath = serverBasePath(location.pathname)
         const started = performance.now()
+        // The theme and font chosen on any device, asked for beside the book;
+        // until they arrive the page shows this device's.
+        const chosen = createChoices({
+            load: () => readChoices(basePath, authorization),
+            save: choices => saveChoices(basePath, authorization, choices),
+            storage: localStorage,
+            wait: ms => new Promise(resolve => setTimeout(resolve, ms)),
+        }, choicesOf(settings))
         // The loading screen's title and cover come beside the download, and
         // the download's progress as its bytes arrive.
         const screen = loadingScreen(document.getElementById('loading')!)
@@ -172,8 +181,10 @@ const start = async (): Promise<void> => {
             save: list => saveThemes(basePath, authorization, list),
         })
         const styles = (chosen: Settings): string => bookStyles(chosen, faces, ownThemes.list())
+        const [fontsRead, , kept] = await Promise.all([ownFonts.ready, ownThemes.ready, chosen.ready])
+        settings = withChoices(settings, kept)
+        writeSettings(localStorage, settings)
         const chosenFamily = ownFamilyOf(settings.font)
-        const [fontsRead] = await Promise.all([ownFonts.ready, ownThemes.ready])
         themePage(settings, ownThemes.list())
         if (fontsRead && chosenFamily !== null && !ownFonts.has(chosenFamily)) {
             settings = { ...settings, font: 'Default' }
@@ -310,6 +321,7 @@ const start = async (): Promise<void> => {
             storage: localStorage,
             change(changed) {
                 const restyle = styles(changed) !== styles(settings)
+                if (changed.theme !== settings.theme || changed.font !== settings.font) chosen.choose(choicesOf(changed))
                 settings = changed
                 writeSettings(localStorage, settings)
                 themePage(settings, ownThemes.list())

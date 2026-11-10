@@ -274,6 +274,32 @@ export const readSettings = (storage: Pick<Storage, 'getItem'>): Settings => {
     }
 }
 
+/** The theme and font the reader has chosen: what follows them from device to device. */
+export interface Choices {
+    theme: ThemeChoice
+    font: FontChoice
+}
+
+/** The theme and font as the server keeps them, each null until the reader first chooses. */
+export interface KeptChoices {
+    theme: string | null
+    font: string | null
+}
+
+/** The theme and font of `settings`. */
+export const choicesOf = (settings: Settings): Choices => ({ theme: settings.theme, font: settings.font })
+
+/**
+ * `settings` with the theme and font the server keeps for the reader; the
+ * rest of them, and a choice the server does not have or that is not one
+ * Oriel knows, stay as this device has them.
+ */
+export const withChoices = (settings: Settings, kept: KeptChoices | null): Settings => ({
+    ...settings,
+    theme: isTheme(kept?.theme) ? kept.theme : settings.theme,
+    font: isFont(kept?.font) ? kept.font : settings.font,
+})
+
 /** Keeps `settings` in `storage`; a browser that refuses storage keeps them for this visit only. */
 export const writeSettings = (storage: Pick<Storage, 'setItem'>, settings: Settings): void => {
     try {

@@ -1,5 +1,5 @@
 import { type ImportResult, isImportResult } from '../data/summary'
-import { type OwnTheme, THEME_ROLES } from '../settings/settings'
+import { type Choices, type KeptChoices, type OwnTheme, THEME_ROLES } from '../settings/settings'
 
 /** A book could not be fetched; the message is meant for the reader. */
 export class BookLoadError extends Error {
@@ -477,6 +477,52 @@ export const isThemeRecord = (value: unknown): value is OwnTheme => {
 }
 
 const themesUrl = (basePath: string): string => `${basePath}/Oriel/Themes`
+
+const choicesUrl = (basePath: string): string => `${basePath}/Oriel/Choices`
+
+const isKeptChoices = (value: unknown): value is KeptChoices => {
+    const kept = value as Record<string, unknown> | null
+    return !!kept && ['theme', 'font'].every(key => kept[key] === null || typeof kept[key] === 'string')
+}
+
+/** The theme and font the user has chosen, as the server keeps them, or null when they cannot be read. */
+export const readChoices = async (
+    basePath: string,
+    authorization: string,
+    fetchImpl: typeof fetch = fetch,
+): Promise<KeptChoices | null> => {
+    try {
+        const response = await fetchImpl(choicesUrl(basePath), { headers: { Authorization: authorization } })
+        if (!response.ok) return null
+        const data: unknown = await response.json()
+        return isKeptChoices(data) ? { theme: data.theme, font: data.font } : null
+    } catch {
+        return null
+    }
+}
+
+/**
+ * Keeps the theme and font the user has chosen: true once the server has
+ * them, or refused them as ones the user no longer has; false while it
+ * cannot be reached.
+ */
+export const saveChoices = async (
+    basePath: string,
+    authorization: string,
+    choices: Choices,
+    fetchImpl: typeof fetch = fetch,
+): Promise<boolean> => {
+    try {
+        const response = await fetchImpl(choicesUrl(basePath), {
+            method: 'PUT',
+            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+            body: JSON.stringify(choices),
+        })
+        return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 408 && response.status !== 429)
+    } catch {
+        return false
+    }
+}
 
 /** The user's own themes in their order, or null when they cannot be read. */
 export const readThemes = async (
