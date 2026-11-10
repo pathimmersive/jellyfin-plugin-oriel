@@ -94,6 +94,15 @@ try {
         if (label === 'phone' && !fullWidth) fail(`at phone width the download button is ${button.width}px of a ${main.width}px column, not full width`)
         if (label === 'desktop' && fullWidth) fail('at desktop width the download button spans the column instead of sitting at the left')
         pass(`${label}: the page shows Export and Import, Import is disabled until a file is chosen, and the buttons follow the ${label} layout`)
+        const words = (await page.locator('main').innerText()).replace(/\s+/g, ' ')
+        for (const expected of [
+            'Download everything Oriel keeps for you as one file: your places in each book, bookmarks, highlights and notes, highlighters, custom themes, the fonts you added, and your preferences. Keep it somewhere safe: Jellyfin’s own backup does not include it.',
+            'Fonts make the file larger. A file without fonts is usually well under 1 MB.',
+            'Load a file you exported, on this server or another one. Bookmarks, highlights, notes, themes and fonts are added to what you have here. Where you have read further on this server, your place here is kept.',
+        ]) {
+            if (!words.includes(expected)) fail(`${label}: the page lacks "${expected}"`)
+        }
+        pass(`${label}: Export and Import say what the file holds and what an import adds, with the note that fonts make the file larger`)
 
         if (label === 'phone') {
             await context.close()

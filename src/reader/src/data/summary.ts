@@ -9,11 +9,16 @@ export interface UnmatchedBook {
     fileName: string | null
 }
 
-/** What /Oriel/Import reports. */
+/** What /Oriel/Import reports; a server before a kind was added leaves its count out. */
 export interface ImportResult {
     imported: number
     kept: number
     unmatched: UnmatchedBook[]
+    bookmarks?: number
+    highlights?: number
+    highlighters?: number
+    themes?: number
+    fonts?: number
 }
 
 /** The Import finished panel's text; a line with nothing to report is null. */
@@ -26,9 +31,27 @@ export interface ImportSummary {
 
 const count = (n: number, one: string, many: string): string => `${n} ${n === 1 ? one : many}`
 
+// "a", "a and b", "a, b and c".
+const list = (items: string[]): string =>
+    items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items.at(-1)}`
+
+// Each kind an import adds, in the order the panel names them.
+const KINDS: [keyof ImportResult, string, string][] = [
+    ['imported', 'place', 'places'],
+    ['bookmarks', 'bookmark', 'bookmarks'],
+    ['highlights', 'highlight', 'highlights'],
+    ['highlighters', 'highlighter', 'highlighters'],
+    ['themes', 'theme', 'themes'],
+    ['fonts', 'font', 'fonts'],
+]
+
 /** The panel's lines for an import result. */
 export const summarizeImport = (result: ImportResult): ImportSummary => ({
-    imported: result.imported > 0 ? `${count(result.imported, 'place', 'places')} imported` : null,
+    imported: ((added: string[]) => added.length ? `${list(added)} imported` : null)(
+        KINDS.flatMap(([kind, one, many]) => {
+            const n = result[kind]
+            return typeof n === 'number' && n > 0 ? [count(n, one, many)] : []
+        })),
     kept: result.kept > 0
         ? `${result.kept} kept as ${result.kept === 1 ? 'it was' : 'they were'}, because you had read further on this server`
         : null,

@@ -20,9 +20,9 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 public class ReadingDataController : ControllerBase
 {
     /// <summary>
-    /// The largest file accepted for import, in bytes.
+    /// The largest file accepted for import, in bytes: room for 20 fonts of 5 MB as base64 beside everything else.
     /// </summary>
-    public const int MaxImportBytes = 8 * 1024 * 1024;
+    public const int MaxImportBytes = 160 * 1024 * 1024;
 
     private readonly ReadingData _readingData;
     private readonly IAuthorizationContext _authorizationContext;
@@ -71,6 +71,7 @@ public class ReadingDataController : ControllerBase
     /// 400, storing nothing, for a file that is not an Oriel export, has a newer version, is malformed or is too large.
     /// </returns>
     [HttpPost("Import")]
+    [RequestSizeLimit(MaxImportBytes + 1)]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -83,7 +84,8 @@ public class ReadingDataController : ControllerBase
             return Unauthorized();
         }
 
-        var body = await ReadAtMostAsync(Request.Body, MaxImportBytes).ConfigureAwait(false);
+        // A body that says it is too large is refused before it is read.
+        var body = Request.ContentLength > MaxImportBytes ? null : await ReadAtMostAsync(Request.Body, MaxImportBytes).ConfigureAwait(false);
         if (body is null || ReadingData.Parse(body) is not { } file)
         {
             return BadRequest();

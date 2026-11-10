@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { readChoices } from '../src/api/client'
 import { createChoices } from '../src/controls/choices'
 import { type Choices, choicesOf, DEFAULTS, type KeptChoices, type Settings, withChoices } from '../src/settings/settings'
 
@@ -39,6 +40,20 @@ describe('what follows the reader', () => {
         expect(withChoices(DEVICE, { theme: null, font: null })).toEqual(DEVICE)
         expect(withChoices(DEVICE, { theme: 'solarized', font: 'own:' })).toEqual(DEVICE)
         expect(withChoices(DEVICE, { theme: 'dark', font: null })).toEqual({ ...DEVICE, theme: 'dark' })
+    })
+})
+
+describe('readChoices', () => {
+    const answering = (body: unknown, status = 200) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
+
+    it('reads a choice not made yet, which the server leaves out, as none', async () => {
+        expect(await readChoices('/jf', 'auth', answering({}))).toEqual({ theme: null, font: null })
+        expect(await readChoices('/jf', 'auth', answering({ theme: 'dark', font: 'own:Merriweather' }))).toEqual({ theme: 'dark', font: 'own:Merriweather' })
+    })
+
+    it('is null when the server cannot answer or answers with something else', async () => {
+        expect(await readChoices('/jf', 'auth', answering({}, 500))).toBeNull()
+        expect(await readChoices('/jf', 'auth', answering({ theme: 3 }))).toBeNull()
     })
 })
 

@@ -16,6 +16,9 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// <param name="Bookmarks">The user's bookmarks, from version 2; none in a version 1 file.</param>
 /// <param name="Highlights">The user's highlights, from version 3; none in an earlier file.</param>
 /// <param name="Highlighters">The user's highlighters in their order, from version 5; none in an earlier file.</param>
+/// <param name="Themes">The user's own themes in their order, from version 6; none in an earlier file.</param>
+/// <param name="Fonts">The user's own font files, from version 6; none in an earlier file.</param>
+/// <param name="Choices">The theme and font the user has chosen, from version 6; null when none.</param>
 public sealed record ReadingDataFile(
     [property: JsonPropertyName("format")] string? Format,
     [property: JsonPropertyName("version")] int? Version,
@@ -23,7 +26,10 @@ public sealed record ReadingDataFile(
     [property: JsonPropertyName("positions")] IReadOnlyList<ExportedPosition?>? Positions,
     [property: JsonPropertyName("bookmarks")] IReadOnlyList<ExportedBookmark?>? Bookmarks = null,
     [property: JsonPropertyName("highlights")] IReadOnlyList<ExportedHighlight?>? Highlights = null,
-    [property: JsonPropertyName("highlighters")] IReadOnlyList<ExportedHighlighter?>? Highlighters = null);
+    [property: JsonPropertyName("highlighters")] IReadOnlyList<ExportedHighlighter?>? Highlighters = null,
+    [property: JsonPropertyName("themes")] IReadOnlyList<ExportedTheme?>? Themes = null,
+    [property: JsonPropertyName("fonts")] IReadOnlyList<ExportedFont?>? Fonts = null,
+    [property: JsonPropertyName("choices")] ExportedChoices? Choices = null);
 
 /// <summary>
 /// A position in a file, with what identifies its book on another server.
@@ -102,6 +108,69 @@ public sealed record ExportedHighlighter(
     [property: JsonPropertyName("colour")] string? Colour);
 
 /// <summary>
+/// One of the user's own themes in a file, with the fields <c>/Oriel/Themes</c> uses.
+/// </summary>
+/// <param name="Id">Its id.</param>
+/// <param name="Name">Its name.</param>
+/// <param name="Background">The page.</param>
+/// <param name="Text">The book's text.</param>
+/// <param name="Secondary">Chapter names, progress and labels.</param>
+/// <param name="Accent">Selected items, links and the slider.</param>
+/// <param name="Selection">Selected text.</param>
+/// <param name="Separator">Lines between rows.</param>
+/// <param name="Controls">The header, footer and panels.</param>
+/// <param name="ControlsText">Text and icons in the controls.</param>
+/// <param name="Buttons">Buttons in the controls.</param>
+/// <param name="Grayed">Unavailable items.</param>
+public sealed record ExportedTheme(
+    [property: JsonPropertyName("id")] string? Id,
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("background")] string? Background,
+    [property: JsonPropertyName("text")] string? Text,
+    [property: JsonPropertyName("secondary")] string? Secondary,
+    [property: JsonPropertyName("accent")] string? Accent,
+    [property: JsonPropertyName("selection")] string? Selection,
+    [property: JsonPropertyName("separator")] string? Separator,
+    [property: JsonPropertyName("controls")] string? Controls,
+    [property: JsonPropertyName("controlsText")] string? ControlsText,
+    [property: JsonPropertyName("buttons")] string? Buttons,
+    [property: JsonPropertyName("grayed")] string? Grayed)
+{
+    /// <summary>
+    /// The colours, in the order the store keeps them.
+    /// </summary>
+    /// <returns>The ten colours as the file gives them.</returns>
+    public IReadOnlyList<string?> Colours() =>
+        [Background, Text, Secondary, Accent, Selection, Separator, Controls, ControlsText, Buttons, Grayed];
+}
+
+/// <summary>
+/// One of the user's own font files in a file. The names and style are for reading; an import reads them again from the bytes.
+/// </summary>
+/// <param name="Family">Its family.</param>
+/// <param name="Style">Its style name.</param>
+/// <param name="Weight">Its weight class.</param>
+/// <param name="Italic">True for an italic face.</param>
+/// <param name="Format">ttf, otf or woff2.</param>
+/// <param name="Data">The file's bytes, as base64.</param>
+public sealed record ExportedFont(
+    [property: JsonPropertyName("family")] string? Family,
+    [property: JsonPropertyName("style")] string? Style,
+    [property: JsonPropertyName("weight")] int? Weight,
+    [property: JsonPropertyName("italic")] bool? Italic,
+    [property: JsonPropertyName("format")] string? Format,
+    [property: JsonPropertyName("data")] byte[]? Data);
+
+/// <summary>
+/// The theme and font the user has chosen, in a file.
+/// </summary>
+/// <param name="Theme">The theme, as <c>/Oriel/Choices</c> names it.</param>
+/// <param name="Font">The font, as <c>/Oriel/Choices</c> names it.</param>
+public sealed record ExportedChoices(
+    [property: JsonPropertyName("theme")] string? Theme,
+    [property: JsonPropertyName("font")] string? Font);
+
+/// <summary>
 /// A book in an imported file that matched no book the user can see.
 /// </summary>
 /// <param name="Title">The book's title as the file gives it.</param>
@@ -121,13 +190,19 @@ public sealed record UnmatchedBook(
 /// <param name="Bookmarks">Bookmarks added because the user had none at the same place.</param>
 /// <param name="Highlights">Highlights added because the user had none at the same place.</param>
 /// <param name="Highlighters">Highlighters added because the user did not have them.</param>
+/// <param name="Themes">Themes added because the user did not have them.</param>
+/// <param name="Fonts">Font families that gained a file the user did not have.</param>
+/// <param name="Choices">True when the file's chosen theme and font were taken, the user having chosen none here.</param>
 public sealed record ImportResult(
     [property: JsonPropertyName("imported")] int Imported,
     [property: JsonPropertyName("kept")] int Kept,
     [property: JsonPropertyName("unmatched")] IReadOnlyList<UnmatchedBook> Unmatched,
     [property: JsonPropertyName("bookmarks")] int Bookmarks = 0,
     [property: JsonPropertyName("highlights")] int Highlights = 0,
-    [property: JsonPropertyName("highlighters")] int Highlighters = 0);
+    [property: JsonPropertyName("highlighters")] int Highlighters = 0,
+    [property: JsonPropertyName("themes")] int Themes = 0,
+    [property: JsonPropertyName("fonts")] int Fonts = 0,
+    [property: JsonPropertyName("choices")] bool Choices = false);
 
 /// <summary>
 /// Exports a user's reading data to a file and imports it back, here or on another server.
@@ -142,7 +217,7 @@ public class ReadingData
     /// <summary>
     /// The newest format version this plugin reads and the one it writes.
     /// </summary>
-    public const int Version = 5;
+    public const int Version = 6;
 
     /// <summary>
     /// The longest CFI accepted, as when the reader saves a position.
@@ -166,7 +241,8 @@ public class ReadingData
     }
 
     /// <summary>
-    /// Builds a user's file: each stored position, bookmark and highlight in a book the user can still see.
+    /// Builds a user's file: each stored position, bookmark and highlight in a book the user can still see,
+    /// their highlighters, themes and fonts, and the theme and font they have chosen.
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <param name="now">The export time.</param>
@@ -204,7 +280,20 @@ public class ReadingData
         }
 
         var highlighters = _store.ListHighlighters(userId).Select(highlighter => (ExportedHighlighter?)new ExportedHighlighter(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
-        return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights, highlighters);
+        var themes = _store.ListThemes(userId).Select(theme => (ExportedTheme?)new ExportedTheme(
+            theme.Id, theme.Name, theme.Colours[0], theme.Colours[1], theme.Colours[2], theme.Colours[3], theme.Colours[4],
+            theme.Colours[5], theme.Colours[6], theme.Colours[7], theme.Colours[8], theme.Colours[9])).ToList();
+        var fonts = new List<ExportedFont?>();
+        foreach (var stored in _store.ListFonts(userId))
+        {
+            if (_store.GetFontData(userId, stored.Id) is { } file)
+            {
+                fonts.Add(new ExportedFont(stored.Font.Family, stored.Font.Style, stored.Font.Weight, stored.Font.Italic, file.Format, file.Data));
+            }
+        }
+
+        var choices = _store.GetChoices(userId) is { } chosen ? new ExportedChoices(chosen.Theme, chosen.Font) : null;
+        return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights, highlighters, themes, fonts, choices);
     }
 
     /// <summary>
@@ -237,7 +326,8 @@ public class ReadingData
             return null;
         }
 
-        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid) ? file : null;
+        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
+            && (file.Themes ?? []).All(Valid) && (file.Fonts ?? []).All(Valid) && file.Choices is null or { Theme: not null, Font: not null } ? file : null;
     }
 
     /// <summary>
@@ -336,7 +426,65 @@ public class ReadingData
             }
         }
 
-        return new ImportResult(imported, kept, unmatched, bookmarks, highlights, highlighters);
+        var (themes, fonts, choices) = ImportSetup(userId, file);
+        return new ImportResult(imported, kept, unmatched, bookmarks, highlights, highlighters, themes, fonts, choices);
+    }
+
+    // The file's themes and fonts the user does not have join theirs while there is room, and its
+    // chosen theme and font are taken only when the user has chosen none here.
+    private (int Themes, int Fonts, bool Choices) ImportSetup(Guid userId, ReadingDataFile file)
+    {
+        var ownThemes = _store.ListThemes(userId).ToList();
+        var themeIds = ownThemes.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
+        var themes = 0;
+        foreach (var entry in file.Themes ?? [])
+        {
+            if (ownThemes.Count >= PositionStore.MaxThemes || !themeIds.Add(entry!.Id!))
+            {
+                continue;
+            }
+
+            ownThemes.Add(new ThemeEntry(entry.Id!, entry.Name!.Trim(), entry.Colours().Select(colour => colour!.ToLowerInvariant()).ToList()));
+            themes++;
+        }
+
+        if (themes > 0)
+        {
+            _store.ReplaceThemes(userId, ownThemes);
+        }
+
+        var faces = _store.ListFonts(userId).Select(font => (font.Font.Family, font.Font.Weight, font.Font.Italic)).ToHashSet();
+        var families = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in file.Fonts ?? [])
+        {
+            var font = FontFile.Read(entry!.Data)!;
+            if (faces.Contains((font.Family, font.Weight, font.Italic)))
+            {
+                continue;
+            }
+
+            if (_store.AddFont(userId, font, entry.Data!, DateTimeOffset.UtcNow).Result == FontAdded.TooMany)
+            {
+                break;
+            }
+
+            faces.Add((font.Family, font.Weight, font.Italic));
+            families.Add(font.Family);
+        }
+
+        var choices = false;
+        if (file.Choices is { } chosen && _store.GetChoices(userId) is null)
+        {
+            var familiesHere = _store.ListFonts(userId).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
+            var request = new Controllers.ChoicesController.ChoicesRequest(chosen.Theme, chosen.Font);
+            if (Controllers.ChoicesController.Check(request, themeIds, familiesHere) is { } kept)
+            {
+                _store.SaveChoices(userId, kept);
+                choices = true;
+            }
+        }
+
+        return (themes, families.Count, choices);
     }
 
     private static bool Valid(ExportedPosition? entry) =>
@@ -362,6 +510,14 @@ public class ReadingData
         entry is { Id.Length: > 0 and <= Controllers.HighlightersController.MaxIdLength, Name: { } name }
         && name.Trim().Length is > 0 and <= Controllers.HighlightersController.MaxNameLength
         && Controllers.HighlightersController.IsColour(entry.Colour);
+
+    private static bool Valid(ExportedTheme? entry) =>
+        entry is { Id.Length: > 0 and <= 64, Name: { } name }
+        && name.Trim().Length is > 0 and <= Controllers.ThemesController.MaxNameLength
+        && entry.Colours().All(Controllers.HighlightersController.IsColour);
+
+    private static bool Valid(ExportedFont? entry) =>
+        entry is { Data: { Length: > 0 and <= Controllers.FontsController.MaxBytes } data } && FontFile.Read(data) is not null;
 
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 

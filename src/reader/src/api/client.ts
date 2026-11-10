@@ -482,7 +482,7 @@ const choicesUrl = (basePath: string): string => `${basePath}/Oriel/Choices`
 
 const isKeptChoices = (value: unknown): value is KeptChoices => {
     const kept = value as Record<string, unknown> | null
-    return !!kept && ['theme', 'font'].every(key => kept[key] === null || typeof kept[key] === 'string')
+    return !!kept && typeof kept === 'object' && ['theme', 'font'].every(key => kept[key] == null || typeof kept[key] === 'string')
 }
 
 /** The theme and font the user has chosen, as the server keeps them, or null when they cannot be read. */
@@ -495,7 +495,8 @@ export const readChoices = async (
         const response = await fetchImpl(choicesUrl(basePath), { headers: { Authorization: authorization } })
         if (!response.ok) return null
         const data: unknown = await response.json()
-        return isKeptChoices(data) ? { theme: data.theme, font: data.font } : null
+        // The server leaves out a choice not made yet.
+        return isKeptChoices(data) ? { theme: data.theme ?? null, font: data.font ?? null } : null
     } catch {
         return null
     }

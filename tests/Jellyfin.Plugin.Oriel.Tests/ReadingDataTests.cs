@@ -79,7 +79,7 @@ public sealed class ReadingDataTests : IDisposable
         { "not JSON", "{\"format\": \"oriel-reading-data\", \"positions\": [" },
         { "another format", "{\"format\": \"something-else\", \"version\": 1, \"positions\": []}" },
         { "no format", "{\"version\": 1, \"positions\": []}" },
-        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": []}" },
+        { "a newer version", "{\"format\": \"oriel-reading-data\", \"version\": 7, \"positions\": []}" },
         { "version 0", "{\"format\": \"oriel-reading-data\", \"version\": 0, \"positions\": []}" },
         { "a version that is not a number", "{\"format\": \"oriel-reading-data\", \"version\": \"1\", \"positions\": []}" },
         { "no positions", "{\"format\": \"oriel-reading-data\", \"version\": 1}" },
@@ -365,12 +365,95 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public async Task RejectsAMalformedOrOversizedFileAndStoresNothing()
     {
-        var tooLarge = Encoding.UTF8.GetBytes(Encoding.UTF8.GetString(ReadingData.Serialize(Import(Entry(Dune, Cfi, Now))))
-            .Replace("\"title\"", "\"padding\": \"" + new string(' ', ReadingDataController.MaxImportBytes) + "\", \"title\"", StringComparison.Ordinal));
+        var tooLarge = Controller(Reader, ReadingData.Serialize(Import(Entry(Dune, Cfi, Now))));
+        tooLarge.HttpContext.Request.ContentLength = ReadingDataController.MaxImportBytes + 1L;
 
         Assert.IsType<BadRequestResult>((await Controller(Reader, "{\"format\":"u8.ToArray()).Import()).Result);
-        Assert.IsType<BadRequestResult>((await Controller(Reader, tooLarge).Import()).Result);
+        Assert.IsType<BadRequestResult>((await tooLarge.Import()).Result);
         Assert.Null(_store.Get(Reader, Dune.ItemId));
+    }
+
+    [Fact]
+    public void ExportsTheUsersThemesFontsAndChoices()
+    {
+        var (theme, regular, italic) = SetUp(Reader);
+
+        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+
+        Assert.Equal(6, file.Version);
+        Assert.Equal([(theme, "Night Blue", "#0f1a2a", "#6c7f96")], file.Themes!.Select(entry => (entry!.Id, entry.Name, entry.Background, entry.Grayed)));
+        Assert.Equal(
+            [("Atkinson Hyperlegible", 400, false, "woff2", regular.Length), ("Atkinson Hyperlegible", 700, true, "woff2", italic.Length)],
+            file.Fonts!.Select(entry => (entry!.Family, entry.Weight!.Value, entry.Italic!.Value, entry.Format, entry.Data!.Length)).OrderBy(entry => entry.Item2));
+        Assert.Equal(new ExportedChoices($"own:{theme}", "own:Atkinson Hyperlegible"), file.Choices);
+    }
+
+    [Fact]
+    public void ImportsThemesFontsAndChoicesOnceForAReaderWithNone()
+    {
+        var (theme, _, _) = SetUp(Reader);
+        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+
+        var result = Data(Dune).Import(OtherReader, file);
+
+        Assert.Equal((1, 1, true), (result.Themes, result.Fonts, result.Choices));
+        Assert.Equal([theme], _store.ListThemes(OtherReader).Select(entry => entry.Id));
+        Assert.Equal(2, _store.ListFonts(OtherReader).Count);
+        Assert.Equal(new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"), _store.GetChoices(OtherReader));
+
+        var again = Data(Dune).Import(OtherReader, file);
+
+        Assert.Equal((0, 0, false), (again.Themes, again.Fonts, again.Choices));
+        Assert.Single(_store.ListThemes(OtherReader));
+        Assert.Equal(2, _store.ListFonts(OtherReader).Count);
+    }
+
+    [Fact]
+    public void KeepsTheChoiceAReaderHasMadeHere()
+    {
+        SetUp(Reader);
+        var file = Data(Dune).Export(Reader, Now);
+        _store.SaveChoices(OtherReader, new StoredChoices("sepia", "Literata"));
+
+        var result = Data(Dune).Import(OtherReader, file);
+
+        Assert.False(result.Choices);
+        Assert.Equal(new StoredChoices("sepia", "Literata"), _store.GetChoices(OtherReader));
+    }
+
+    [Fact]
+    public void AddsThemesOnlyWhileThereIsRoom()
+    {
+        _store.ReplaceThemes(OtherReader, Enumerable.Range(0, PositionStore.MaxThemes).Select(at => new ThemeEntry($"t{at}", $"Theme {at}", NightBlue)).ToList());
+        SetUp(Reader);
+
+        var result = Data(Dune).Import(OtherReader, Data(Dune).Export(Reader, Now));
+
+        Assert.Equal(0, result.Themes);
+        Assert.Equal(PositionStore.MaxThemes, _store.ListThemes(OtherReader).Count);
+        Assert.False(result.Choices);
+    }
+
+    [Theory]
+    [InlineData("a theme with a colour that is not #rrggbb", "\"themes\": [{\"id\": \"a1\", \"name\": \"Night Blue\", \"background\": \"blue\", \"text\": \"#d7dee8\", \"secondary\": \"#9fb0c4\", \"accent\": \"#7cc4ff\", \"selection\": \"#2e5a85\", \"separator\": \"#2b4466\", \"controls\": \"#14243a\", \"controlsText\": \"#e6edf5\", \"buttons\": \"#23395a\", \"grayed\": \"#6c7f96\"}]")]
+    [InlineData("a theme with no name", "\"themes\": [{\"id\": \"a1\", \"name\": \" \", \"background\": \"#0f1a2a\", \"text\": \"#d7dee8\", \"secondary\": \"#9fb0c4\", \"accent\": \"#7cc4ff\", \"selection\": \"#2e5a85\", \"separator\": \"#2b4466\", \"controls\": \"#14243a\", \"controlsText\": \"#e6edf5\", \"buttons\": \"#23395a\", \"grayed\": \"#6c7f96\"}]")]
+    [InlineData("a font that is not a font", "\"fonts\": [{\"family\": \"X\", \"data\": \"VGhlc2UgYXJlIG5vdGVzLg==\"}]")]
+    [InlineData("a font that is not base64", "\"fonts\": [{\"family\": \"X\", \"data\": \"not base64!\"}]")]
+    [InlineData("choices without a font", "\"choices\": {\"theme\": \"dark\"}")]
+    public void RefusesAFileWithAMalformedThemeFontOrChoice(string what, string field)
+    {
+        Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], {field}}}")) is null, what);
+    }
+
+    [Fact]
+    public void ImportsAVersion5FileWithTheKindsItHolds()
+    {
+        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlighter("{\"id\": \"h1\", \"name\": \"Ideas\", \"colour\": \"#80cbc4\"}")))!;
+
+        var result = Data(Dune).Import(Reader, file);
+
+        Assert.Equal((1, 0, 0, false), (result.Highlighters, result.Themes, result.Fonts, result.Choices));
+        Assert.Null(_store.GetChoices(Reader));
     }
 
     [Fact]
@@ -378,6 +461,21 @@ public sealed class ReadingDataTests : IDisposable
     {
         Assert.IsType<UnauthorizedResult>(await Controller(Guid.Empty).Export());
         Assert.IsType<UnauthorizedResult>((await Controller(Guid.Empty, ReadingData.Serialize(Import())).Import()).Result);
+    }
+
+    private static readonly IReadOnlyList<string> NightBlue =
+        ["#0f1a2a", "#d7dee8", "#9fb0c4", "#7cc4ff", "#2e5a85", "#2b4466", "#14243a", "#e6edf5", "#23395a", "#6c7f96"];
+
+    // A reader with Night Blue, two Atkinson Hyperlegible files and both chosen: the theme's id and the files.
+    private (string Theme, byte[] Regular, byte[] Italic) SetUp(Guid reader)
+    {
+        var theme = _store.ReplaceThemes(reader, [new ThemeEntry(Guid.NewGuid().ToString("N"), "Night Blue", NightBlue)])[0].Id;
+        var regular = System.IO.File.ReadAllBytes(FontsControllerTests.Fontsource("atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2"));
+        var italic = System.IO.File.ReadAllBytes(FontsControllerTests.Fontsource("atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-italic.woff2"));
+        _store.AddFont(reader, FontFile.Read(regular)!, regular, Now);
+        _store.AddFont(reader, FontFile.Read(italic)!, italic, Now);
+        _store.SaveChoices(reader, new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"));
+        return (theme, regular, italic);
     }
 
     private static string File(string position) =>

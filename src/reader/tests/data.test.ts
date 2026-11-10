@@ -32,6 +32,14 @@ describe('summarizeImport', () => {
         expect(summary.unmatched).toEqual([{ title: 'Emma', detail: '' }])
     })
 
+    it('counts each kind added, as the canvas words it, leaving out a kind with none', () => {
+        expect(summarizeImport({ imported: 12, kept: 0, unmatched: [], bookmarks: 9, highlights: 31, highlighters: 0, themes: 2, fonts: 0 }).imported)
+            .toBe('12 places, 9 bookmarks, 31 highlights and 2 themes imported')
+        expect(summarizeImport({ imported: 0, kept: 4, unmatched: [], bookmarks: 1, highlighters: 1, fonts: 2 }).imported)
+            .toBe('1 bookmark, 1 highlighter and 2 fonts imported')
+        expect(summarizeImport({ imported: 0, kept: 0, unmatched: [], themes: 1 }).imported).toBe('1 theme imported')
+    })
+
     it('leaves out the lines with nothing to report', () => {
         expect(summarizeImport({ imported: 0, kept: 0, unmatched: [] }))
             .toEqual({ imported: null, kept: null, unmatchedLead: null, unmatched: [] })
