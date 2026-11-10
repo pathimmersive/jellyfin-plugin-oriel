@@ -270,6 +270,54 @@ body[data-state="rendered"] {
   accent-color: #00a4dc;
 }
 
+/* On a desktop, as the canvas's DeskControls draws them: arrows at the edges
+   in the theme's footer colour, and Full screen at the end of the footer. */
+.page-arrow,
+#controls .full-screen {
+  display: none;
+}
+
+@media (min-width: 600px) and (min-height: 501px) {
+  .page-arrow {
+    all: unset;
+    position: fixed;
+    z-index: 2;
+    top: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 96px;
+    margin-top: -48px;
+    border-radius: 4px;
+    color: var(--page-footer, #6b6b6b);
+    cursor: pointer;
+  }
+
+  .page-arrow svg {
+    width: 36px;
+    height: 36px;
+  }
+
+  .page-arrow.previous {
+    left: calc(env(safe-area-inset-left) + 16px);
+  }
+
+  .page-arrow.next {
+    right: calc(env(safe-area-inset-right) + 16px);
+  }
+
+  .page-arrow:focus-visible {
+    outline: 2px solid #00a4dc;
+  }
+
+  #controls .full-screen {
+    display: flex;
+    width: 44px;
+    height: 44px;
+  }
+}
+
 /* More: a sheet from the bottom on a phone, a menu under its button on a wider screen. */
 #more-backdrop {
   position: fixed;
@@ -2087,6 +2135,38 @@ body[data-state="rendered"] {
     padding: 8px 0;
     border-radius: 4px;
     box-shadow: 0 6px 24px rgba(0, 0, 0, .35);
+  }
+}
+
+/* A phone on its side, as the canvas's LandRead and LandPrefs draw it: the
+   reading footer lines up with the text, and a panel covers the right half
+   of the screen, its full height, over the dimmed page. */
+@media (orientation: landscape) and (max-height: 500px) {
+  #reading-footer {
+    left: 122px;
+    right: 122px;
+    font-size: 12px;
+  }
+
+  #contents-backdrop,
+#prefs-backdrop,
+#search-backdrop,
+#note-backdrop,
+#dictionary-backdrop {
+    display: block;
+  }
+
+  #contents,
+#prefs,
+#search,
+#note,
+#dictionary,
+#highlighter {
+    width: 50%;
+    top: 0;
+    bottom: 0;
+    padding-right: env(safe-area-inset-right);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 }
 

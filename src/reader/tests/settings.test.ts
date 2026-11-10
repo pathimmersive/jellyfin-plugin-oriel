@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { bookStyles, DEFAULTS, INDENT, LINE_SPACING, MARGIN, marginsFor, PHONE_MARGINS, readSettings, resetLayout, type Settings, stepIn, stepSize, WIDE_MARGINS, writeSettings } from '../src/settings/settings'
+import { bookStyles, DEFAULTS, INDENT, landscapeMargins, LINE_SPACING, MARGIN, marginsFor, PHONE_MARGINS, readSettings, resetLayout, type Settings, stepIn, stepSize, WIDE_MARGINS, writeSettings } from '../src/settings/settings'
 
 const store = (value: string | null): { getItem: () => string | null } => ({ getItem: () => value })
 
@@ -105,6 +105,15 @@ describe('marginsFor', () => {
         expect(marginsFor(DEFAULTS, true)).toEqual({ left: 140, right: 140, top: 48, bottom: 12 })
         expect(marginsFor(CHOSEN, true)).toEqual(CHOSEN.margins)
         expect(PHONE_MARGINS).not.toBe(WIDE_MARGINS)
+    })
+})
+
+describe('landscapeMargins', () => {
+    it('keeps the phone\'s margins, the sides at least 122 px from the screen\'s edges', () => {
+        expect(landscapeMargins(DEFAULTS, { left: 0, right: 0 })).toEqual({ left: 122, right: 122, top: 16, bottom: 8 })
+        expect(landscapeMargins(DEFAULTS, { left: 47, right: 0 })).toEqual({ left: 75, right: 122, top: 16, bottom: 8 })
+        const wider = { ...DEFAULTS, margins: { left: 150, right: 100, top: 30, bottom: 20 } }
+        expect(landscapeMargins(wider, { left: 0, right: 47 })).toEqual({ left: 150, right: 100, top: 30, bottom: 20 })
     })
 })
 

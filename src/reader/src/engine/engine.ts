@@ -41,6 +41,8 @@ interface FoliateView extends HTMLElement {
         readonly start?: number
         readonly end?: number
         readonly viewSize?: number
+        readonly atStart?: boolean
+        readonly atEnd?: boolean
     }
     isFixedLayout: boolean
     lastLocation?: Location
@@ -55,6 +57,7 @@ interface FoundSection {
 // What foliate-js reports for the place shown.
 interface Location {
     fraction?: number
+    section?: { current: number, total: number }
     cfi?: string
     range?: Range
     tocItem?: { label?: string, href?: string }
@@ -165,6 +168,18 @@ export interface OpenBook {
      * book's text; the page lays out again around the place being read.
      */
     setMargins(margins: Margins): void
+    /**
+     * Keeps a reflowable book clear of a panel this many px wide at the
+     * right (0 for none): the text ends 20 px from it, in one column where
+     * the space left is too narrow for two.
+     */
+    setPanel(width: number): void
+    /** Lays a reflowable book out in one column however wide the reading area, as on a phone in landscape. */
+    setOneColumn(on: boolean): void
+    /** Turns a page back or forward in the chosen page turn, as the controls' arrows do, leaving the controls as they are. */
+    turnPage(direction: 'prev' | 'next'): void
+    /** Whether the place shown is the book's first page, and its last. */
+    edges(): { start: boolean, end: boolean }
     /** Sets how pages turn, keeping the place being read; comics and PDFs keep their own. */
     setPageTurn(pageTurn: PageTurn): void
     /**
@@ -190,6 +205,8 @@ const COLUMN_WIDTH = 720
 // The paginator's gap in px: the least space at the sides, and between two columns.
 const ONE_COLUMN_GAP = 4
 const TWO_COLUMN_GAP = 48
+// The space between the text and a panel open beside it.
+const PANEL_SPACE = 20
 
 // The colour search marks matches on the page in: the selection colour, at foliate-js's highlight opacity.
 const SEARCH_MARK = '#00a4dc'
@@ -231,6 +248,7 @@ export const openBook = async (
     styles = '',
     margins: Margins | null = null,
     pageTurn: PageTurn = 'none',
+    oneColumnAtFirst = false,
 ): Promise<OpenBook> => {
     const view = document.createElement('foliate-view') as FoliateView
     // Keys, edge clicks and the wheel turn pages on a desktop, and a click in
@@ -240,8 +258,8 @@ export const openBook = async (
     // sharing one wheel gesture.
     let turning = pageTurn
     const scrolling = (): boolean => turning === 'scroll' && !view.isFixedLayout
-    const turn = (turn: Turn): void => {
-        onTurn()
+    const turn = (turn: Turn, hide = true): void => {
+        if (hide) onTurn()
         const go = { next: () => view.next(), prev: () => view.prev(), left: () => view.goLeft(), right: () => view.goRight() }[turn]
         if (turning !== 'fade' || view.isFixedLayout) void go()
         else void fade(view, go)
@@ -337,20 +355,26 @@ export const openBook = async (
     // never 0: a justified line reaches its column's edge, and with no gap
     // foliate-js counts it as shown on the next page too, so that page's
     // place would start on the one before.
+    // A panel open at the right takes its width and 20 px off the text area.
     let shownMargins = margins
+    let panel = 0
+    let oneColumn = oneColumnAtFirst
     const layOut = (): void => {
         if (view.isFixedLayout || !shownMargins) return
         const { width: outerWidth, height: outerHeight } = container.getBoundingClientRect()
         if (!outerWidth) return
-        const { left, right, top, bottom } = shownMargins
-        const twoColumns = outerWidth - left - right > COLUMN_WIDTH && outerWidth - left - right > outerHeight - top - bottom
+        const { left, top, bottom } = shownMargins
+        const right = panel ? panel + PANEL_SPACE : shownMargins.right
+        const twoColumns = !oneColumn && outerWidth - left - right > COLUMN_WIDTH && outerWidth - left - right > outerHeight - top - bottom
+        const columns = twoColumns ? '2' : '1'
         const gap = twoColumns ? TWO_COLUMN_GAP : ONE_COLUMN_GAP
         const padLeft = Math.max(0, left - gap)
         const padRight = Math.max(0, right - gap)
         container.style.padding = `${top}px ${padRight}px ${bottom}px ${padLeft}px`
         const share = `${(gap / (outerWidth - padLeft - padRight) * 100).toFixed(4)}%`
-        if (view.renderer.getAttribute('gap') === share) return
+        if (view.renderer.getAttribute('gap') === share && view.renderer.getAttribute('max-column-count') === columns) return
         view.renderer.setAttribute('gap', share)
+        view.renderer.setAttribute('max-column-count', columns)
         view.renderer.render?.()
     }
     const setMargins = (margins: Margins): void => {
@@ -531,6 +555,24 @@ export const openBook = async (
         },
         setStyles,
         setMargins,
+        setPanel(width) {
+            if (width === panel) return
+            panel = width
+            layOut()
+        },
+        setOneColumn(on) {
+            if (on === oneColumn) return
+            oneColumn = on
+            layOut()
+        },
+        turnPage(direction) {
+            turn(direction, false)
+        },
+        edges() {
+            if (!view.isFixedLayout) return { start: view.renderer.atStart ?? false, end: view.renderer.atEnd ?? false }
+            const section = view.lastLocation?.section
+            return section ? { start: section.current <= 0, end: section.current >= section.total - 1 } : { start: false, end: false }
+        },
         setPageTurn(pageTurn) {
             turning = pageTurn
             applyPageTurn()
@@ -539,7 +581,7 @@ export const openBook = async (
             // The container may have been hidden when the margins were last set.
             layOut()
             const { width, height } = view.renderer.getBoundingClientRect()
-            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${shownStyles}`
+            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${view.renderer.getAttribute('max-column-count') ?? ''}|${shownStyles}`
         },
         async count(cancelled, places = []) {
             if (view.isFixedLayout) return null

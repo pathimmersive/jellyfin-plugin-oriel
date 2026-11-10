@@ -192,6 +192,23 @@ export const stepSize = (size: number, step: -1 | 1): number => stepIn(SIZE, siz
 export const marginsFor = (settings: Settings, wide: boolean): Margins =>
     settings.margins ?? (wide ? WIDE_MARGINS : PHONE_MARGINS)
 
+// How far a phone in landscape keeps the text from the screen's sides, at least.
+export const LANDSCAPE_SIDE = 122
+
+/**
+ * A phone in landscape's margins: the phone's, with each side margin kept at
+ * least 122 px from the screen's edge. `inset` is how far the reading area
+ * already stands in from each edge, clear of the notch.
+ */
+export const landscapeMargins = (settings: Settings, inset: { left: number, right: number }): Margins => {
+    const margins = marginsFor(settings, false)
+    return {
+        ...margins,
+        left: Math.max(margins.left, LANDSCAPE_SIDE - inset.left),
+        right: Math.max(margins.right, LANDSCAPE_SIDE - inset.right),
+    }
+}
+
 /** Size, spacing, margins, page turn and checkboxes back to the defaults; theme, font and progress kept. */
 export const resetLayout = (settings: Settings): Settings =>
     ({ ...DEFAULTS, theme: settings.theme, font: settings.font, progress: settings.progress })
