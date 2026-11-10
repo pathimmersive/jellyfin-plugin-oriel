@@ -1,13 +1,26 @@
-<h1>
+<h1 align="center">
+  <br>
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="branding/oriel-lockup-dark.svg">
     <img alt="Oriel" src="branding/oriel-lockup-light.svg" width="280">
   </picture>
+  <br>
+  <br>
 </h1>
 
 Oriel is an e-book reader for Jellyfin, hosted by the Jellyfin server as a plugin. It opens EPUB books from your Jellyfin libraries in the browser, on a phone's home screen, and inside the official Jellyfin apps, using the account you are already signed in with.
 
 **Oriel is an unofficial, third-party plugin.** It is not made, endorsed or supported by the Jellyfin project, and it does not use the Jellyfin logo.
+
+<p align="center">
+  <img src="images/reading-phone.png" width="260" alt="Oriel on an iPhone, reading Pride and Prejudice in the Light theme, with the controls shown: Back, the book's title, Contents, Bookmark and Preferences at the top, and at the foot the chapter, a progress slider and the pages left in the chapter.">
+  &nbsp;
+  <img src="images/preferences-phone.png" width="260" alt="Oriel's Preferences on an iPhone: the theme row with Light, Sepia, Dark, a custom Night Blue theme and Add, then fonts, text size, spacing and margins.">
+</p>
+
+<p align="center">
+  <img src="images/spread-desktop.png" width="840" alt="Oriel in a desktop browser, showing Pride and Prejudice as a two-page spread with arrows at the edges and the Contents panel open beside the page.">
+</p>
 
 ## Status
 
