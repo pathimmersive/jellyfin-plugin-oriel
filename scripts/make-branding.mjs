@@ -3,9 +3,10 @@
 // loading-screen logo. Each PNG is drawn by Chromium from its source, so every
 // image can be made again from the source.
 // Usage: node scripts/make-branding.mjs          writes the images
-//        node scripts/make-branding.mjs --check  fails when an image no longer matches its source
+//        node scripts/make-branding.mjs --check  fails when an image no longer matches its source,
+//                                                or an image the README names is missing
 // Playwright comes from the reader's packages (npm ci in src/reader).
-import { readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 
 const root = new URL('../', import.meta.url)
@@ -95,6 +96,19 @@ try {
     }
 } finally {
     await browser.close()
+}
+// Every image the README names, in src, srcset or Markdown, is in the repository.
+if (check) {
+    const readme = readFileSync(at('README.md'), 'utf8')
+    const named = [...readme.matchAll(/(?:src|srcset)="([^"]+)"|!\[[^\]]*\]\(([^)\s]+)/g)].map(match => match[1] ?? match[2])
+    for (const path of named.filter(path => !/^[a-z]+:/i.test(path))) {
+        if (existsSync(at(path))) {
+            console.log(`PASS: README.md names ${path}, which exists`)
+        } else {
+            console.error(`FAIL: README.md names ${path}, which is missing`)
+            failed = true
+        }
+    }
 }
 if (!check) console.log(`make-branding: wrote ${IMAGES.length} images`)
 process.exit(failed ? 1 : 0)

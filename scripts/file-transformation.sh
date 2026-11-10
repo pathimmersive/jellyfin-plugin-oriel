@@ -1,5 +1,7 @@
-# Sourced by the smoke test and the dev server: the pinned File Transformation
-# release, the third-party plugin the jellyfin-web integration goes through.
+# Sourced by the smoke test: the pinned File Transformation release, which
+# Oriel does not need; the smoke test installs it once to check that Oriel's
+# own change to jellyfin-web stays correct beside it, as an admin may keep it
+# for other plugins.
 # The build matches the server version of the pinned Jellyfin image, and the
 # MD5 is the one in its publisher's plugin repository manifest.
 

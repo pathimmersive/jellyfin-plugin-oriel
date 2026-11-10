@@ -541,6 +541,26 @@ pass "after PlaybackPositionTicks=$PROGRESS_TICKS is written through /UserItems/
 write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS,\"PlayedPercentage\":60}"
 show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS and PlayedPercentage=60"
 
+# Turns the jellyfin-web integration on (true) or off (false) in Oriel's settings.
+set_integration() {
+    local prefix="$1" value="$2"
+    code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
+    [ "$code" = "200" ] || fail "GET the $PLUGIN_NAME configuration returned $code"
+    sed -E "s/\"EnableWebIntegration\": *(true|false)/\"EnableWebIntegration\":$value/" "$work/body" > "$work/oriel-config.json"
+    grep -q "\"EnableWebIntegration\":$value" "$work/oriel-config.json" || fail "could not set EnableWebIntegration in $(cat "$work/body")"
+    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+        --data-binary "@$work/oriel-config.json" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
+    [ "$code" = "204" ] || fail "POST the $PLUGIN_NAME configuration returned $code"
+}
+
+# A fresh install has the integration on, with only Oriel installed.
+count="$(curl -sf "$base/web/index.html" | grep -o '<script src="../Oriel/integration/launcher.js"></script>' | wc -l | tr -d ' ')"
+[ "$count" = "1" ] || fail "on a fresh install $base/web/index.html carries $count launcher script tags, expected 1"
+pass "a fresh install has the jellyfin-web integration on: index.html carries one launcher script, with no other plugin installed"
+
+# Jellyfin's own book player resumes at the place Oriel mirrors, with the
+# integration off as an admin may set it.
+set_integration "$base" false
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
 ORIEL_ITEM_ID="$item_id" ORIEL_EXPECT_TEXT="$PROGRESS_TEXT" \
     node "$reader/e2e/progress.e2e.mjs" || fail "jellyfin-web with saved progress at $base"
@@ -702,19 +722,7 @@ pass "after the restore the server name is back (the restore ran); plugin data m
 
 # --- jellyfin-web integration ----------------------------------------------
 
-# Read the whole log first: grep -q stops early, and under pipefail the cut-off
-# docker logs would fail the check.
-docker logs "$container" > "$work/server.log" 2>&1
-grep -q 'File Transformation 3.x is not installed' "$work/server.log" \
-    || fail "without File Transformation the plugin did not log that the integration is unavailable"
-pass "without File Transformation the plugin logs that the integration is unavailable and still serves the reader"
-
-# The pinned File Transformation release is built for one server version.
-if [ "$JELLYFIN_VERSION" != "$FT_SERVER_VERSION" ]; then
-    echo "SKIP: the jellyfin-web integration checks need Jellyfin $FT_SERVER_VERSION, the version File Transformation $FT_VERSION is built for; $IMAGE runs $JELLYFIN_VERSION"
-    echo "smoke-plugin: all checks passed"
-    exit 0
-fi
+# Oriel's own middleware changes jellyfin-web as it is served; no other plugin is installed.
 
 # Presses Play or Resume ($3) and expects the oriel or builtin reader ($2),
 # and, for Oriel, the line $4 on screen when given.
@@ -760,23 +768,28 @@ check_web_patched() {
     pass "with the integration on, $prefix/web/index.html carries one launcher script and config.json lists OrielBookPlayer"
 }
 
-set_integration() {
-    local prefix="$1" value="$2"
-    code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
-    [ "$code" = "200" ] || fail "GET the $PLUGIN_NAME configuration returned $code"
-    sed -E "s/\"EnableWebIntegration\": *(true|false)/\"EnableWebIntegration\":$value/" "$work/body" > "$work/oriel-config.json"
-    grep -q "\"EnableWebIntegration\":$value" "$work/oriel-config.json" || fail "could not set EnableWebIntegration in $(cat "$work/body")"
-    code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
-        --data-binary "@$work/oriel-config.json" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
-    [ "$code" = "204" ] || fail "POST the $PLUGIN_NAME configuration returned $code"
+# The changed files' headers: HEAD gives GET's Content-Length even when asking
+# for compression, and the changed file's ETag answers 304.
+check_web_headers() {
+    local prefix="$1" file length etag headed
+    for file in index.html config.json; do
+        curl -sf -D "$work/headers" -o "$work/served" "$prefix/web/$file" || fail "GET $prefix/web/$file"
+        length="$(wc -c < "$work/served" | tr -d ' ')"
+        etag="$(grep -i '^etag:' "$work/headers" | head -1 | cut -d' ' -f2- | tr -d '\r')"
+        [ -n "$etag" ] || fail "$prefix/web/$file has no ETag"
+        curl -sfI -H 'Accept-Encoding: gzip, br' -o "$work/head" "$prefix/web/$file" || fail "HEAD $prefix/web/$file"
+        headed="$(grep -i '^content-length:' "$work/head" | tr -d '\r' | awk '{print $2}')"
+        [ "$headed" = "$length" ] || fail "HEAD $prefix/web/$file answers Content-Length ${headed:-none}, not the $length bytes GET sends"
+        code="$(curl -s -o /dev/null -w '%{http_code}' -H "If-None-Match: $etag" "$prefix/web/$file")"
+        [ "$code" = "304" ] || fail "$prefix/web/$file with If-None-Match $etag returned $code, expected 304"
+    done
+    pass "HEAD on $prefix/web/index.html and config.json gives GET's Content-Length, and each one's ETag answers 304"
 }
 
-MSYS_NO_PATHCONV=1 docker exec "$container" cp -r /oriel-ft "/config/plugins/FileTransformation_$FT_VERSION" || fail "install File Transformation"
 docker restart "$container" >/dev/null || fail "docker restart"
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 base="http://127.0.0.1:$port"
 wait_ready "$base"
-check_plugin_active "$base" "File Transformation"
 
 code="$(position_status -H "Authorization: $token_header")"
 [ "$code" = "200" ] && [ "$(json_str cfi < "$work/body")" = "$POSITION_CFI" ] \
@@ -814,6 +827,10 @@ ORIEL_MOBI_ID="$mobi_id" ORIEL_MOBI_TEXT="$MOBI_TEXT" ORIEL_AZW3_ID="$azw3_id" O
 ORIEL_PDF_ID="$pdf_id" ORIEL_PDF_TEXT="$PDF_TEXT" \
     node "$reader/e2e/formats.e2e.mjs" || fail "opening books in other formats at $base"
 
+set_integration "$base" true
+check_web_patched "$base"
+check_web_headers "$base"
+set_integration "$base" false
 check_web_stock "$base"
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" builtin Resume
@@ -833,6 +850,22 @@ for other_id in "$cbz_id" "$mobi_id" "$azw3_id" "$pdf_id"; do
 done
 set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
+# Beside File Transformation, which an admin may keep for other plugins. The
+# pinned release is built for one server version.
+if [ "$JELLYFIN_VERSION" = "$FT_SERVER_VERSION" ]; then
+    MSYS_NO_PATHCONV=1 docker exec "$container" cp -r /oriel-ft "/config/plugins/FileTransformation_$FT_VERSION" || fail "install File Transformation"
+    docker restart "$container" >/dev/null || fail "docker restart"
+    port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
+    base="http://127.0.0.1:$port"
+    wait_ready "$base"
+    check_plugin_active "$base" "File Transformation"
+    check_web_patched "$base"
+    set_progress "$base" 0
+    check_takeover_in_browser "$base" oriel Play
+    pass "beside File Transformation $FT_VERSION, index.html still carries one launcher script and Play opens Oriel"
+else
+    echo "SKIP: the check beside File Transformation needs Jellyfin $FT_SERVER_VERSION, the version File Transformation $FT_VERSION is built for; $IMAGE runs $JELLYFIN_VERSION"
+fi
 fi
 # The desktop input check, in this run's browsers, from the start of the book.
 curl -sf -o /dev/null -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
