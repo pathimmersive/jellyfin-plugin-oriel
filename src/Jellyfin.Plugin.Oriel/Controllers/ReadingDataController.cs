@@ -17,6 +17,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel")]
 [Authorize]
+[StoreUnavailable]
 public class ReadingDataController : ControllerBase
 {
     /// <summary>

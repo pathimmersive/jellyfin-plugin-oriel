@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Themes")]
 [Authorize]
+[StoreUnavailable]
 public class ThemesController : ControllerBase
 {
     /// <summary>

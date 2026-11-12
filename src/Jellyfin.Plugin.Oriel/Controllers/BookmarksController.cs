@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Bookmarks")]
 [Authorize]
+[StoreUnavailable]
 public class BookmarksController : ControllerBase
 {
     /// <summary>

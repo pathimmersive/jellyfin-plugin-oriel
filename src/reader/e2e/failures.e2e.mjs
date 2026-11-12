@@ -6,6 +6,8 @@
 // again; a DRM-protected EPUB served in the test book's place, and a book the
 // server does not have, get their pages without Try again; a save answered
 // with 500 brings the not-saved notice, gone once a later save goes through;
+// while Oriel's store answers 503 storeUnavailable the book opens at Jellyfin's
+// place, saves nothing on a page turn, and says the reading data is unavailable;
 // and a session logged out while reading brings the signed-out notice, whose
 // Sign in reaches jellyfin-web's sign-in with the return to the book.
 // Configured by environment: ORIEL_BASE (server URL including any BaseUrl),
@@ -114,6 +116,8 @@ const OFFLINE_TITLE = 'Oriel can’t reach your Jellyfin server.'
 const OFFLINE_BODY = 'Check your connection. The book opens as soon as the server answers.'
 const NOT_SAVED = 'Your place could not be saved. Oriel will try again when you turn the page.'
 const SIGNED_OUT = 'You are signed out of Jellyfin, so your place is not being saved.'
+const UNAVAILABLE = 'Your reading data is unavailable on this server, so your place and notes will not be saved.'
+const STORE_ENDPOINTS = /\/Oriel\/(Positions|Bookmarks|Highlights|Highlighters|Themes|Fonts|Choices)(\/|\?|$)/
 // The book and its saved places, which the reader asks for while it opens.
 const UNREACHABLE = [`**/Items/${itemId}/Download`, `**/Oriel/Positions/${itemId}`, `**/UserItems/${itemId}/UserData*`]
 
@@ -197,6 +201,26 @@ try {
     await press(page, 0.9, setup.touch)
     await waitFor(async () => !await noticeWith(page, NOT_SAVED), 10_000, 'the not-saved notice did not go once a save went through')
     pass(`a save answered with 500 shows '${NOT_SAVED}', and it goes once the next page turn is saved`)
+    await context.close()
+
+    // Oriel's store cannot be opened on the server: Jellyfin's place, nothing saved, and the notice.
+    await saveAtSixTenths()
+    ;({ context, page } = await newPage(browser))
+    const saves = []
+    await context.route(STORE_ENDPOINTS, route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"reason":"storeUnavailable"}' }))
+    page.on('request', request => {
+        if (request.method() !== 'GET' && (STORE_ENDPOINTS.test(request.url()) || request.url().includes('/UserData'))) saves.push(`${request.method()} ${request.url()}`)
+    })
+    await page.goto(`${base}/Oriel/?id=${itemId}`)
+    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book while the store is unavailable'))
+    await waitFor(() => noticeWith(page, UNAVAILABLE), 10_000, 'the unavailable notice did not show')
+    if (!(await sectionText(page)).includes(savedText)) fail(`with the store unavailable the book did not open at Jellyfin's place ('${savedText}')`)
+    await pause(1500)
+    await press(page, 0.9, setup.touch)
+    await pause(3000)
+    if (saves.length) fail(`with the store unavailable the reader saved: ${saves.join(', ')}`)
+    if (!await noticeWith(page, UNAVAILABLE)) fail('the unavailable notice went away after a page turn')
+    pass(`with the store answering 503 the book opens at Jellyfin's place, a page turn saves nothing, and it says '${UNAVAILABLE}'`)
     await context.close()
 
     // Signed out while reading: the signed-out notice, and Sign in back to the book.

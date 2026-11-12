@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -7,6 +8,7 @@ namespace Jellyfin.Plugin.Oriel.Data;
 
 /// <summary>
 /// Opens the position store when the server starts and brings its schema up to date.
+/// A store that cannot be opened is logged and left alone, so Jellyfin still starts.
 /// </summary>
 public class PositionStoreStartup : IHostedService
 {
@@ -27,8 +29,20 @@ public class PositionStoreStartup : IHostedService
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        var version = _store.Migrate();
-        _logger.LogInformation("Oriel reading position store is at schema version {Version}", version);
+        try
+        {
+            var version = _store.Migrate();
+            _logger.LogInformation("Oriel reading position store is at schema version {Version}", version);
+        }
+        catch (Exception exception)
+        {
+            _logger.LogCritical(
+                exception,
+                "Oriel cannot open its reading data store at {Path}: {Reason}. Oriel's reading data is unavailable until the file is fixed; nothing in its folder was changed",
+                _store.DatabasePath,
+                exception.Message);
+        }
+
         return Task.CompletedTask;
     }
 

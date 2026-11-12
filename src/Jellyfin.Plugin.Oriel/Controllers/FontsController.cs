@@ -19,6 +19,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Fonts")]
 [Authorize]
+[StoreUnavailable]
 public class FontsController : ControllerBase
 {
     /// <summary>

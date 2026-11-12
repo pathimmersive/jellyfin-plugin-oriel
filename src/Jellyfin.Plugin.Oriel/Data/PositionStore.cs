@@ -213,6 +213,7 @@ public class PositionStore
     ];
 
     private readonly string _connectionString;
+    private readonly string _databasePath;
     private readonly IReadOnlyList<string> _migrations;
     private readonly object _migrateLock = new();
     private bool _migrated;
@@ -220,7 +221,7 @@ public class PositionStore
     /// <summary>
     /// Initializes a new instance of the <see cref="PositionStore"/> class.
     /// </summary>
-    /// <param name="databasePath">The database file; its folder is created when missing.</param>
+    /// <param name="databasePath">The database file; its folder is created when the store is first opened.</param>
     public PositionStore(string databasePath)
         : this(databasePath, Schema)
     {
@@ -229,16 +230,11 @@ public class PositionStore
     /// <summary>
     /// Initializes a new instance of the <see cref="PositionStore"/> class with a given schema.
     /// </summary>
-    /// <param name="databasePath">The database file; its folder is created when missing.</param>
+    /// <param name="databasePath">The database file; its folder is created when the store is first opened.</param>
     /// <param name="migrations">The schema steps, oldest first.</param>
     public PositionStore(string databasePath, IReadOnlyList<string> migrations)
     {
-        var folder = Path.GetDirectoryName(Path.GetFullPath(databasePath));
-        if (!string.IsNullOrEmpty(folder))
-        {
-            Directory.CreateDirectory(folder);
-        }
-
+        _databasePath = databasePath;
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
@@ -249,13 +245,25 @@ public class PositionStore
     }
 
     /// <summary>
+    /// Gets the database file.
+    /// </summary>
+    public string DatabasePath => _databasePath;
+
+    /// <summary>
     /// Brings the database up to the current schema, applying each missing step in order.
     /// </summary>
     /// <returns>The schema version afterwards.</returns>
+    /// <exception cref="InvalidOperationException">The database is at a schema newer than this plugin's.</exception>
     public int Migrate()
     {
         lock (_migrateLock)
         {
+            var folder = Path.GetDirectoryName(Path.GetFullPath(_databasePath));
+            if (!string.IsNullOrEmpty(folder))
+            {
+                Directory.CreateDirectory(folder);
+            }
+
             using var connection = Open();
             Execute(connection, "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
             using (var read = connection.CreateCommand())
@@ -953,11 +961,21 @@ public class PositionStore
         command.ExecuteNonQuery();
     }
 
+    // Opens the store on first use; while it cannot be opened, every use fails as unavailable and tries again.
     private void EnsureMigrated()
     {
-        if (!_migrated)
+        if (_migrated)
+        {
+            return;
+        }
+
+        try
         {
             Migrate();
+        }
+        catch (Exception exception)
+        {
+            throw new StoreUnavailableException($"Oriel's reading data store at {_databasePath} cannot be opened: {exception.Message}", exception);
         }
     }
 

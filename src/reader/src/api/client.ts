@@ -209,15 +209,22 @@ const isStoredPosition = (value: unknown): value is StoredPosition => {
     return typeof position?.cfi === 'string' && typeof position.fraction === 'number' && typeof position.savedAt === 'string'
 }
 
-/** The exact position Oriel stored for a book, or null when there is none or it cannot be read. */
+/**
+ * The exact position Oriel stored for a book, or null when there is none or it cannot be read;
+ * 'unavailable' when the server says Oriel's reading data store cannot be opened.
+ */
 export const readStoredPosition = async (
     basePath: string,
     itemId: string,
     authorization: string,
     fetchImpl: typeof fetch = fetch,
-): Promise<StoredPosition | null> => {
+): Promise<StoredPosition | null | 'unavailable'> => {
     try {
         const response = await fetchImpl(positionUrl(basePath, itemId), { headers: { Authorization: authorization } })
+        if (response.status === 503) {
+            const reason = (await response.json().catch(() => null) as { reason?: unknown } | null)?.reason
+            return reason === 'storeUnavailable' ? 'unavailable' : null
+        }
         if (!response.ok) return null
         const data: unknown = await response.json()
         return isStoredPosition(data) ? data : null

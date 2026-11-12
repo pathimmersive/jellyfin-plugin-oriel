@@ -907,6 +907,40 @@ check_book_scripts_in_browser "$base"
 check_branding_in_browser "$base"
 check_loading_in_browser "$base"
 
+# A database from a newer Oriel never stops Jellyfin: it starts, the reader and
+# the web integration are served, Oriel's data endpoints answer 503
+# storeUnavailable, and the file is left as it was. The real database goes back
+# afterwards.
+MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db" "$(hostpath "$work/oriel.db")" >/dev/null || fail "copy oriel.db out of the server"
+cp "$work/oriel.db" "$work/oriel-newer.db"
+node --no-warnings -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(process.argv[1]); db.exec('UPDATE schema_version SET version = version + 1'); db.close()"     "$(hostpath "$work/oriel-newer.db")" || fail "could not make a newer oriel.db"
+planted="$(sha256sum "$work/oriel-newer.db" | cut -d' ' -f1)"
+docker stop "$container" >/dev/null || fail "docker stop"
+MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$work/oriel-newer.db")" "$container:$data_dir/oriel.db" >/dev/null || fail "plant a newer oriel.db"
+docker start "$container" >/dev/null || fail "docker start"
+port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
+base="http://127.0.0.1:$port"
+wait_ready "$base"
+code="$(get_status "$base/Oriel/?id=$item_id")"
+[ "$code" = "200" ] || fail "with a newer oriel.db the reader page returned $code"
+curl -sf "$base/web/index.html" | grep -q '<script src="../Oriel/integration/launcher.js"></script>'     || fail "with a newer oriel.db index.html carries no launcher script"
+for endpoint in "Positions/$item_id" "Bookmarks/$item_id" Themes Fonts Choices Export; do
+    code="$(get_status -H "Authorization: $token_header" "$base/Oriel/$endpoint")"
+    { [ "$code" = "503" ] && grep -q '"reason":"storeUnavailable"' "$work/body"; }         || fail "with a newer oriel.db GET /Oriel/$endpoint returned $code: $(cat "$work/body")"
+done
+MSYS_NO_PATHCONV=1 docker logs "$container" 2>&1 | grep -q "Oriel cannot open its reading data store"     || fail "with a newer oriel.db the server log does not say why Oriel's store is unavailable"
+now="$(MSYS_NO_PATHCONV=1 docker exec "$container" sha256sum "$data_dir/oriel.db" | cut -d' ' -f1)"
+[ "$now" = "$planted" ] || fail "the newer oriel.db changed while the server ran ($planted -> $now)"
+pass "with oriel.db from a newer Oriel, Jellyfin starts, serves the reader and the web integration, answers 503 storeUnavailable from the data endpoints, logs why, and leaves the file unchanged"
+docker stop "$container" >/dev/null || fail "docker stop"
+MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$work/oriel.db")" "$container:$data_dir/oriel.db" >/dev/null || fail "restore oriel.db"
+docker start "$container" >/dev/null || fail "docker start"
+port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
+base="http://127.0.0.1:$port"
+wait_ready "$base"
+code="$(position_status -H "Authorization: $token_header")"
+[ "$code" = "200" ] || fail "after restoring oriel.db the stored position returned $code"
+
 # The rest is WebKit's share.
 if ! runs webkit; then
     echo "smoke-plugin: all checks passed"

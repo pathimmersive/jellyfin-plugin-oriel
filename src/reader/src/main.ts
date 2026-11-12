@@ -137,7 +137,7 @@ const start = async (): Promise<void> => {
         void readBookDetails(basePath, itemId, session.userId, authorization).then(screen.details)
         // While the server cannot be reached the failure page says so, and the
         // book and its saved places are asked for again until it answers.
-        let fetched: [File, StoredPosition | null, JellyfinPosition | null]
+        let fetched: [File, StoredPosition | null | 'unavailable', JellyfinPosition | null]
         for (;;) {
             try {
                 fetched = await Promise.all([
@@ -154,7 +154,11 @@ const start = async (): Promise<void> => {
                 await due
             }
         }
-        const [file, stored, jellyfin] = fetched
+        const [file, storedRead, jellyfin] = fetched
+        // While Oriel's store cannot be opened on the server, the book opens at
+        // Jellyfin's place or the start, and nothing is saved.
+        const storeUnavailable = storedRead === 'unavailable'
+        const stored = storeUnavailable ? null : storedRead
         clearFailure(status)
         show('loading', 'Opening the book…')
         screen.opening()
@@ -466,7 +470,8 @@ const start = async (): Promise<void> => {
                     : showNotice(NOTICE_TEXT.notSaved, ICONS.cloudOff),
             }
         }
-        const writer = positionWriter(
+        if (storeUnavailable) showNotice(NOTICE_TEXT.unavailable, ICONS.cloudOff)
+        const writer = storeUnavailable ? null : positionWriter(
             async (position, keepalive) => {
                 let refused = false
                 const watched: typeof fetch = async (input, init) => {
@@ -486,12 +491,12 @@ const start = async (): Promise<void> => {
                 notice.remove()
                 notice = null
             }
-            writer.moved(position)
+            writer?.moved(position)
         })
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden') writer.flush()
+            if (document.visibilityState === 'hidden') writer?.flush()
         })
-        window.addEventListener('pagehide', () => writer.flush())
+        window.addEventListener('pagehide', () => writer?.flush())
     } catch (error) {
         console.error(error)
         // The failure page names what failed; for one it cannot name, the step

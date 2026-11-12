@@ -59,6 +59,7 @@ export const saveNotice = (saved: boolean, status: number | null): 'signedOut' |
 export const NOTICE_TEXT = {
     signedOut: 'You are signed out of Jellyfin, so your place is not being saved.',
     notSaved: 'Your place could not be saved. Oriel will try again when you turn the page.',
+    unavailable: 'Your reading data is unavailable on this server, so your place and notes will not be saved.',
 }
 
 export const ICONS = {

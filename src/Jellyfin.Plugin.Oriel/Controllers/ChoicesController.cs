@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Choices")]
 [Authorize]
+[StoreUnavailable]
 public class ChoicesController : ControllerBase
 {
     /// <summary>
