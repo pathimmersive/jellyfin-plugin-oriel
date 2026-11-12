@@ -5,11 +5,13 @@ using System.Linq;
 using System.Net.Mime;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using Jellyfin.Plugin.Oriel.Configuration;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Jellyfin.Plugin.Oriel.Controllers;
 
@@ -36,6 +38,7 @@ public class FontsController : ControllerBase
     private readonly PositionStore _store;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly TimeProvider _time;
+    private readonly Func<PluginConfiguration?> _configuration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FontsController"/> class.
@@ -43,11 +46,25 @@ public class FontsController : ControllerBase
     /// <param name="store">The plugin's database.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="time">The clock a file's added time is read from.</param>
+    [ActivatorUtilitiesConstructor]
     public FontsController(PositionStore store, IAuthorizationContext authorizationContext, TimeProvider time)
+        : this(store, authorizationContext, time, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="FontsController"/> class with a given configuration.
+    /// </summary>
+    /// <param name="store">The plugin's database.</param>
+    /// <param name="authorizationContext">The host authorization context.</param>
+    /// <param name="time">The clock a file's added time is read from.</param>
+    /// <param name="configuration">The plugin's settings as they are now.</param>
+    public FontsController(PositionStore store, IAuthorizationContext authorizationContext, TimeProvider time, Func<PluginConfiguration?> configuration)
     {
         _store = store;
         _authorizationContext = authorizationContext;
         _time = time;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -72,13 +89,17 @@ public class FontsController : ControllerBase
     /// <summary>
     /// Adds a font file, sent as the body, in place of the caller's file of its family, weight and italic.
     /// </summary>
-    /// <returns>The file as GET lists it; 413 over 5 MB; 400 for a file that is not a font, or a 21st file.</returns>
+    /// <returns>
+    /// The file as GET lists it; 413 over 5 MB; 400 for a file that is not a font, a 21st file or one past 100 MB in all;
+    /// 403 while font uploads are off.
+    /// </returns>
     [HttpPost]
     [RequestSizeLimit(MaxBytes + (1024 * 1024))]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status413PayloadTooLarge)]
     public async Task<ActionResult<FontResponse>> AddFont()
     {
@@ -86,6 +107,11 @@ public class FontsController : ControllerBase
         if (userId is null)
         {
             return Unauthorized();
+        }
+
+        if (_configuration()?.EnableFontUploads != true)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new Refusal("uploadsOff"));
         }
 
         // Read one byte past the limit, to tell a file at the limit from one over it.
@@ -108,7 +134,12 @@ public class FontsController : ControllerBase
         }
 
         var (stored, result) = _store.AddFont(userId.Value, font, data, _time.GetUtcNow());
-        return result == FontAdded.TooMany || stored is null ? BadRequest(new Refusal("tooMany")) : Reply(stored);
+        return result switch
+        {
+            FontAdded.Added when stored is not null => Reply(stored),
+            FontAdded.QuotaFull => BadRequest(new Refusal("quotaFull")),
+            _ => BadRequest(new Refusal("tooMany")),
+        };
     }
 
     /// <summary>
@@ -187,6 +218,6 @@ public class FontsController : ControllerBase
     /// <summary>
     /// Why a font file was refused.
     /// </summary>
-    /// <param name="Reason">notAFont or tooMany.</param>
+    /// <param name="Reason">notAFont, tooMany, quotaFull or uploadsOff.</param>
     public record Refusal([property: JsonPropertyName("reason")] string Reason);
 }

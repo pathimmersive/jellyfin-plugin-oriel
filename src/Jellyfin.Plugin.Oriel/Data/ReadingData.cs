@@ -228,6 +228,7 @@ public class ReadingData
 
     private readonly PositionStore _store;
     private readonly IBookCatalog _catalog;
+    private readonly Func<Configuration.PluginConfiguration?> _configuration;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadingData"/> class.
@@ -235,9 +236,21 @@ public class ReadingData
     /// <param name="store">The position store.</param>
     /// <param name="catalog">The books each user can see.</param>
     public ReadingData(PositionStore store, IBookCatalog catalog)
+        : this(store, catalog, () => Plugin.Instance?.Configuration)
+    {
+    }
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ReadingData"/> class with a given configuration.
+    /// </summary>
+    /// <param name="store">The position store.</param>
+    /// <param name="catalog">The books each user can see.</param>
+    /// <param name="configuration">The plugin's settings as they are now.</param>
+    public ReadingData(PositionStore store, IBookCatalog catalog, Func<Configuration.PluginConfiguration?> configuration)
     {
         _store = store;
         _catalog = catalog;
+        _configuration = configuration;
     }
 
     /// <summary>
@@ -455,7 +468,9 @@ public class ReadingData
 
         var faces = _store.ListFonts(userId).Select(font => (font.Font.Family, font.Font.Weight, font.Font.Italic)).ToHashSet();
         var families = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var entry in file.Fonts ?? [])
+        // Fonts are added only while an admin allows it; the rest of the file imports either way.
+        var uploads = _configuration()?.EnableFontUploads == true;
+        foreach (var entry in uploads ? file.Fonts ?? [] : [])
         {
             var font = FontFile.Read(entry!.Data)!;
             if (faces.Contains((font.Family, font.Weight, font.Italic)))
@@ -463,9 +478,15 @@ public class ReadingData
                 continue;
             }
 
-            if (_store.AddFont(userId, font, entry.Data!, DateTimeOffset.UtcNow).Result == FontAdded.TooMany)
+            var added = _store.AddFont(userId, font, entry.Data!, DateTimeOffset.UtcNow).Result;
+            if (added == FontAdded.TooMany)
             {
                 break;
+            }
+
+            if (added == FontAdded.QuotaFull)
+            {
+                continue;
             }
 
             faces.Add((font.Family, font.Weight, font.Italic));

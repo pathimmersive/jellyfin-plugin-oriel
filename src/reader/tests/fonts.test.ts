@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { addFont, type OwnFont } from '../src/api/client'
+import { addFont, type OwnFont, readReaderSettings } from '../src/api/client'
 import { createOwnFonts, familiesOf, MAX_FONT_BYTES, type OwnFontSources, refusalMessage, stylesOf } from '../src/controls/fonts'
 import { bookStyles, fontStack, ownFamilyOf, ownFont, ownFontFace, readSettings } from '../src/settings/settings'
 
@@ -50,6 +50,8 @@ describe('refusalMessage', () => {
         expect(refusalMessage('tooLarge', 'big.ttf')).toBe('big.ttf is larger than 5 MB.')
         expect(refusalMessage('notAFont', 'notes.txt')).toBe('notes.txt is not a TTF, OTF or WOFF2 font.')
         expect(refusalMessage('tooMany', 'one.ttf')).toBe('You already have 20 font files. Remove a font to add another.')
+        expect(refusalMessage('quotaFull', 'one.ttf')).toBe('Your fonts are at their 100 MB limit. Remove a font to add another.')
+        expect(refusalMessage('uploadsOff', 'one.ttf')).toBe('Adding fonts is turned off on this server.')
         expect(refusalMessage('failed', 'one.ttf')).toBe('one.ttf could not be added. Try again.')
     })
 })
@@ -144,7 +146,20 @@ describe('addFont', () => {
         expect(await addFont('', 'auth', new Blob(['x']), answer(413, null))).toBe('tooLarge')
         expect(await addFont('', 'auth', new Blob(['x']), answer(400, { reason: 'notAFont' }))).toBe('notAFont')
         expect(await addFont('', 'auth', new Blob(['x']), answer(400, { reason: 'tooMany' }))).toBe('tooMany')
+        expect(await addFont('', 'auth', new Blob(['x']), answer(400, { reason: 'quotaFull' }))).toBe('quotaFull')
+        expect(await addFont('', 'auth', new Blob(['x']), answer(403, { reason: 'uploadsOff' }))).toBe('uploadsOff')
         expect(await addFont('', 'auth', new Blob(['x']), answer(500, null))).toBe('failed')
         expect(await addFont('', 'auth', new Blob(['x']), async () => { throw new TypeError('offline') })).toBe('failed')
+    })
+})
+
+describe('readReaderSettings', () => {
+    const answer = (status: number, body: unknown): typeof fetch => async () => new Response(JSON.stringify(body), { status })
+
+    it('says whether font uploads are on, off when the server does not say', async () => {
+        expect(await readReaderSettings('', 'auth', answer(200, { translateUrl: '', fontUploads: true }))).toEqual({ translateUrl: '', fontUploads: true })
+        expect(await readReaderSettings('', 'auth', answer(200, { translateUrl: '', fontUploads: false }))).toEqual({ translateUrl: '', fontUploads: false })
+        expect(await readReaderSettings('', 'auth', answer(200, { translateUrl: '' }))).toEqual({ translateUrl: '', fontUploads: false })
+        expect(await readReaderSettings('', 'auth', answer(500, null))).toBeNull()
     })
 })

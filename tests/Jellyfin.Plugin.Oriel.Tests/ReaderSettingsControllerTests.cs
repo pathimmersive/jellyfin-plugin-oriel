@@ -39,6 +39,14 @@ public sealed class ReaderSettingsControllerTests
     }
 
     [Fact]
+    public async Task SaysWhetherFontUploadsAreOnOffByDefault()
+    {
+        Assert.False((await Controller(Guid.NewGuid(), new PluginConfiguration()).GetReaderSettings()).Value!.FontUploads);
+        Assert.False((await Controller(Guid.NewGuid(), null).GetReaderSettings()).Value!.FontUploads);
+        Assert.True((await Controller(Guid.NewGuid(), new PluginConfiguration { EnableFontUploads = true }).GetReaderSettings()).Value!.FontUploads);
+    }
+
+    [Fact]
     public async Task ReturnsUnauthorizedWithoutACaller()
     {
         Assert.IsType<UnauthorizedResult>((await Controller(Guid.Empty, new PluginConfiguration()).GetReaderSettings()).Result);

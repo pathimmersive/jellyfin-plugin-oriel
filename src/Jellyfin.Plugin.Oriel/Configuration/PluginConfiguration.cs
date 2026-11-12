@@ -18,4 +18,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Google Translate's by default; empty, or not an http or https address, and the reader offers no Translate.
     /// </summary>
     public string? TranslateUrl { get; set; } = "https://translate.google.com/?sl=auto&op=translate&text={text}";
+
+    /// <summary>
+    /// Gets or sets a value indicating whether readers may add their own fonts, by upload or in an imported file.
+    /// Off by default; fonts already added keep working while it is off.
+    /// </summary>
+    public bool EnableFontUploads { get; set; }
 }
