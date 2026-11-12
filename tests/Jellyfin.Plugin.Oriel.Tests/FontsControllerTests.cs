@@ -85,6 +85,49 @@ public sealed class FontsControllerTests : IDisposable
         Assert.Null(FontFile.Read(NotAFont(what)));
     }
 
+    public static TheoryData<string> HostileWoff2s => new()
+    {
+        "a Brotli bomb",
+        "a Brotli bomb at the ceiling",
+        "a stream with more than its tables",
+        "a stream shorter than its tables",
+        "a stream cut short",
+        "a UIntBase128 past int range",
+        "a UIntBase128 past 32 bits",
+        "declared lengths that overflow",
+        "declared lengths past 10 MB",
+        "a compressed length past the file",
+    };
+
+    [Theory]
+    [MemberData(nameof(HostileWoff2s))]
+    public async Task RefusesAHostileWoff2AsNotAFont(string what)
+    {
+        Assert.Null(FontFile.Read(HostileWoff2(what)));
+
+        var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, HostileWoff2(what)).AddFont()).Result);
+        Assert.Equal("notAFont", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Empty((await Controller(Reader).GetFonts()).Value!);
+    }
+
+    [Theory]
+    [InlineData("a Brotli bomb", 1024 * 1024)]
+    [InlineData("a Brotli bomb at the ceiling", (10 * 1024 * 1024) + (1024 * 1024))]
+    [InlineData("declared lengths past 10 MB", 1024 * 1024)]
+    public void ReadsAHostileWoff2WithoutAllocatingPastItsDeclaredTables(string what, int most)
+    {
+        var bomb = HostileWoff2(what);
+        Assert.True(bomb.Length < FontsController.MaxBytes);
+        FontFile.Read(bomb);
+
+        var before = GC.GetAllocatedBytesForCurrentThread();
+        var font = FontFile.Read(bomb);
+        var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+
+        Assert.Null(font);
+        Assert.True(allocated <= most, $"reading {what} allocated {allocated} bytes");
+    }
+
     [Fact]
     public async Task AddsListsServesAndRemovesAFamily()
     {
@@ -313,6 +356,85 @@ public sealed class FontsControllerTests : IDisposable
         bytes.AddRange(new byte[24]);
         bytes.AddRange(directory);
         bytes.AddRange(compressed.ToArray());
+        return [.. bytes];
+    }
+
+    // A WOFF2 file built to exhaust or confuse a reader: name and OS/2 tables whose
+    // directory or Brotli stream lies about their size.
+    internal static byte[] HostileWoff2(string what)
+    {
+        const int TenMb = 10 * 1024 * 1024;
+        var name = Name((1, "Charter"), (2, "Regular"));
+        var os2 = Os2(400, false);
+        var honest = new List<(int, byte[])> { (5, Base128(name.Length)), (6, Base128(os2.Length)) };
+        var tables = Compress(name, os2);
+        return what switch
+        {
+            "a Brotli bomb" => RawWoff2(honest, Compress(name, os2, new byte[16 * 1024 * 1024])),
+            "a Brotli bomb at the ceiling" => RawWoff2(
+                [.. honest, (0x3F, Base128(TenMb - name.Length - os2.Length))],
+                Compress(name, os2, new byte[16 * 1024 * 1024])),
+            "a stream with more than its tables" => RawWoff2(honest, Compress(name, os2, new byte[100])),
+            "a stream shorter than its tables" => RawWoff2([(5, Base128(name.Length + 100)), (6, Base128(os2.Length))], tables),
+            "a stream cut short" => RawWoff2(honest, tables[..(tables.Length / 2)]),
+            "a UIntBase128 past int range" => RawWoff2([(5, Base128(0x80000000L)), (6, Base128(os2.Length))], tables),
+            "a UIntBase128 past 32 bits" => RawWoff2([(5, [0xFF, 0xFF, 0xFF, 0xFF, 0x7F]), (6, Base128(os2.Length))], tables),
+            "declared lengths that overflow" => RawWoff2([(5, Base128(int.MaxValue)), (6, Base128(int.MaxValue))], tables),
+            "declared lengths past 10 MB" => RawWoff2([(5, Base128(name.Length)), (6, Base128(TenMb))], tables),
+            "a compressed length past the file" => RawWoff2(honest, tables, compressedLength: 0xFFFFFFF0),
+            _ => throw new ArgumentOutOfRangeException(nameof(what)),
+        };
+    }
+
+    private static byte[] Compress(params byte[][] parts)
+    {
+        using var compressed = new MemoryStream();
+        using (var brotli = new BrotliStream(compressed, CompressionLevel.Fastest, leaveOpen: true))
+        {
+            foreach (var part in parts)
+            {
+                brotli.Write(part);
+            }
+        }
+
+        return compressed.ToArray();
+    }
+
+    private static byte[] Base128(long value)
+    {
+        var bytes = new List<byte> { (byte)(value & 0x7F) };
+        for (var rest = value >> 7; rest > 0; rest >>= 7)
+        {
+            bytes.Insert(0, (byte)(0x80 | (rest & 0x7F)));
+        }
+
+        return [.. bytes];
+    }
+
+    // A WOFF2 file of a raw table directory (known index or 0x3F with tag 'zzzz', then the length's bytes) and Brotli stream.
+    private static byte[] RawWoff2(List<(int Flags, byte[] Length)> directory, byte[] stream, uint? compressedLength = null)
+    {
+        var bytes = new List<byte>();
+        bytes.AddRange("wOF2"u8.ToArray());
+        Put32(bytes, 0x00010000);
+        Put32(bytes, 0);
+        Put16(bytes, directory.Count);
+        Put16(bytes, 0);
+        Put32(bytes, 0);
+        Put32(bytes, compressedLength ?? (uint)stream.Length);
+        bytes.AddRange(new byte[24]);
+        foreach (var (flags, length) in directory)
+        {
+            bytes.Add((byte)flags);
+            if (flags == 0x3F)
+            {
+                bytes.AddRange("zzzz"u8.ToArray());
+            }
+
+            bytes.AddRange(length);
+        }
+
+        bytes.AddRange(stream);
         return [.. bytes];
     }
 
