@@ -928,7 +928,9 @@ for endpoint in "Positions/$item_id" "Bookmarks/$item_id" Themes Fonts Choices E
     code="$(get_status -H "Authorization: $token_header" "$base/Oriel/$endpoint")"
     { [ "$code" = "503" ] && grep -q '"reason":"storeUnavailable"' "$work/body"; }         || fail "with a newer oriel.db GET /Oriel/$endpoint returned $code: $(cat "$work/body")"
 done
-MSYS_NO_PATHCONV=1 docker logs "$container" 2>&1 | grep -q "Oriel cannot open its reading data store"     || fail "with a newer oriel.db the server log does not say why Oriel's store is unavailable"
+# Saved first: grep -q stops reading at its match, which would fail docker logs under pipefail.
+MSYS_NO_PATHCONV=1 docker logs "$container" > "$work/server.log" 2>&1 || fail "docker logs"
+grep -q "Oriel cannot open its reading data store" "$work/server.log"     || fail "with a newer oriel.db the server log does not say why Oriel's store is unavailable"
 now="$(MSYS_NO_PATHCONV=1 docker exec "$container" sha256sum "$data_dir/oriel.db" | cut -d' ' -f1)"
 [ "$now" = "$planted" ] || fail "the newer oriel.db changed while the server ran ($planted -> $now)"
 pass "with oriel.db from a newer Oriel, Jellyfin starts, serves the reader and the web integration, answers 503 storeUnavailable from the data endpoints, logs why, and leaves the file unchanged"
