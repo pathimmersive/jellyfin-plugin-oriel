@@ -445,6 +445,16 @@ public sealed class ReadingDataTests : IDisposable
         Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], {field}}}")) is null, what);
     }
 
+    [Theory]
+    [MemberData(nameof(FontsControllerTests.HostileWoff2s), MemberType = typeof(FontsControllerTests))]
+    public void RefusesAFileHoldingAHostileWoff2AndStoresNothing(string what)
+    {
+        var data = Convert.ToBase64String(FontsControllerTests.HostileWoff2(what));
+
+        Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], \"fonts\": [{{\"family\": \"X\", \"data\": \"{data}\"}}]}}")) is null, what);
+        Assert.Empty(_store.ListFonts(Reader));
+    }
+
     [Fact]
     public void ImportsAVersion5FileWithTheKindsItHolds()
     {
