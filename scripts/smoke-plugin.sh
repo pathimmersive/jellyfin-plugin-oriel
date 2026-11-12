@@ -955,7 +955,7 @@ docker start "$container" >/dev/null || fail "docker start"
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
 base="http://127.0.0.1:$port"
 wait_ready "$base"
-code="$(position_status -H "Authorization: $token_header")"
+code="$(get_status -H "Authorization: $token_header" "$base/Oriel/Positions/$item_id")"
 [ "$code" = "200" ] || fail "after restoring oriel.db the stored position returned $code"
 
 # The rest is WebKit's share.
