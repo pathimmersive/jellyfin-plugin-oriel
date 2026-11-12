@@ -193,6 +193,7 @@ public sealed record UnmatchedBook(
 /// <param name="Themes">Themes added because the user did not have them.</param>
 /// <param name="Fonts">Font families that gained a file the user did not have.</param>
 /// <param name="Choices">True when the file's chosen theme and font were taken, the user having chosen none here.</param>
+/// <param name="Limited">The limits the import reached, bookmarks or highlights, past which its entries were left out.</param>
 public sealed record ImportResult(
     [property: JsonPropertyName("imported")] int Imported,
     [property: JsonPropertyName("kept")] int Kept,
@@ -202,7 +203,8 @@ public sealed record ImportResult(
     [property: JsonPropertyName("highlighters")] int Highlighters = 0,
     [property: JsonPropertyName("themes")] int Themes = 0,
     [property: JsonPropertyName("fonts")] int Fonts = 0,
-    [property: JsonPropertyName("choices")] bool Choices = false);
+    [property: JsonPropertyName("choices")] bool Choices = false,
+    [property: JsonPropertyName("limited")] IReadOnlyList<string>? Limited = null);
 
 /// <summary>
 /// Exports a user's reading data to a file and imports it back, here or on another server.
@@ -228,6 +230,7 @@ public class ReadingData
 
     private readonly PositionStore _store;
     private readonly IBookCatalog _catalog;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, bool> _importing = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadingData"/> class.
@@ -338,10 +341,33 @@ public class ReadingData
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <param name="file">A file accepted by <see cref="Parse"/>.</param>
-    /// <returns>What was imported, kept and left unmatched.</returns>
+    /// <returns>What was imported, kept and left unmatched, and the limits reached.</returns>
+    /// <exception cref="ImportRunningException">Another import of the user's is running.</exception>
+    /// <remarks>
+    /// It runs in one transaction: when any part fails, nothing is stored. Bookmarks and highlights
+    /// past the user's limits are left out and the rest imports.
+    /// </remarks>
     public ImportResult Import(Guid userId, ReadingDataFile file)
     {
+        if (!_importing.TryAdd(userId, true))
+        {
+            throw new ImportRunningException();
+        }
+
+        try
+        {
+            return _store.RunInTransaction(() => ImportAll(userId, file));
+        }
+        finally
+        {
+            _importing.TryRemove(userId, out _);
+        }
+    }
+
+    private ImportResult ImportAll(Guid userId, ReadingDataFile file)
+    {
         IReadOnlyList<BookInfo>? books = null;
+        var limited = new List<string>();
         int imported = 0, kept = 0, bookmarks = 0, highlights = 0;
         var unmatched = new List<UnmatchedBook>();
         var reported = new HashSet<string>(StringComparer.Ordinal);
@@ -384,9 +410,17 @@ public class ReadingData
                 continue;
             }
 
-            if (_store.AddBookmark(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
+            try
             {
-                bookmarks++;
+                if (_store.AddBookmark(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
+                {
+                    bookmarks++;
+                }
+            }
+            catch (LimitReachedException reached)
+            {
+                limited.Add(reached.Limit);
+                break;
             }
         }
 
@@ -420,14 +454,22 @@ public class ReadingData
                 continue;
             }
 
-            if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : PositionStore.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
+            try
             {
-                highlights++;
+                if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : PositionStore.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
+                {
+                    highlights++;
+                }
+            }
+            catch (LimitReachedException reached)
+            {
+                limited.Add(reached.Limit);
+                break;
             }
         }
 
         var (themes, fonts, choices) = ImportSetup(userId, file);
-        return new ImportResult(imported, kept, unmatched, bookmarks, highlights, highlighters, themes, fonts, choices);
+        return new ImportResult(imported, kept, unmatched, bookmarks, highlights, highlighters, themes, fonts, choices, limited);
     }
 
     // The file's themes and fonts the user does not have join theirs while there is room, and its

@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using Microsoft.Data.Sqlite;
 
 namespace Jellyfin.Plugin.Oriel.Data;
@@ -118,6 +119,16 @@ public class PositionStore
     public const int MaxFonts = 20;
 
     /// <summary>
+    /// The most bookmarks a user keeps, in all their books.
+    /// </summary>
+    public const int MaxBookmarks = 5000;
+
+    /// <summary>
+    /// The most highlights a user keeps, in all their books.
+    /// </summary>
+    public const int MaxHighlights = 20000;
+
+    /// <summary>
     /// The most themes of their own a user keeps.
     /// </summary>
     public const int MaxThemes = 12;
@@ -216,6 +227,7 @@ public class PositionStore
     private readonly string _databasePath;
     private readonly IReadOnlyList<string> _migrations;
     private readonly object _migrateLock = new();
+    private readonly AsyncLocal<Shared?> _shared = new();
     private bool _migrated;
 
     /// <summary>
@@ -264,7 +276,7 @@ public class PositionStore
                 Directory.CreateDirectory(folder);
             }
 
-            using var connection = Open();
+            using var connection = OpenConnection();
             Execute(connection, "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
             using (var read = connection.CreateCommand())
             {
@@ -420,10 +432,18 @@ public class PositionStore
     /// <param name="text">The text the page opens with.</param>
     /// <param name="createdAt">When the bookmark was made.</param>
     /// <returns>The bookmark at that CFI, and whether it was added now.</returns>
+    /// <exception cref="LimitReachedException">The bookmark is new and the user already has <see cref="MaxBookmarks"/>.</exception>
     public (StoredBookmark Bookmark, bool Added) AddBookmark(Guid userId, Guid itemId, string cfi, double fraction, string text, DateTimeOffset createdAt)
     {
         EnsureMigrated();
         using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var isNew = !Exists(connection, "bookmarks", userId, itemId, cfi);
+        if (isNew && Count(connection, "bookmarks", userId) >= MaxBookmarks)
+        {
+            throw new LimitReachedException("bookmarks");
+        }
+
         int added;
         using (var insert = connection.CreateCommand())
         {
@@ -451,7 +471,15 @@ public class PositionStore
         read.Parameters.AddWithValue("$cfi", cfi);
         using var reader = read.ExecuteReader();
         reader.Read();
-        return (Bookmark(reader, 0), added > 0);
+        var bookmark = Bookmark(reader, 0);
+        reader.Close();
+        transaction.Commit();
+        if (added > 0)
+        {
+            connection.Added("bookmarks", userId);
+        }
+
+        return (bookmark, added > 0);
     }
 
     /// <summary>
@@ -533,10 +561,18 @@ public class PositionStore
     /// <param name="createdAt">When the highlight was made.</param>
     /// <param name="note">The reader's note on it; empty for none.</param>
     /// <returns>The highlight at that CFI, and whether it was added now.</returns>
+    /// <exception cref="LimitReachedException">The highlight is new and the user already has <see cref="MaxHighlights"/>.</exception>
     public (StoredHighlight Highlight, bool Added) AddHighlight(Guid userId, Guid itemId, string cfi, double fraction, string colour, string text, DateTimeOffset createdAt, string note = "")
     {
         EnsureMigrated();
         using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var isNew = !Exists(connection, "highlights", userId, itemId, cfi);
+        if (isNew && Count(connection, "highlights", userId) >= MaxHighlights)
+        {
+            throw new LimitReachedException("highlights");
+        }
+
         int added;
         using (var insert = connection.CreateCommand())
         {
@@ -566,7 +602,15 @@ public class PositionStore
         read.Parameters.AddWithValue("$cfi", cfi);
         using var reader = read.ExecuteReader();
         reader.Read();
-        return (Highlight(reader, 0), added > 0);
+        var highlight = Highlight(reader, 0);
+        reader.Close();
+        transaction.Commit();
+        if (added > 0)
+        {
+            connection.Added("highlights", userId);
+        }
+
+        return (highlight, added > 0);
     }
 
     /// <summary>
@@ -673,7 +717,6 @@ public class PositionStore
             foreach (var id in gone)
             {
                 using var move = connection.CreateCommand();
-                move.Transaction = transaction;
                 move.CommandText = "UPDATE highlights SET colour = $fallback WHERE user_id = $user AND colour = $id";
                 move.Parameters.AddWithValue("$fallback", FallbackHighlighter);
                 move.Parameters.AddWithValue("$user", Key(userId));
@@ -683,7 +726,6 @@ public class PositionStore
 
             using (var clear = connection.CreateCommand())
             {
-                clear.Transaction = transaction;
                 clear.CommandText = "DELETE FROM highlighters WHERE user_id = $user";
                 clear.Parameters.AddWithValue("$user", Key(userId));
                 clear.ExecuteNonQuery();
@@ -692,7 +734,6 @@ public class PositionStore
             for (var position = 0; position < highlighters.Count; position++)
             {
                 using var insert = connection.CreateCommand();
-                insert.Transaction = transaction;
                 insert.CommandText = "INSERT INTO highlighters (user_id, id, name, colour, position) VALUES ($user, $id, $name, $colour, $position)";
                 insert.Parameters.AddWithValue("$user", Key(userId));
                 insert.Parameters.AddWithValue("$id", highlighters[position].Id);
@@ -756,7 +797,6 @@ public class PositionStore
         using var transaction = connection.BeginTransaction();
         using (var replace = connection.CreateCommand())
         {
-            replace.Transaction = transaction;
             replace.CommandText = "DELETE FROM fonts WHERE user_id = $user AND family = $family AND weight = $weight AND italic = $italic";
             replace.Parameters.AddWithValue("$user", Key(userId));
             replace.Parameters.AddWithValue("$family", font.Family);
@@ -767,7 +807,6 @@ public class PositionStore
 
         using (var count = connection.CreateCommand())
         {
-            count.Transaction = transaction;
             count.CommandText = "SELECT COUNT(*) FROM fonts WHERE user_id = $user";
             count.Parameters.AddWithValue("$user", Key(userId));
             if ((long)count.ExecuteScalar()! >= MaxFonts)
@@ -780,7 +819,6 @@ public class PositionStore
         var stored = new StoredFont(Guid.NewGuid(), font, addedAt);
         using (var insert = connection.CreateCommand())
         {
-            insert.Transaction = transaction;
             insert.CommandText = "INSERT INTO fonts (id, user_id, family, style, weight, italic, format, data, added_at) VALUES ($id, $user, $family, $style, $weight, $italic, $format, $data, $added)";
             insert.Parameters.AddWithValue("$id", Key(stored.Id));
             insert.Parameters.AddWithValue("$user", Key(userId));
@@ -869,7 +907,6 @@ public class PositionStore
         {
             using (var clear = connection.CreateCommand())
             {
-                clear.Transaction = transaction;
                 clear.CommandText = "DELETE FROM themes WHERE user_id = $user";
                 clear.Parameters.AddWithValue("$user", Key(userId));
                 clear.ExecuteNonQuery();
@@ -878,7 +915,6 @@ public class PositionStore
             for (var position = 0; position < themes.Count; position++)
             {
                 using var insert = connection.CreateCommand();
-                insert.Transaction = transaction;
                 insert.CommandText = "INSERT INTO themes (user_id, id, name, colours, position) VALUES ($user, $id, $name, $colours, $position)";
                 insert.Parameters.AddWithValue("$user", Key(userId));
                 insert.Parameters.AddWithValue("$id", themes[position].Id);
@@ -956,7 +992,6 @@ public class PositionStore
     private static void Execute(SqliteConnection connection, string sql, SqliteTransaction? transaction = null)
     {
         using var command = connection.CreateCommand();
-        command.Transaction = transaction;
         command.CommandText = sql;
         command.ExecuteNonQuery();
     }
@@ -979,10 +1014,188 @@ public class PositionStore
         }
     }
 
-    private SqliteConnection Open()
+    /// <summary>
+    /// Runs work against the store in one transaction on one connection: every store method it calls
+    /// uses them, and nothing it wrote is kept unless all of it succeeds.
+    /// </summary>
+    /// <typeparam name="T">What the work returns.</typeparam>
+    /// <param name="work">The work.</param>
+    /// <returns>What the work returned.</returns>
+    public T RunInTransaction<T>(Func<T> work)
+    {
+        if (_shared.Value is not null)
+        {
+            return work();
+        }
+
+        EnsureMigrated();
+        using var connection = OpenConnection();
+        Execute(connection, "BEGIN IMMEDIATE");
+        _shared.Value = new Shared(connection);
+        try
+        {
+            var result = work();
+            Execute(connection, "COMMIT");
+            return result;
+        }
+        catch
+        {
+            Execute(connection, "ROLLBACK");
+            throw;
+        }
+        finally
+        {
+            _shared.Value = null;
+        }
+    }
+
+    private static bool Exists(Lease connection, string table, Guid userId, Guid itemId, string cfi)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT EXISTS (SELECT 1 FROM {table} WHERE user_id = $user AND item_id = $item AND cfi = $cfi)";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        command.Parameters.AddWithValue("$item", Key(itemId));
+        command.Parameters.AddWithValue("$cfi", cfi);
+        return (long)command.ExecuteScalar()! != 0;
+    }
+
+    // How many rows a user has in a table; inside a shared transaction, counted once and kept up to date as rows are added.
+    private static long Count(Lease connection, string table, Guid userId)
+    {
+        if (connection.Counted(table, userId) is { } known)
+        {
+            return known;
+        }
+
+        using var command = connection.CreateCommand();
+        command.CommandText = $"SELECT COUNT(*) FROM {table} WHERE user_id = $user";
+        command.Parameters.AddWithValue("$user", Key(userId));
+        var count = (long)command.ExecuteScalar()!;
+        connection.Remember(table, userId, count);
+        return count;
+    }
+
+    private SqliteConnection OpenConnection()
     {
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
         return connection;
+    }
+
+    // The connection a store method uses: the one RunInTransaction shares while it runs, else its own.
+    private Lease Open() => _shared.Value is { } shared ? new Lease(shared) : new Lease(OpenConnection());
+
+    /// <summary>
+    /// A connection lent to one store method, with transactions begun in SQL so they nest inside a shared one.
+    /// </summary>
+    private sealed class Lease : IDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private readonly Shared? _shared;
+        private readonly bool _owned;
+
+        public Lease(SqliteConnection connection)
+        {
+            _connection = connection;
+            _owned = true;
+        }
+
+        public Lease(Shared shared)
+        {
+            _connection = shared.Connection;
+            _shared = shared;
+        }
+
+        public SqliteCommand CreateCommand() => _connection.CreateCommand();
+
+        public long? Counted(string table, Guid userId) => _shared?.Counts.TryGetValue((table, userId), out var count) == true ? count : null;
+
+        public void Remember(string table, Guid userId, long count)
+        {
+            if (_shared is not null)
+            {
+                _shared.Counts[(table, userId)] = count;
+            }
+        }
+
+        public void Added(string table, Guid userId)
+        {
+            if (_shared is not null && _shared.Counts.TryGetValue((table, userId), out var count))
+            {
+                _shared.Counts[(table, userId)] = count + 1;
+            }
+        }
+
+        // Its own transaction on a connection of its own; a savepoint inside a shared transaction.
+        public Scope BeginTransaction()
+        {
+            if (_owned)
+            {
+                Execute(_connection, "BEGIN IMMEDIATE");
+                return new Scope(_connection, "COMMIT", "ROLLBACK");
+            }
+
+            var name = $"oriel_{++_shared!.Savepoints}";
+            Execute(_connection, $"SAVEPOINT {name}");
+            return new Scope(_connection, $"RELEASE {name}", $"ROLLBACK TO {name}; RELEASE {name}");
+        }
+
+        public void Dispose()
+        {
+            if (_owned)
+            {
+                _connection.Dispose();
+            }
+        }
+    }
+
+    /// <summary>
+    /// The connection and transaction RunInTransaction shares, with the row counts read in it.
+    /// </summary>
+    private sealed class Shared(SqliteConnection connection)
+    {
+        public SqliteConnection Connection { get; } = connection;
+
+        public Dictionary<(string Table, Guid UserId), long> Counts { get; } = [];
+
+        public int Savepoints { get; set; }
+    }
+
+    /// <summary>
+    /// A transaction or savepoint, rolled back when disposed without being committed.
+    /// </summary>
+    private sealed class Scope : IDisposable
+    {
+        private readonly SqliteConnection _connection;
+        private readonly string _commit;
+        private readonly string _rollback;
+        private bool _done;
+
+        public Scope(SqliteConnection connection, string commit, string rollback)
+        {
+            _connection = connection;
+            _commit = commit;
+            _rollback = rollback;
+        }
+
+        public void Commit()
+        {
+            Execute(_connection, _commit);
+            _done = true;
+        }
+
+        public void Rollback()
+        {
+            Execute(_connection, _rollback);
+            _done = true;
+        }
+
+        public void Dispose()
+        {
+            if (!_done)
+            {
+                Rollback();
+            }
+        }
     }
 }
