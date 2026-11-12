@@ -79,7 +79,8 @@ public class BookmarksController : ControllerBase
     /// <param name="request">The page.</param>
     /// <returns>
     /// The bookmark, stamped with the server's time, or the one already at that CFI;
-    /// 400 for a malformed bookmark; 404 when the book is not visible to the caller.
+    /// 400 for a malformed bookmark; 404 when the book is not visible to the caller;
+    /// 409 when the caller already has the most bookmarks kept.
     /// </returns>
     [HttpPost("{itemId:guid}")]
     [Consumes(MediaTypeNames.Application.Json)]
@@ -89,6 +90,7 @@ public class BookmarksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<BookmarkResponse>> PostBookmark([FromRoute] Guid itemId, [FromBody] BookmarkRequest? request)
     {
         var userId = await CallerAsync().ConfigureAwait(false);
@@ -110,8 +112,15 @@ public class BookmarksController : ControllerBase
             return NotFound();
         }
 
-        var (bookmark, _) = _store.AddBookmark(userId.Value, itemId, cfi, fraction, text, _time.GetUtcNow());
-        return Reply(bookmark);
+        try
+        {
+            var (bookmark, _) = _store.AddBookmark(userId.Value, itemId, cfi, fraction, text, _time.GetUtcNow());
+            return Reply(bookmark);
+        }
+        catch (LimitReachedException)
+        {
+            return Conflict(new ConflictReason("limitReached"));
+        }
     }
 
     /// <summary>

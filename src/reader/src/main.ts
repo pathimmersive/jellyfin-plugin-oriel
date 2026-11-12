@@ -237,7 +237,12 @@ const start = async (): Promise<void> => {
         // from the Selected text toolbar, and listed in the Contents panel.
         const highlights = opened.fixedLayout ? null : createHighlights({
             load: () => readHighlights(basePath, itemId, authorization),
-            add: (cfi, fraction, colour, text, note) => addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note),
+            add: async (cfi, fraction, colour, text, note) => {
+                const added = await addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note)
+                if (added !== 'limitReached') return added
+                showBriefly(NOTICE_TEXT.highlightsFull)
+                return null
+            },
             update: (id, change) => updateHighlight(basePath, itemId, authorization, id, change),
             remove: id => removeHighlight(basePath, itemId, authorization, id),
             compare: (a, b) => opened.compare(a, b),
@@ -280,7 +285,12 @@ const start = async (): Promise<void> => {
 
         const bookmarks = createBookmarks({
             load: () => readBookmarks(basePath, itemId, authorization),
-            add: (cfi, fraction, text) => addBookmark(basePath, itemId, authorization, cfi, fraction, text),
+            add: async (cfi, fraction, text) => {
+                const added = await addBookmark(basePath, itemId, authorization, cfi, fraction, text)
+                if (added !== 'limitReached') return added
+                showBriefly(NOTICE_TEXT.bookmarksFull)
+                return null
+            },
             remove: id => removeBookmark(basePath, itemId, authorization, id),
             page: () => opened.page(),
             onPage: cfi => opened.onPage(cfi),
@@ -509,6 +519,15 @@ const start = async (): Promise<void> => {
 }
 
 const INFO = 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z'
+
+// A notice that goes by itself after a few seconds, replacing one with the same text.
+const showBriefly = (text: string): void => {
+    for (const shown of document.querySelectorAll('.notice')) {
+        if (shown.querySelector('span')?.textContent === text) shown.remove()
+    }
+    const notice = showNotice(text)
+    setTimeout(() => notice.remove(), 8000)
+}
 
 // A note at the bottom of the page, as the reader's notices are drawn, with an icon and an optional action.
 const showNotice = (text: string, icon = INFO, action?: { label: string, run: () => void }): HTMLElement => {

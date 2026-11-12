@@ -299,13 +299,14 @@ export const addBookmark = async (
     fraction: number,
     text: string,
     fetchImpl: typeof fetch = fetch,
-): Promise<Bookmark | null> => {
+): Promise<Bookmark | null | 'limitReached'> => {
     try {
         const response = await fetchImpl(bookmarksUrl(basePath, itemId), {
             method: 'POST',
             headers: { Authorization: authorization, 'Content-Type': 'application/json' },
             body: JSON.stringify({ cfi, fraction, text }),
         })
+        if (await limitReached(response)) return 'limitReached'
         if (!response.ok) return null
         const data: unknown = await response.json()
         return isBookmark(data) ? data : null
@@ -366,13 +367,18 @@ export const readHighlights = async (
 }
 
 // Sends a highlight change; the highlight as stored, or null when that failed.
-const sendHighlight = async (url: string, method: string, authorization: string, body: object, fetchImpl: typeof fetch): Promise<Highlight | null> => {
+// True for the server's answer that the user already keeps the most bookmarks or highlights it allows.
+const limitReached = async (response: Response): Promise<boolean> =>
+    response.status === 409 && (await response.clone().json().catch(() => null) as { reason?: unknown } | null)?.reason === 'limitReached'
+
+const sendHighlight = async (url: string, method: string, authorization: string, body: object, fetchImpl: typeof fetch): Promise<Highlight | null | 'limitReached'> => {
     try {
         const response = await fetchImpl(url, {
             method,
             headers: { Authorization: authorization, 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
         })
+        if (await limitReached(response)) return 'limitReached'
         if (!response.ok) return null
         const data: unknown = await response.json()
         return isHighlight(data) ? data : null
@@ -381,7 +387,10 @@ const sendHighlight = async (url: string, method: string, authorization: string,
     }
 }
 
-/** Highlights text, with a note; returns the highlight as stored (or the one already there, in this colour and with this note), or null when that failed. */
+/**
+ * Highlights text, with a note; returns the highlight as stored (or the one already there, in this colour and with this note),
+ * 'limitReached' when the user already keeps the most highlights allowed, or null when that failed.
+ */
 export const addHighlight = (
     basePath: string,
     itemId: string,
@@ -392,7 +401,7 @@ export const addHighlight = (
     text: string,
     note: string,
     fetchImpl: typeof fetch = fetch,
-): Promise<Highlight | null> =>
+): Promise<Highlight | null | 'limitReached'> =>
     sendHighlight(highlightsUrl(basePath, itemId), 'POST', authorization, { cfi, fraction, colour, text, note }, fetchImpl)
 
 /** Changes a highlight's colour, its note (empty for none), or both; returns the highlight as stored, or null when that failed. */
@@ -404,7 +413,7 @@ export const updateHighlight = (
     changes: { colour?: string, note?: string },
     fetchImpl: typeof fetch = fetch,
 ): Promise<Highlight | null> =>
-    sendHighlight(highlightsUrl(basePath, itemId, id), 'PATCH', authorization, changes, fetchImpl)
+    sendHighlight(highlightsUrl(basePath, itemId, id), 'PATCH', authorization, changes, fetchImpl).then(sent => sent === 'limitReached' ? null : sent)
 
 /** Removes a highlight; returns whether it is gone (true too when the server had it no longer). */
 export const removeHighlight = async (

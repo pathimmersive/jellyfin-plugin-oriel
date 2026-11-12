@@ -60,6 +60,8 @@ export const NOTICE_TEXT = {
     signedOut: 'You are signed out of Jellyfin, so your place is not being saved.',
     notSaved: 'Your place could not be saved. Oriel will try again when you turn the page.',
     unavailable: 'Your reading data is unavailable on this server, so your place and notes will not be saved.',
+    bookmarksFull: 'You have 5,000 bookmarks, the most Oriel keeps. Remove one to add another.',
+    highlightsFull: 'You have 20,000 highlights, the most Oriel keeps. Remove one to add another.',
 }
 
 export const ICONS = {

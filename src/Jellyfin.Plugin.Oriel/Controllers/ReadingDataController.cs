@@ -69,7 +69,8 @@ public class ReadingDataController : ControllerBase
     /// </summary>
     /// <returns>
     /// How many positions were imported and kept, and the books that matched none the caller can see;
-    /// 400, storing nothing, for a file that is not an Oriel export, has a newer version, is malformed or is too large.
+    /// 400, storing nothing, for a file that is not an Oriel export, has a newer version, is malformed or is too large;
+    /// 409 while another import of the caller's runs.
     /// </returns>
     [HttpPost("Import")]
     [RequestSizeLimit(MaxImportBytes + 1)]
@@ -77,6 +78,7 @@ public class ReadingDataController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ImportResult>> Import()
     {
         var userId = await CallerAsync().ConfigureAwait(false);
@@ -92,7 +94,14 @@ public class ReadingDataController : ControllerBase
             return BadRequest();
         }
 
-        return _readingData.Import(userId.Value, file);
+        try
+        {
+            return _readingData.Import(userId.Value, file);
+        }
+        catch (ImportRunningException)
+        {
+            return Conflict(new ConflictReason("importRunning"));
+        }
     }
 
     // The whole stream, or null when it is longer than `limit` bytes.

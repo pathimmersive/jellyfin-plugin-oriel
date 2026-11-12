@@ -8,7 +8,8 @@
 // and the server keeps it for the user. With progress in Pages, a bookmark's row
 // shows the page the footer showed on its page, the page counted again after a
 // larger size, and, after a reload, the page of one the kept count never placed.
-// A comic page is bookmarked as 'Page N'.
+// A comic page is bookmarked as 'Page N'. With 5,000 bookmarks kept, the most
+// Oriel keeps, the button says so and the server keeps no more.
 // Nothing is requested from another host. Configured by environment: ORIEL_BASE
 // (server URL including any BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID,
 // ORIEL_TOKEN, ORIEL_ITEM_ID (the test EPUB), ORIEL_CBZ_ID and ORIEL_BROWSER.
@@ -65,9 +66,23 @@ const stored = async id => {
     return response.json()
 }
 const clear = async id => {
-    for (const bookmark of await stored(id)) {
-        await fetch(`${base}/Oriel/Bookmarks/${id}/${bookmark.id}`, { method: 'DELETE', headers: { Authorization: authorization } })
+    const all = await stored(id)
+    for (let at = 0; at < all.length; at += 50) {
+        await Promise.all(all.slice(at, at + 50).map(bookmark =>
+            fetch(`${base}/Oriel/Bookmarks/${id}/${bookmark.id}`, { method: 'DELETE', headers: { Authorization: authorization } })))
     }
+}
+const BOOKMARKS_FULL = 'You have 5,000 bookmarks, the most Oriel keeps. Remove one to add another.'
+// Fills the user's bookmarks to the limit on a book, by importing them.
+const fillBookmarks = async (id, from = 0) => {
+    const now = new Date().toISOString()
+    const file = {
+        format: 'oriel-reading-data', version: 6, exportedAt: now, positions: [],
+        bookmarks: Array.from({ length: 5000 }, (_, i) => ({ itemId: id, cfi: `epubcfi(/6/2!/4/2/1:${from + i})`, fraction: 0.01, text: `Planted ${from + i}`, createdAt: now })),
+    }
+    const response = await fetch(`${base}/Oriel/Import`, { method: 'POST', headers: { Authorization: authorization, 'Content-Type': 'application/json' }, body: JSON.stringify(file) })
+    if (!response.ok) fail(`importing 5,000 bookmarks returned ${response.status}`)
+    return response.json()
 }
 
 const open = async (context, id) => {
@@ -332,6 +347,24 @@ try {
     const pages = await stored(comicId)
     if (pages.length !== 1 || !/^Page \d+$/.test(pages[0].text)) fail(`the comic's bookmark keeps ${JSON.stringify(pages)}`)
     pass(`a comic page is bookmarked as '${pages[0].text}'`)
+    await clear(comicId)
+    await comic.close()
+
+    // At the limit: the button says so, and the server keeps no more.
+    await clear(itemId)
+    const planted = await fillBookmarks(comicId)
+    if (planted.bookmarks !== 5000) fail(`importing 5,000 bookmarks added ${planted.bookmarks}`)
+    page = await open(context, itemId)
+    await use(await shownButton(page))
+    const full = await page.waitForFunction(text => [...document.querySelectorAll('.notice span')].some(span => span.textContent === text), BOOKMARKS_FULL, { timeout: 10_000 })
+        .then(() => true, () => false)
+    if (!full) fail(`at 5,000 bookmarks the reader did not say '${BOOKMARKS_FULL}'`)
+    if ((await stored(itemId)).length) fail('a bookmark past the limit was kept')
+    if (!same(await state(await shownButton(page)), BOOKMARK)) fail(`at the limit the button shows ${JSON.stringify(await state(await shownButton(page)))}`)
+    const again = await fillBookmarks(comicId, 5000)
+    if (again.bookmarks !== 0 || again.limited?.join() !== 'bookmarks') fail(`importing past the limit gave ${JSON.stringify({ bookmarks: again.bookmarks, limited: again.limited })}`)
+    pass(`at 5,000 bookmarks the button says '${BOOKMARKS_FULL}', nothing more is kept, and an import past it names the limit`)
+    await page.close()
     await clear(comicId)
 
     if (elsewhere.length) fail(`requests went to other hosts: ${[...new Set(elsewhere)].join(', ')}`)
