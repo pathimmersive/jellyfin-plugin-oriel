@@ -612,8 +612,8 @@ export const readFonts = async (
     }
 }
 
-/** Why a font file was not added: too large, not a font, one too many, or anything else. */
-export type FontRefusal = 'tooLarge' | 'notAFont' | 'tooMany' | 'failed'
+/** Why a font file was not added: too large, not a font, one too many, past the user's 100 MB, uploads off on the server, or anything else. */
+export type FontRefusal = 'tooLarge' | 'notAFont' | 'tooMany' | 'quotaFull' | 'uploadsOff' | 'failed'
 
 /** Adds a font file; returns it as kept, or why it was refused. */
 export const addFont = async (
@@ -629,10 +629,11 @@ export const addFont = async (
             body: file,
         })
         if (response.status === 413) return 'tooLarge'
+        if (response.status === 403) return 'uploadsOff'
         const data: unknown = await response.json().catch(() => null)
         if (response.status === 400) {
             const reason = (data as { reason?: unknown } | null)?.reason
-            return reason === 'tooMany' || reason === 'notAFont' ? reason : 'failed'
+            return reason === 'tooMany' || reason === 'notAFont' || reason === 'quotaFull' ? reason : 'failed'
         }
         return response.ok && isOwnFont(data) ? data : 'failed'
     } catch {
@@ -670,9 +671,10 @@ export const removeFontFamily = async (
     }
 }
 
-/** What the admin has set for every reader: the translation address, with {text} where the text goes, empty when Translate is off. */
+/** What the admin has set for every reader: the translation address, with {text} where the text goes, empty when Translate is off, and whether readers may add fonts. */
 export interface ReaderSettings {
     translateUrl: string
+    fontUploads: boolean
 }
 
 /** The admin's settings for every reader, or null when they cannot be read. */
@@ -685,7 +687,7 @@ export const readReaderSettings = async (
         const response = await fetchImpl(`${basePath}/Oriel/ReaderSettings`, { headers: { Authorization: authorization } })
         if (!response.ok) return null
         const data = await response.json() as Partial<ReaderSettings> | null
-        return typeof data?.translateUrl === 'string' ? { translateUrl: data.translateUrl } : null
+        return typeof data?.translateUrl === 'string' ? { translateUrl: data.translateUrl, fontUploads: data.fontUploads === true } : null
     } catch {
         return null
     }

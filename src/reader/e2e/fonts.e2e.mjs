@@ -1,6 +1,9 @@
 // Checks the reader's own fonts in the browser named by ORIEL_BROWSER: webkit
-// at iPhone size with touch, or chromium at desktop size with a mouse. On the
-// test EPUB, Add font after the font buttons opens Your fonts with its note;
+// at iPhone size with touch, or chromium at desktop size with a mouse. With
+// EnableFontUploads off, Preferences offers the bundled fonts and a family
+// already added but no Add font, the server answers 403 uploadsOff, and a
+// family already added can still be removed. Once it is turned on through the
+// configuration API, on the test EPUB, Add font after the font buttons opens Your fonts with its note;
 // a regular TTF and an italic WOFF2 of one family make one row naming both
 // styles and a font button with the upload icon; choosing it makes it the
 // text's font, with its regular and italic files loaded from the plugin, and
@@ -77,6 +80,21 @@ const clear = async () => {
         await fetch(`${base}/Oriel/Fonts?family=${encodeURIComponent(family)}`, { method: 'DELETE', headers: { Authorization: authorization } })
     }
 }
+const addByApi = file => fetch(`${base}/Oriel/Fonts`, { method: 'POST', headers: { Authorization: authorization }, body: file.buffer })
+
+// Turns font uploads on or off in Oriel's settings, as an admin does.
+const PLUGIN_ID = '2c488ea7-0cae-4499-a2a7-6bae27b4e8f6'
+const setFontUploads = async on => {
+    const path = `${base}/Plugins/${PLUGIN_ID}/Configuration`
+    const read = await fetch(path, { headers: { Authorization: authorization } })
+    if (!read.ok) fail(`GET the plugin configuration returned ${read.status}`)
+    const written = await fetch(path, {
+        method: 'POST',
+        headers: { Authorization: authorization, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...await read.json(), EnableFontUploads: on }),
+    })
+    if (!written.ok) fail(`POST the plugin configuration returned ${written.status}`)
+}
 
 const newContext = async () => {
     const context = await browser.newContext(setup.context)
@@ -147,6 +165,25 @@ try {
     await forgetChoices(base, token)
     await clear()
     const context = await newContext()
+
+    // With uploads off: the bundled fonts and the family already added, no Add font, and the server refuses another.
+    await setFontUploads(true)
+    if (!(await addByApi(regular)).ok) fail('the regular file could not be added with uploads on')
+    await setFontUploads(false)
+    const offPage = await open(context)
+    const offPanel = await openPrefs(offPage)
+    const offButtons = await fontNames(offPanel)
+    if (offButtons.join('|') !== `Default|Literata|Noto Serif|Noto Sans|Atkinson Hyperlegible|${FAMILY}`) fail(`with uploads off the font buttons are ${offButtons.join(', ')}`)
+    if (await offPanel.locator('.your-fonts').isVisible()) fail('with uploads off Your fonts shows')
+    const refused = await addByApi(italic)
+    const reason = (await refused.json().catch(() => null))?.reason
+    if (refused.status !== 403 || reason !== 'uploadsOff') fail(`with uploads off the server answered ${refused.status} ${reason ?? ''}`)
+    await clear()
+    if ((await stored()).length) fail('with uploads off a family already added could not be removed')
+    await offPage.close()
+    pass(`with uploads off Preferences offers the bundled fonts and '${FAMILY}' without Add font, the server answers 403 uploadsOff, and the family can still be removed`)
+
+    await setFontUploads(true)
     let page = await open(context)
 
     // Add font follows the font buttons and opens Your fonts.

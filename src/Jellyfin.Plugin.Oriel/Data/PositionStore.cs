@@ -90,6 +90,9 @@ public enum FontAdded
 
     /// <summary>The user already has <see cref="PositionStore.MaxFonts"/> files and this one replaces none.</summary>
     TooMany,
+
+    /// <summary>The user's files and this one would come to more than <see cref="PositionStore.MaxFontBytes"/>.</summary>
+    QuotaFull,
 }
 
 /// <summary>
@@ -127,6 +130,11 @@ public class PositionStore
     /// The most highlights a user keeps, in all their books.
     /// </summary>
     public const int MaxHighlights = 20000;
+
+    /// <summary>
+    /// The most bytes of font files a user keeps: 100 MB.
+    /// </summary>
+    public const long MaxFontBytes = 100L * 1024 * 1024;
 
     /// <summary>
     /// The most themes of their own a user keeps.
@@ -789,7 +797,10 @@ public class PositionStore
     /// <param name="font">What the file says about itself.</param>
     /// <param name="data">The file.</param>
     /// <param name="addedAt">When it was added.</param>
-    /// <returns>The file as listed, or null with <see cref="FontAdded.TooMany"/> when the user has no room for it.</returns>
+    /// <returns>
+    /// The file as listed, or null with <see cref="FontAdded.TooMany"/> or <see cref="FontAdded.QuotaFull"/>
+    /// when the user has no room for it.
+    /// </returns>
     public (StoredFont? Font, FontAdded Result) AddFont(Guid userId, FontFile font, byte[] data, DateTimeOffset addedAt)
     {
         EnsureMigrated();
@@ -813,6 +824,17 @@ public class PositionStore
             {
                 transaction.Rollback();
                 return (null, FontAdded.TooMany);
+            }
+        }
+
+        using (var size = connection.CreateCommand())
+        {
+            size.CommandText = "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM fonts WHERE user_id = $user";
+            size.Parameters.AddWithValue("$user", Key(userId));
+            if ((long)size.ExecuteScalar()! + data.LongLength > MaxFontBytes)
+            {
+                transaction.Rollback();
+                return (null, FontAdded.QuotaFull);
             }
         }
 

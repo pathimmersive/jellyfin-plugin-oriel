@@ -74,12 +74,15 @@ public class ReaderSettingsController : ControllerBase
         }
 
         var configuration = _configuration() ?? new PluginConfiguration();
-        return new ReaderSettingsResponse(TranslateUrlFor(configuration.TranslateUrl));
+        return new ReaderSettingsResponse(TranslateUrlFor(configuration.TranslateUrl), configuration.EnableFontUploads);
     }
 
     /// <summary>
     /// The settings as <see cref="GetReaderSettings"/> returns them.
     /// </summary>
     /// <param name="TranslateUrl">The translation address with {text} where the text goes; empty when Translate is off.</param>
-    public record ReaderSettingsResponse([property: JsonPropertyName("translateUrl")] string TranslateUrl);
+    /// <param name="FontUploads">Whether readers may add their own fonts.</param>
+    public record ReaderSettingsResponse(
+        [property: JsonPropertyName("translateUrl")] string TranslateUrl,
+        [property: JsonPropertyName("fontUploads")] bool FontUploads);
 }

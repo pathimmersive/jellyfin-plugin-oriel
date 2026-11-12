@@ -167,6 +167,8 @@ const start = async (): Promise<void> => {
         // The reader's own fonts, declared like the bundled ones before the
         // first page shows. A chosen family the reader no longer has goes
         // back to Default.
+        // What the admin has set for every reader: the translation address and whether readers may add fonts.
+        const readerSettings = readReaderSettings(basePath, authorization)
         const ownFonts = createOwnFonts({
             load: () => readFonts(basePath, authorization),
             add: font => addFont(basePath, authorization, font),
@@ -185,7 +187,7 @@ const start = async (): Promise<void> => {
             save: list => saveThemes(basePath, authorization, list),
         })
         const styles = (chosen: Settings): string => bookStyles(chosen, faces, ownThemes.list())
-        const [fontsRead, , kept] = await Promise.all([ownFonts.ready, ownThemes.ready, chosen.ready])
+        const [fontsRead, , kept, admin] = await Promise.all([ownFonts.ready, ownThemes.ready, chosen.ready, readerSettings])
         settings = withChoices(settings, kept)
         writeSettings(localStorage, settings)
         const chosenFamily = ownFamilyOf(settings.font)
@@ -258,9 +260,7 @@ const start = async (): Promise<void> => {
         let highlighterSheet: HighlighterSheet | null = null
         if (highlights && highlighters) {
             highlighterSheet = createHighlighterSheet(document.body, highlighters)
-            // What the admin has set for every reader: the translation address.
-            let translateUrl = ''
-            void readReaderSettings(basePath, authorization).then(settings => { translateUrl = settings?.translateUrl ?? '' })
+            const translateUrl = admin?.translateUrl ?? ''
             const search = opened.searchable ? (query: string) => controls?.search(query) : null
             const copy = createCopy(document.body)
             // Define's sheet, with the dictionary on the server.
@@ -327,6 +327,7 @@ const start = async (): Promise<void> => {
             highlighters,
             highlighterSheet,
             fonts: ownFonts,
+            fontUploads: admin?.fontUploads === true,
             themes: ownThemes,
             settings,
             fixedLayout: opened.fixedLayout,

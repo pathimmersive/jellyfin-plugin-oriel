@@ -552,17 +552,20 @@ pass "after PlaybackPositionTicks=$PROGRESS_TICKS is written through /UserItems/
 write_user_data "{\"PlaybackPositionTicks\":$PROGRESS_TICKS,\"PlayedPercentage\":60}"
 show_user_data "PlaybackPositionTicks=$PROGRESS_TICKS and PlayedPercentage=60"
 
-# Turns the jellyfin-web integration on (true) or off (false) in Oriel's settings.
-set_integration() {
-    local prefix="$1" value="$2"
+# Turns one of Oriel's settings on (true) or off (false).
+set_setting() {
+    local prefix="$1" name="$2" value="$3"
     code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
     [ "$code" = "200" ] || fail "GET the $PLUGIN_NAME configuration returned $code"
-    sed -E "s/\"EnableWebIntegration\": *(true|false)/\"EnableWebIntegration\":$value/" "$work/body" > "$work/oriel-config.json"
-    grep -q "\"EnableWebIntegration\":$value" "$work/oriel-config.json" || fail "could not set EnableWebIntegration in $(cat "$work/body")"
+    sed -E "s/\"$name\": *(true|false)/\"$name\":$value/" "$work/body" > "$work/oriel-config.json"
+    grep -q "\"$name\":$value" "$work/oriel-config.json" || fail "could not set $name in $(cat "$work/body")"
     code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
         --data-binary "@$work/oriel-config.json" "$prefix/Plugins/$PLUGIN_ID/Configuration")"
     [ "$code" = "204" ] || fail "POST the $PLUGIN_NAME configuration returned $code"
 }
+
+# Turns the jellyfin-web integration on (true) or off (false) in Oriel's settings.
+set_integration() { set_setting "$1" EnableWebIntegration "$2"; }
 
 # A fresh install has the integration on, with only Oriel installed.
 count="$(curl -sf "$base/web/index.html" | grep -o '<script src="../Oriel/integration/launcher.js"></script>' | wc -l | tr -d ' ')"
@@ -812,6 +815,17 @@ pass "the stored position survives a server restart"
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" \
 ORIEL_ITEM_ID="$item_id" ORIEL_LATER_TEXT="Oriel smoke chapter two starts here." \
     node "$reader/e2e/exact.e2e.mjs" || fail "the reader did not keep or choose the exact position at $base"
+
+# A fresh install has font uploads off: the reader is told so and the server
+# refuses a font. The checks after this one add fonts, so an admin turns them on.
+code="$(get_status -H "Authorization: $token_header" "$base/Oriel/ReaderSettings")"
+{ [ "$code" = "200" ] && grep -q '"fontUploads":false' "$work/body"; } \
+    || fail "on a fresh install GET /Oriel/ReaderSettings returned $code: $(cat "$work/body")"
+code="$(get_status -X POST -H "Authorization: $token_header" --data-binary 'not read' "$base/Oriel/Fonts")"
+{ [ "$code" = "403" ] && grep -q '"reason":"uploadsOff"' "$work/body"; } \
+    || fail "on a fresh install POST /Oriel/Fonts returned $code: $(cat "$work/body"), expected 403 uploadsOff"
+pass "a fresh install has font uploads off: GET /Oriel/ReaderSettings says so and POST /Oriel/Fonts is 403 uploadsOff"
+set_setting "$base" EnableFontUploads true
 
 # Exporting and importing reading data: own data only, newer wins, matching by
 # title for an unknown id, unmatched books reported, bad files rejected.
