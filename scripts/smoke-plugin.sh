@@ -27,6 +27,8 @@ repo="$(cd "$(dirname "$0")/.." && pwd)"
 . "$repo/scripts/file-transformation.sh"
 work="$(mktemp -d)"
 container="oriel-smoke-$$"
+# Oriel's data folder in the container, where oriel.db lives.
+data_dir="/config/plugins/Jellyfin.Plugin.Oriel"
 
 cleanup() {
     docker rm -f "$container" >/dev/null 2>&1 || true
@@ -677,7 +679,6 @@ pass "positions for a book the user cannot see, or for an id that is not an item
 # the archive nor restored; ORIEL_EXPECT_BACKUP_KEEPS_PLUGIN_DATA=true expects
 # the opposite.
 expect_kept="${ORIEL_EXPECT_BACKUP_KEEPS_PLUGIN_DATA:-false}"
-data_dir="/config/plugins/Jellyfin.Plugin.Oriel"
 marker="oriel-backup-marker.txt"
 marker_text="oriel backup marker $RANDOM$RANDOM"
 
