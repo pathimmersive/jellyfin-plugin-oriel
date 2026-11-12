@@ -25,6 +25,8 @@ export const refusalMessage = (refusal: FontRefusal, fileName: string): string =
     tooLarge: `${fileName} is larger than 5 MB.`,
     notAFont: `${fileName} is not a TTF, OTF or WOFF2 font.`,
     tooMany: 'You already have 20 font files. Remove a font to add another.',
+    quotaFull: 'Your fonts are at their 100 MB limit. Remove a font to add another.',
+    uploadsOff: 'Adding fonts is turned off on this server.',
     failed: `${fileName} could not be added. Try again.`,
 })[refusal]
 

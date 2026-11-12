@@ -5,7 +5,9 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml.Serialization;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.Oriel.Configuration;
 using Jellyfin.Plugin.Oriel.Controllers;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
@@ -23,6 +25,7 @@ public sealed class FontsControllerTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-fonts-" + Guid.NewGuid().ToString("N"));
     private readonly PositionStore _store;
+    private readonly PluginConfiguration _configuration = new() { EnableFontUploads = true };
 
     public FontsControllerTests()
     {
@@ -154,6 +157,65 @@ public sealed class FontsControllerTests : IDisposable
         Assert.Equal("notAFont", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
 
         Assert.Empty((await Controller(Reader).GetFonts()).Value!);
+    }
+
+    [Fact]
+    public void HasFontUploadsOffByDefaultAndOnAnInstallThatSavedItsSettingsBeforeTheSettingExisted()
+    {
+        Assert.False(new PluginConfiguration().EnableFontUploads);
+
+        const string Saved = "<?xml version=\"1.0\"?><PluginConfiguration><EnableWebIntegration>true</EnableWebIntegration>"
+            + "<TranslateUrl>https://translate.google.com/?sl=auto&amp;op=translate&amp;text={text}</TranslateUrl></PluginConfiguration>";
+        using var reader = new StringReader(Saved);
+        var loaded = (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader)!;
+
+        Assert.True(loaded.EnableWebIntegration);
+        Assert.False(loaded.EnableFontUploads);
+    }
+
+    [Fact]
+    public async Task RefusesAnUploadWhileUploadsAreOffAndKeepsServingAndRemovingFontsAlreadyAdded()
+    {
+        var added = (await Controller(Reader).AddFont()).Value!;
+        _configuration.EnableFontUploads = false;
+
+        var refused = Assert.IsType<ObjectResult>((await Controller(Reader, Sfnt(0x00010000, Tables("Charter", "Bold", 700, false))).AddFont()).Result);
+        Assert.Equal(StatusCodes.Status403Forbidden, refused.StatusCode);
+        Assert.Equal("uploadsOff", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+
+        Assert.Equal([added.Id], (await Controller(Reader).GetFonts()).Value!.Select(font => font.Id));
+        Assert.IsType<FileContentResult>(await Controller(Reader).GetFont(Guid.ParseExact(added.Id, "N")));
+        Assert.IsType<NoContentResult>(await Controller(Reader).RemoveFamily("Charter"));
+        Assert.Empty((await Controller(Reader).GetFonts()).Value!);
+    }
+
+    [Fact]
+    public async Task RefusesAnUploadWhenThereIsNoConfiguration()
+    {
+        var controller = new FontsController(_store, new FakeAuthorization(Reader), TimeProvider.System, () => null)
+        {
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(Sfnt(0x00010000, Tables("Charter", "Regular", 400, false))) } } },
+        };
+
+        Assert.Equal(StatusCodes.Status403Forbidden, Assert.IsType<ObjectResult>((await controller.AddFont()).Result).StatusCode);
+    }
+
+    [Fact]
+    public async Task RefusesAFilePast100MbOfFontsAsQuotaFull()
+    {
+        // Files kept before the limits they now meet: two of 50 MB come to the quota exactly.
+        var half = new byte[(int)(PositionStore.MaxFontBytes / 2)];
+        Assert.Equal(FontAdded.Added, _store.AddFont(Reader, new FontFile("ttf", "Big", "Regular", 400, false), half, DateTimeOffset.UtcNow).Result);
+        Assert.Equal(FontAdded.Added, _store.AddFont(Reader, new FontFile("ttf", "Big", "Bold", 700, false), half, DateTimeOffset.UtcNow).Result);
+
+        var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader).AddFont()).Result);
+        Assert.Equal("quotaFull", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal(2, (await Controller(Reader).GetFonts()).Value!.Count);
+
+        // A file that replaces one of them is measured without it.
+        var replacing = _store.AddFont(Reader, new FontFile("ttf", "Big", "Bold", 700, false), new byte[1024], DateTimeOffset.UtcNow);
+        Assert.Equal(FontAdded.Added, replacing.Result);
+        Assert.Equal("Charter", (await Controller(Reader).AddFont()).Value!.Family);
     }
 
     [Fact]
@@ -332,7 +394,7 @@ public sealed class FontsControllerTests : IDisposable
     {
         var context = new DefaultHttpContext();
         context.Request.Body = new MemoryStream(body ?? Sfnt(0x00010000, Tables("Charter", "Regular", 400, false)));
-        return new(_store, new FakeAuthorization(caller), TimeProvider.System)
+        return new(_store, new FakeAuthorization(caller), TimeProvider.System, () => _configuration)
         {
             ControllerContext = new ControllerContext { HttpContext = context },
         };

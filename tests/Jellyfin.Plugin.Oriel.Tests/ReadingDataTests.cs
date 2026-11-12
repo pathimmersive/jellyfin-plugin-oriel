@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.Oriel.Configuration;
 using Jellyfin.Plugin.Oriel.Controllers;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
@@ -29,6 +30,7 @@ public sealed class ReadingDataTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-data-" + Guid.NewGuid().ToString("N"));
     private readonly PositionStore _store;
+    private readonly PluginConfiguration _configuration = new() { EnableFontUploads = true };
 
     public ReadingDataTests()
     {
@@ -409,6 +411,21 @@ public sealed class ReadingDataTests : IDisposable
     }
 
     [Fact]
+    public void ImportsEverythingButFontsWhileUploadsAreOff()
+    {
+        var (theme, _, _) = SetUp(Reader);
+        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+        _configuration.EnableFontUploads = false;
+
+        var result = Data(Dune).Import(OtherReader, file);
+
+        Assert.Equal((1, 0), (result.Themes, result.Fonts));
+        Assert.Equal([theme], _store.ListThemes(OtherReader).Select(entry => entry.Id));
+        Assert.Empty(_store.ListFonts(OtherReader));
+        Assert.Equal(2, _store.ListFonts(Reader).Count);
+    }
+
+    [Fact]
     public void KeepsTheChoiceAReaderHasMadeHere()
     {
         SetUp(Reader);
@@ -496,7 +513,7 @@ public sealed class ReadingDataTests : IDisposable
     private static ReadingDataFile Import(params ExportedPosition[] positions) =>
         new(ReadingData.Format, ReadingData.Version, Now, positions);
 
-    private ReadingData Data(params BookInfo[] visible) => new(_store, new FakeCatalog(visible));
+    private ReadingData Data(params BookInfo[] visible) => new(_store, new FakeCatalog(visible), () => _configuration);
 
     private ReadingDataController Controller(Guid caller, byte[]? body = null)
     {

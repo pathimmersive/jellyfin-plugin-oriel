@@ -37,6 +37,8 @@ export interface ControlsOptions {
     highlighterSheet: HighlighterSheet | null
     /** The reader's own fonts, kept on the server. */
     fonts: OwnFonts
+    /** Whether the server lets readers add fonts; without it there is no Add font and no Your fonts. */
+    fontUploads: boolean
     /** The reader's own themes, kept on the server. */
     themes: OwnThemes
     /** The settings the reader opened with. */
@@ -548,7 +550,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     }
     fillThemeButtons()
     const fonts = group('Font')
-    // The bundled fonts, then the reader's own families, then Add font.
+    // The bundled fonts, then the reader's own families, then Add font while the server allows adding fonts.
     let fontButtons: HTMLButtonElement[] = []
     const addFont = element('button', { type: 'button', class: 'font add', 'aria-label': 'Add font' }, `${icon(ICONS.upload)}Add font`)
     const fillFontButtons = (): void => {
@@ -561,7 +563,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
             button.addEventListener('click', () => choose({ font: choice }))
             return button
         })
-        fonts.row.replaceChildren(...fontButtons, addFont)
+        fonts.row.replaceChildren(...fontButtons, ...options.fontUploads ? [addFont] : [])
     }
     fillFontButtons()
     const smaller = element('button', { type: 'button', class: 'step', 'aria-label': 'Less size' }, '<span class="small-a">A</span>')
