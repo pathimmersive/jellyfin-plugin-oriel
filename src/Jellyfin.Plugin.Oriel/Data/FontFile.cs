@@ -21,6 +21,11 @@ public sealed record FontFile(string Format, string Family, string Style, int We
     /// </summary>
     public const int MaxNameLength = 64;
 
+    /// <summary>
+    /// The most a WOFF2 file's tables may inflate to; a file declaring more is not read.
+    /// </summary>
+    public const int MaxTablesBytes = 10 * 1024 * 1024;
+
     private const uint TrueType = 0x00010000;
     private const uint TrueTypeApple = 0x74727565; // 'true'
     private const uint OpenType = 0x4F54544F; // 'OTTO'
@@ -39,7 +44,11 @@ public sealed record FontFile(string Format, string Family, string Style, int We
     /// Reads a font file's names, weight and italic.
     /// </summary>
     /// <param name="bytes">The file.</param>
-    /// <returns>What the file says, or null when it is not a TrueType or OpenType font, bare or in WOFF2, or has no family name.</returns>
+    /// <returns>
+    /// What the file says, or null when it is not a TrueType or OpenType font, bare or in WOFF2, has no family name,
+    /// or cannot be read: a WOFF2 whose tables pass <see cref="MaxTablesBytes"/> or whose Brotli stream does not
+    /// inflate to exactly the tables its directory declares. Never throws.
+    /// </returns>
     public static FontFile? Read(ReadOnlySpan<byte> bytes)
     {
         try
@@ -84,7 +93,7 @@ public sealed record FontFile(string Format, string Family, string Style, int We
 
             return new FontFile(format, family, style, weight, italic);
         }
-        catch (Exception exception) when (exception is ArgumentOutOfRangeException or IndexOutOfRangeException or InvalidDataException or InvalidOperationException)
+        catch (Exception exception) when (exception is not OutOfMemoryException)
         {
             return null;
         }
@@ -125,9 +134,10 @@ public sealed record FontFile(string Format, string Family, string Style, int We
         }
 
         var count = U16(bytes, 12);
-        var compressedLength = (int)U32(bytes, 20);
+        var compressedLength = U32(bytes, 20);
         var at = 48;
         var entries = new List<(string Tag, int Length)>();
+        long total = 0;
         for (var i = 0; i < count; i++)
         {
             var flags = bytes[at++];
@@ -150,21 +160,37 @@ public sealed record FontFile(string Format, string Family, string Style, int We
                 length = Base128(bytes, ref at);
             }
 
+            total += length;
+            if (total > MaxTablesBytes)
+            {
+                return (null, null);
+            }
+
             entries.Add((tag, length));
         }
 
-        using var compressed = new MemoryStream(bytes.Slice(at, compressedLength).ToArray());
+        if (compressedLength > bytes.Length - at)
+        {
+            return (null, null);
+        }
+
+        // Inflate into a buffer of exactly the declared size, then make sure the stream ends there.
+        var tables = new byte[total];
+        using var compressed = new MemoryStream(bytes.Slice(at, (int)compressedLength).ToArray());
         using var brotli = new BrotliStream(compressed, CompressionMode.Decompress);
-        using var stream = new MemoryStream();
-        brotli.CopyTo(stream);
-        var tables = stream.GetBuffer().AsSpan(0, (int)stream.Length);
+        brotli.ReadExactly(tables);
+        if (brotli.Read(stackalloc byte[1]) != 0)
+        {
+            return (null, null);
+        }
+
         var found = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var offset = 0;
         foreach (var (tag, length) in entries)
         {
             if (tag is "name" or "OS/2")
             {
-                found[tag] = tables.Slice(offset, length).ToArray();
+                found[tag] = tables.AsSpan(offset, length).ToArray();
             }
 
             offset += length;
@@ -173,10 +199,10 @@ public sealed record FontFile(string Format, string Family, string Style, int We
         return ("woff2", found);
     }
 
-    // WOFF2's UIntBase128: up to five bytes, seven bits each, high bit set on all but the last.
+    // WOFF2's UIntBase128: up to five bytes, seven bits each, high bit set on all but the last; no more than int.MaxValue here.
     private static int Base128(ReadOnlySpan<byte> bytes, ref int at)
     {
-        uint value = 0;
+        long value = 0;
         for (var i = 0; i < 5; i++)
         {
             var b = bytes[at++];
@@ -185,10 +211,10 @@ public sealed record FontFile(string Format, string Family, string Style, int We
                 throw new InvalidDataException("A UIntBase128 starts with a zero.");
             }
 
-            value = (value << 7) | (uint)(b & 0x7F);
+            value = (value << 7) | (long)(b & 0x7F);
             if ((b & 0x80) == 0)
             {
-                return checked((int)value);
+                return value <= int.MaxValue ? (int)value : throw new InvalidDataException("A UIntBase128 is past int range.");
             }
         }
 
