@@ -90,7 +90,8 @@ public sealed class PositionsControllerTests : IDisposable
     [MemberData(nameof(MalformedPositions))]
     public async Task RejectsAMalformedPositionAndStoresNothing(string? cfi, double? fraction)
     {
-        Assert.IsType<BadRequestResult>((await Controller(Reader).PutPosition(Book, new(cfi, fraction))).Result);
+        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi" : "invalidFraction";
+        Assert.Equal(expected, Refused.Reason((await Controller(Reader).PutPosition(Book, new(cfi, fraction))).Result));
         Assert.Null(_store.Get(Reader, Book));
     }
 

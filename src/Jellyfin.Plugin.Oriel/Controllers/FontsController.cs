@@ -19,6 +19,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Lists, adds, serves and removes the caller's own font files.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Fonts")]
 [Authorize]
 [StoreUnavailable]
@@ -124,7 +125,7 @@ public class FontsController : ControllerBase
             body.Write(buffer, 0, read);
             if (body.Length > MaxBytes)
             {
-                return StatusCode(StatusCodes.Status413PayloadTooLarge);
+                return StatusCode(StatusCodes.Status413PayloadTooLarge, new Refusal("tooLarge"));
             }
         }
 

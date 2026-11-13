@@ -74,7 +74,7 @@ public sealed class ThemesControllerTests : IDisposable
         var mine = (await Controller(Reader).PutThemes([NightBlue()])).Value!;
 
         Assert.Empty((await Controller(OtherReader).GetThemes()).Value!);
-        Assert.IsType<BadRequestResult>((await Controller(OtherReader).PutThemes([NightBlue(mine[0].Id)])).Result);
+        Assert.Equal("invalidThemes", Refused.Reason((await Controller(OtherReader).PutThemes([NightBlue(mine[0].Id)])).Result));
         Assert.Equal(mine, (await Controller(Reader).GetThemes()).Value!);
     }
 
@@ -98,10 +98,10 @@ public sealed class ThemesControllerTests : IDisposable
             [.. Enumerable.Range(0, 13).Select(_ => (Entry?)NightBlue())],
         })
         {
-            Assert.IsType<BadRequestResult>((await controller.PutThemes(list)).Result);
+            Assert.Equal("invalidThemes", Refused.Reason((await controller.PutThemes(list)).Result));
         }
 
-        Assert.IsType<BadRequestResult>((await controller.PutThemes(null)).Result);
+        Assert.Equal("invalidThemes", Refused.Reason((await controller.PutThemes(null)).Result));
         Assert.Equal(kept, (await controller.GetThemes()).Value!);
         Assert.Equal(12, (await controller.PutThemes([.. Enumerable.Range(0, 12).Select(_ => (Entry?)NightBlue())])).Value!.Count);
     }

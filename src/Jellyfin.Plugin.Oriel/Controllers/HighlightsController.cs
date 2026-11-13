@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Lists, adds, changes and removes the caller's highlights in a book, with their notes.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Highlights")]
 [Authorize]
 [StoreUnavailable]
@@ -104,14 +105,29 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi
-            || request.Fraction is not { } fraction
-            || double.IsNaN(fraction) || fraction < 0 || fraction > 1
-            || request.Colour is not { } colour || !_store.HighlighterIds(userId.Value).Contains(colour)
-            || request.Text is not { Length: <= MaxTextLength } text
-            || request.Note is { Length: > MaxNoteLength })
+        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidCfi"));
+        }
+
+        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        {
+            return BadRequest(new RequestRefusal("invalidFraction"));
+        }
+
+        if (request.Colour is not { } colour || !_store.HighlighterIds(userId.Value).Contains(colour))
+        {
+            return BadRequest(new RequestRefusal("unknownHighlighter"));
+        }
+
+        if (request.Text is not { Length: <= MaxTextLength } text)
+        {
+            return BadRequest(new RequestRefusal("invalidText"));
+        }
+
+        if (request.Note is { Length: > MaxNoteLength })
+        {
+            return BadRequest(new RequestRefusal("noteTooLong"));
         }
 
         if (!_itemAccess.CanSee(userId.Value, itemId))
@@ -163,11 +179,19 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request is null || (request.Colour is null && request.Note is null)
-            || (request.Colour is { } colour && !_store.HighlighterIds(userId.Value).Contains(colour))
-            || request.Note is { Length: > MaxNoteLength })
+        if (request is null || (request.Colour is null && request.Note is null))
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("noChange"));
+        }
+
+        if (request.Colour is { } colour && !_store.HighlighterIds(userId.Value).Contains(colour))
+        {
+            return BadRequest(new RequestRefusal("unknownHighlighter"));
+        }
+
+        if (request.Note is { Length: > MaxNoteLength })
+        {
+            return BadRequest(new RequestRefusal("noteTooLong"));
         }
 
         if (!_itemAccess.CanSee(userId.Value, itemId) || _store.UpdateHighlight(userId.Value, itemId, highlightId, request.Colour, request.Note) is not { } highlight)

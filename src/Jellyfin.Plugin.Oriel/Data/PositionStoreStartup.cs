@@ -10,7 +10,7 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// Opens the position store when the server starts and brings its schema up to date.
 /// A store that cannot be opened is logged and left alone, so Jellyfin still starts.
 /// </summary>
-public class PositionStoreStartup : IHostedService
+public partial class PositionStoreStartup : IHostedService
 {
     private readonly PositionStore _store;
     private readonly ILogger<PositionStoreStartup> _logger;
@@ -31,7 +31,7 @@ public class PositionStoreStartup : IHostedService
     {
         try
         {
-            var version = _store.Migrate();
+            var version = _store.Migrate((from, to) => LogMigrated(_logger, from, to));
             _logger.LogInformation("Oriel reading position store is at schema version {Version}", version);
         }
         catch (Exception exception)
@@ -48,4 +48,7 @@ public class PositionStoreStartup : IHostedService
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Oriel's reading data store moved from schema version {From} to {To}")]
+    private static partial void LogMigrated(ILogger logger, int from, int to);
 }

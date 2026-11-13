@@ -158,7 +158,11 @@ public sealed class HighlightsControllerTests : IDisposable
     [MemberData(nameof(MalformedHighlights))]
     public async Task RejectsAMalformedHighlightAndStoresNothing(string? cfi, double? fraction, string? colour, string? text)
     {
-        Assert.IsType<BadRequestResult>((await Controller(Reader).PostHighlight(Book, new(cfi, fraction, colour, text))).Result);
+        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi"
+            : fraction is not (>= 0 and <= 1) ? "invalidFraction"
+            : colour is not ("yellow" or "green" or "blue" or "pink") ? "unknownHighlighter"
+            : "invalidText";
+        Assert.Equal(expected, Refused.Reason((await Controller(Reader).PostHighlight(Book, new(cfi, fraction, colour, text))).Result));
         Assert.Empty(_store.ListHighlights(Reader, Book));
     }
 
@@ -168,9 +172,9 @@ public sealed class HighlightsControllerTests : IDisposable
         var controller = Controller(Reader);
         var tooLong = new string('a', HighlightsController.MaxNoteLength + 1);
 
-        Assert.IsType<BadRequestResult>((await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", tooLong))).Result);
+        Assert.Equal("noteTooLong", Refused.Reason((await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", tooLong))).Result));
         var added = (await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", new string('a', HighlightsController.MaxNoteLength)))).Value!;
-        Assert.IsType<BadRequestResult>((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(null, tooLong))).Result);
+        Assert.Equal("noteTooLong", Refused.Reason((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(null, tooLong))).Result));
         Assert.Equal([added], (await controller.GetHighlights(Book)).Value!);
     }
 
@@ -182,7 +186,7 @@ public sealed class HighlightsControllerTests : IDisposable
         var controller = Controller(Reader);
         var added = (await controller.PostHighlight(Book, new(Cfi, 0.6, "yellow", "Text"))).Value!;
 
-        Assert.IsType<BadRequestResult>((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(colour))).Result);
+        Assert.Equal(colour is null ? "noChange" : "unknownHighlighter", Refused.Reason((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(colour))).Result));
         Assert.Equal([added], (await controller.GetHighlights(Book)).Value!);
     }
 

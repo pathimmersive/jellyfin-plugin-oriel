@@ -843,6 +843,13 @@ ORIEL_BASE="$base" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
 ORIEL_OTHER_TOKEN="$(sed -E 's/.*Token="([^"]*)".*/\1/' <<< "$reader_header")" ORIEL_OTHER_CFI="epubcfi(/6/4!/4/2/1:0)" \
     node "$reader/e2e/reading-data.e2e.mjs" || fail "exporting or importing reading data at $base"
 
+# The server log shows what Oriel did: the store's schema steps and the imports
+# above, with ids and counts. Saved first, as grep -q stops reading at a match.
+MSYS_NO_PATHCONV=1 docker logs "$container" > "$work/server.log" 2>&1 || fail "docker logs"
+grep -q "Oriel's reading data store moved from schema version 0 to 1" "$work/server.log"     || fail "the server log does not show Oriel's store being created"
+grep -q -E "Oriel imported reading data for user [0-9a-f-]+: [0-9]+ positions imported" "$work/server.log"     || fail "the server log does not show the imports"
+pass "the server log shows Oriel's schema steps and its imports, with ids and counts"
+
 # The Your reading data page: download, import and its summary, the bad-file
 # alert, Back to the book, and the sign-in redirect, at phone and desktop widths.
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \

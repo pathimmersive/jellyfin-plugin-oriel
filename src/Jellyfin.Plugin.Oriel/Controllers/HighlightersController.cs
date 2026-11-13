@@ -17,6 +17,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Lists and replaces the caller's highlighters: the four built-ins and their own.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Highlighters")]
 [Authorize]
 [StoreUnavailable]
@@ -138,7 +139,7 @@ public partial class HighlightersController : ControllerBase
         var own = _store.ListHighlighters(userId.Value).Where(highlighter => !highlighter.BuiltIn).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
         if (Check(request, own) is not { } list)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidHighlighters"));
         }
 
         return _store.ReplaceHighlighters(userId.Value, list).Select(Reply).ToList();

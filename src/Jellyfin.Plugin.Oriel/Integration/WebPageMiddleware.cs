@@ -23,6 +23,7 @@ public sealed partial class WebPageMiddleware
     private readonly Func<bool> _enabled;
     private readonly Func<string?> _baseUrl;
     private readonly Func<WebFile, string, string?> _change;
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<(WebFile File, int Length, int Hash), bool> _logged = new();
 
     /// <summary>
     /// Initializes a new instance of the <see cref="WebPageMiddleware"/> class.
@@ -182,6 +183,20 @@ public sealed partial class WebPageMiddleware
         try
         {
             var changed = _change(file, Encoding.UTF8.GetString(stock));
+
+            // Each file and content is logged once, not on every request that serves it.
+            if (_logged.TryAdd((file, stock.Length, StockHash(stock)), true))
+            {
+                if (changed is null)
+                {
+                    LogNothingToChange(_logger, file);
+                }
+                else
+                {
+                    LogChanged(_logger, file);
+                }
+            }
+
             return changed is null ? stock : Encoding.UTF8.GetBytes(changed);
         }
         catch (Exception exception)
@@ -191,6 +206,19 @@ public sealed partial class WebPageMiddleware
             return stock;
         }
     }
+
+    private static int StockHash(byte[] stock)
+    {
+        var hash = default(HashCode);
+        hash.AddBytes(stock);
+        return hash.ToHashCode();
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Oriel changed jellyfin-web's {File} so that Play and Resume on a book open Oriel")]
+    private static partial void LogChanged(ILogger logger, WebFile file);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel found no place to change in jellyfin-web's {File}; serving it unchanged, so Play opens Jellyfin's own reader")]
+    private static partial void LogNothingToChange(ILogger logger, WebFile file);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "Changing jellyfin-web's {File} for Oriel failed; serving it unchanged")]
     private static partial void LogChangeFailed(ILogger logger, WebFile file, Exception exception);

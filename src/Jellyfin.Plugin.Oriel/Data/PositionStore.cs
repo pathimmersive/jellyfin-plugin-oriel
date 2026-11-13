@@ -274,7 +274,15 @@ public class PositionStore
     /// </summary>
     /// <returns>The schema version afterwards.</returns>
     /// <exception cref="InvalidOperationException">The database is at a schema newer than this plugin's.</exception>
-    public int Migrate()
+    public int Migrate() => Migrate(null);
+
+    /// <summary>
+    /// Brings the database up to the current schema as <see cref="Migrate()"/> does, telling <paramref name="applied"/> each step.
+    /// </summary>
+    /// <param name="applied">Called with the version before and after each step applied.</param>
+    /// <returns>The schema version afterwards.</returns>
+    /// <exception cref="InvalidOperationException">The database is at a schema newer than this plugin's.</exception>
+    public int Migrate(Action<int, int>? applied)
     {
         lock (_migrateLock)
         {
@@ -303,6 +311,7 @@ public class PositionStore
                     Execute(connection, "DELETE FROM schema_version", transaction);
                     Execute(connection, $"INSERT INTO schema_version (version) VALUES ({version + 1})", transaction);
                     transaction.Commit();
+                    applied?.Invoke(version, version + 1);
                 }
             }
 

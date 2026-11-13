@@ -100,7 +100,7 @@ public sealed class HighlightersControllerTests : IDisposable
         Assert.Equal(4, (await Controller(OtherReader).GetHighlighters()).Value!.Count);
         var theirs = BuiltIns();
         theirs.Add(new Entry(mine, "Taken", "#4db6ac"));
-        Assert.IsType<BadRequestResult>((await Controller(OtherReader).PutHighlighters(theirs)).Result);
+        Assert.Equal("invalidHighlighters", Refused.Reason((await Controller(OtherReader).PutHighlighters(theirs)).Result));
     }
 
     [Fact]
@@ -143,7 +143,7 @@ public sealed class HighlightersControllerTests : IDisposable
             case "a null entry": list.Add(null); break;
         }
 
-        Assert.IsType<BadRequestResult>((await Controller(Reader).PutHighlighters(list)).Result);
+        Assert.Equal("invalidHighlighters", Refused.Reason((await Controller(Reader).PutHighlighters(list)).Result));
         Assert.Equal(4, _store.ListHighlighters(Reader).Count);
     }
 
@@ -163,7 +163,7 @@ public sealed class HighlightersControllerTests : IDisposable
         };
 
         Assert.Equal(questions, (await highlights.PostHighlight(Book, new("epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, questions, "Text"))).Value!.Colour);
-        Assert.IsType<BadRequestResult>((await theirs.PostHighlight(Book, new("epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, questions, "Text"))).Result);
+        Assert.Equal("unknownHighlighter", Refused.Reason((await theirs.PostHighlight(Book, new("epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, questions, "Text"))).Result));
     }
 
     private HighlightersController Controller(Guid caller) =>

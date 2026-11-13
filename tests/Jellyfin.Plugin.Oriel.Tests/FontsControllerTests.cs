@@ -193,7 +193,9 @@ public sealed class FontsControllerTests : IDisposable
     public async Task RefusesAFileOver5MbAndAFileThatIsNotAFont()
     {
         var over = new byte[FontsController.MaxBytes + 1];
-        Assert.Equal(StatusCodes.Status413PayloadTooLarge, Assert.IsType<StatusCodeResult>((await Controller(Reader, over).AddFont()).Result).StatusCode);
+        var tooLarge = Assert.IsType<ObjectResult>((await Controller(Reader, over).AddFont()).Result);
+        Assert.Equal(StatusCodes.Status413PayloadTooLarge, tooLarge.StatusCode);
+        Assert.Equal("tooLarge", Assert.IsType<FontsController.Refusal>(tooLarge.Value).Reason);
 
         var atLimit = new byte[FontsController.MaxBytes];
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, atLimit).AddFont()).Result);
