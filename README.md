@@ -27,9 +27,10 @@ Oriel is an e-book reader for Jellyfin, hosted by the Jellyfin server as a plugi
 Early development; there is no release yet. What works today:
 
 - A reader page at `/Oriel/?id=<itemId>` that renders EPUB books from your library with [foliate-js](https://github.com/johnfactotum/foliate-js).
-- Play and Resume on a book in jellyfin-web open Oriel instead of the built-in reader. Oriel adds this itself as jellyfin-web is served, with no other plugin to install; an admin can turn it off with `EnableWebIntegration` in Oriel's settings.
+- Play and Resume on a book in jellyfin-web open Oriel instead of the built-in reader. Oriel adds this itself as jellyfin-web is served, with no other plugin to install; an admin can turn it off in Oriel's settings.
 - In a desktop browser, pages turn with the arrow keys, Space, Page Up and Page Down, a click on the left or right edge, the mouse wheel or a two-finger trackpad swipe.
 - Oriel keeps your exact place in each book, per user, and opens where you stopped, also after reading in another app.
+- Admins set Oriel up under **Dashboard → Plugins → Oriel**: whether Play and Resume open Oriel, whether readers may add their own fonts (off until an admin turns it on), and the Translate address. Translate opens Google Translate by default; the text a reader selects is sent to that site, and an admin can change the address to another https site or clear it to turn Translate off.
 - Your reading positions can be exported to a file and imported again, on the same server or another one, through `/Oriel/Export` and `/Oriel/Import`.
 
 Oriel has been tried in Safari and the Jellyfin app on iOS, and in the Jellyfin app on Android. Reader settings and annotations are planned but not built yet.

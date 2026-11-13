@@ -24,14 +24,15 @@ public sealed class ReaderSettingsControllerTests
 
     [Theory]
     [InlineData("https://www.deepl.com/translator#auto/en/{text}", "https://www.deepl.com/translator#auto/en/{text}")]
-    [InlineData("  http://translate.example.lan/?q={text}  ", "http://translate.example.lan/?q={text}")]
+    [InlineData("  https://translate.example.lan/?q={text}  ", "https://translate.example.lan/?q={text}")]
+    [InlineData("http://translate.example.lan/?q={text}", "")]
     [InlineData("", "")]
     [InlineData("   ", "")]
     [InlineData(null, "")]
     [InlineData("javascript:alert({text})", "")]
     [InlineData("translate.google.com/?text={text}", "")]
     [InlineData("ftp://example.com/{text}", "")]
-    public async Task GivesTheAdminsAddressOnlyWhenItIsHttpOrHttps(string? configured, string expected)
+    public async Task GivesTheAdminsAddressOnlyWhenItIsHttps(string? configured, string expected)
     {
         var configuration = new PluginConfiguration { TranslateUrl = configured };
 

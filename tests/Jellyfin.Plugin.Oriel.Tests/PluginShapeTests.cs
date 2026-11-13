@@ -45,9 +45,19 @@ public class PluginShapeTests
     }
 
     [Fact]
-    public void NoTypeImplementsIHasWebPages()
+    public void OnlyThePluginHasWebPagesAndTheyAreItsSettingsPage()
     {
-        Assert.DoesNotContain(_pluginTypes, t => typeof(IHasWebPages).IsAssignableFrom(t));
+        Assert.Equal([typeof(Plugin)], _pluginTypes.Where(t => typeof(IHasWebPages).IsAssignableFrom(t)));
+        Assert.Equal(["oriel", "oriel.js"], Plugin.Pages.Select(page => page.Name));
+
+        var resources = typeof(Plugin).Assembly.GetManifestResourceNames();
+        foreach (var page in Plugin.Pages)
+        {
+            Assert.Contains(page.EmbeddedResourcePath, resources);
+        }
+
+        using var html = new StreamReader(typeof(Plugin).Assembly.GetManifestResourceStream(Plugin.Pages[0].EmbeddedResourcePath)!);
+        Assert.Contains("data-controller=\"__plugin/oriel.js\"", html.ReadToEnd(), StringComparison.Ordinal);
     }
 
     [Fact]

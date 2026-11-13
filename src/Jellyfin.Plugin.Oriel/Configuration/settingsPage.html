@@ -1,0 +1,40 @@
+<div id="orielSettingsPage" data-role="page" class="page type-interior pluginConfigurationPage orielSettingsPage" data-require="emby-input,emby-button,emby-checkbox" data-controller="__plugin/oriel.js">
+    <div data-role="content">
+        <div class="content-primary">
+            <form class="orielSettingsForm">
+                <div class="verticalSection">
+                    <h2 class="sectionTitle">Oriel</h2>
+                    <p>Settings for every reader on this server. A change applies as soon as it is saved.</p>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input is="emby-checkbox" type="checkbox" id="orielWebIntegration" />
+                        <span>Open books in Oriel</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Play and Resume on a book open Oriel instead of Jellyfin's own reader.</div>
+                </div>
+
+                <div class="checkboxContainer checkboxContainer-withDescription">
+                    <label class="emby-checkbox-label">
+                        <input is="emby-checkbox" type="checkbox" id="orielFontUploads" />
+                        <span>Let readers add their own fonts</span>
+                    </label>
+                    <div class="fieldDescription checkboxFieldDescription">Readers can upload TTF, OTF and WOFF2 fonts, up to 100 MB each. Fonts already added keep working when this is off.</div>
+                </div>
+
+                <div class="inputContainer">
+                    <input is="emby-input" type="text" id="orielTranslateUrl" label="Translate address" />
+                    <div class="fieldDescription">An https address with {text} where the selected text goes, or empty to turn Translate off. When a reader chooses Translate, the text they selected is sent to this site.</div>
+                </div>
+
+                <p class="orielSettingsError" role="alert" hidden></p>
+                <p class="orielSettingsSaved" role="status" hidden>Saved.</p>
+
+                <button is="emby-button" type="submit" class="raised button-submit block">
+                    <span>Save</span>
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
