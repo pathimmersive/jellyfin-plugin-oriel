@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Positions")]
 [Authorize]
+[StoreUnavailable]
 public class PositionsController : ControllerBase
 {
     /// <summary>

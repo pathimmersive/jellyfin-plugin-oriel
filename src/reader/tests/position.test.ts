@@ -148,6 +148,8 @@ describe('position requests', () => {
         expect(await readStoredPosition('', 'abc', 'auth', json(null, 404))).toBeNull()
         expect(await readStoredPosition('', 'abc', 'auth', json({ cfi: 5 }))).toBeNull()
         expect(await readStoredPosition('', 'abc', 'auth', failing)).toBeNull()
+        expect(await readStoredPosition('', 'abc', 'auth', json({ reason: 'storeUnavailable' }, 503))).toBe('unavailable')
+        expect(await readStoredPosition('', 'abc', 'auth', json(null, 503))).toBeNull()
     })
 
     it('stores a position and returns it as the server stored it', async () => {

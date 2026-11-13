@@ -18,6 +18,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Highlights")]
 [Authorize]
+[StoreUnavailable]
 public class HighlightsController : ControllerBase
 {
     /// <summary>
@@ -94,6 +95,7 @@ public class HighlightsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<HighlightResponse>> PostHighlight([FromRoute] Guid itemId, [FromBody] HighlightRequest? request)
     {
         var userId = await CallerAsync().ConfigureAwait(false);
@@ -117,7 +119,16 @@ public class HighlightsController : ControllerBase
             return NotFound();
         }
 
-        var (highlight, _) = _store.AddHighlight(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow(), request.Note ?? string.Empty);
+        StoredHighlight highlight;
+        try
+        {
+            (highlight, _) = _store.AddHighlight(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow(), request.Note ?? string.Empty);
+        }
+        catch (LimitReachedException)
+        {
+            return Conflict(new ConflictReason("limitReached"));
+        }
+
         if (highlight.Colour != colour || (request.Note is { } note && highlight.Note != note))
         {
             highlight = _store.UpdateHighlight(userId.Value, itemId, highlight.Id, colour, request.Note) ?? highlight;

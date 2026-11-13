@@ -19,6 +19,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Route("Oriel/Highlighters")]
 [Authorize]
+[StoreUnavailable]
 public partial class HighlightersController : ControllerBase
 {
     /// <summary>
