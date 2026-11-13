@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Lists and replaces the caller's own themes.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Themes")]
 [Authorize]
 [StoreUnavailable]
@@ -125,7 +126,7 @@ public class ThemesController : ControllerBase
         var own = _store.ListThemes(userId.Value).Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
         if (Check(request, own) is not { } list)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidThemes"));
         }
 
         return _store.ReplaceThemes(userId.Value, list).Select(Reply).ToList();

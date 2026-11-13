@@ -119,13 +119,13 @@ public sealed class DictionaryControllerTests
     [InlineData("?!")]
     public async Task ReturnsBadRequestWithoutAWord(string? word)
     {
-        Assert.IsType<BadRequestResult>((await Controller(Guid.NewGuid()).GetDefinition(word)).Result);
+        Assert.Equal("invalidWord", Refused.Reason((await Controller(Guid.NewGuid()).GetDefinition(word)).Result));
     }
 
     [Fact]
     public async Task ReturnsBadRequestForMoreThanSixtyFourCharacters()
     {
-        Assert.IsType<BadRequestResult>((await Controller(Guid.NewGuid()).GetDefinition(new string('a', 65))).Result);
+        Assert.Equal("invalidWord", Refused.Reason((await Controller(Guid.NewGuid()).GetDefinition(new string('a', 65))).Result));
         Assert.IsType<NotFoundResult>((await Controller(Guid.NewGuid()).GetDefinition(new string('a', 64))).Result);
     }
 

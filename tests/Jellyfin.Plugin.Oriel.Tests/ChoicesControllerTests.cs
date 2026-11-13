@@ -72,8 +72,8 @@ public sealed class ChoicesControllerTests : IDisposable
         await Controller(Reader).PutChoices(new Choice($"own:{theme}", "own:Merriweather"));
 
         Assert.Equal(new ChoicesController.ChoicesResponse(null, null), (await Controller(OtherReader).GetChoices()).Value);
-        Assert.IsType<BadRequestResult>((await Controller(OtherReader).PutChoices(new Choice($"own:{theme}", "Default"))).Result);
-        Assert.IsType<BadRequestResult>((await Controller(OtherReader).PutChoices(new Choice("light", "own:Merriweather"))).Result);
+        Assert.Equal("invalidChoices", Refused.Reason((await Controller(OtherReader).PutChoices(new Choice($"own:{theme}", "Default"))).Result));
+        Assert.Equal("invalidChoices", Refused.Reason((await Controller(OtherReader).PutChoices(new Choice("light", "own:Merriweather"))).Result));
     }
 
     [Fact]
@@ -95,7 +95,7 @@ public sealed class ChoicesControllerTests : IDisposable
             new("light", "own:Merriweather"),
         })
         {
-            Assert.IsType<BadRequestResult>((await controller.PutChoices(choice)).Result);
+            Assert.Equal("invalidChoices", Refused.Reason((await controller.PutChoices(choice)).Result));
         }
 
         Assert.Equal(new ChoicesController.ChoicesResponse("sepia", "Literata"), (await controller.GetChoices()).Value);

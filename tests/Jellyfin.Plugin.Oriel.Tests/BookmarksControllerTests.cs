@@ -116,7 +116,10 @@ public sealed class BookmarksControllerTests : IDisposable
     [MemberData(nameof(MalformedBookmarks))]
     public async Task RejectsAMalformedBookmarkAndStoresNothing(string? cfi, double? fraction, string? text)
     {
-        Assert.IsType<BadRequestResult>((await Controller(Reader).PostBookmark(Book, new(cfi, fraction, text))).Result);
+        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi"
+            : fraction is not (>= 0 and <= 1) ? "invalidFraction"
+            : "invalidText";
+        Assert.Equal(expected, Refused.Reason((await Controller(Reader).PostBookmark(Book, new(cfi, fraction, text))).Result));
         Assert.Empty(_store.ListBookmarks(Reader, Book));
     }
 

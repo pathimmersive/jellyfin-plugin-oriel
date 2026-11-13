@@ -15,6 +15,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Gives the reader what the admin has set for every reader.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/ReaderSettings")]
 [Authorize]
 public class ReaderSettingsController : ControllerBase

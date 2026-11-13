@@ -15,6 +15,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Defines words from the English dictionary the plugin carries, with no request to any other host.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Dictionary")]
 [Authorize]
 public class DictionaryController : ControllerBase
@@ -54,7 +55,7 @@ public class DictionaryController : ControllerBase
 
         if (word is null || word.Length > EnglishDictionary.MaxLength || EnglishDictionary.Normalize(word).Length == 0)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidWord"));
         }
 
         var entries = _dictionary.Lookup(word);

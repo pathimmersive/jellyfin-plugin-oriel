@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Lists, adds and removes the caller's bookmarks in a book.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Bookmarks")]
 [Authorize]
 [StoreUnavailable]
@@ -99,12 +100,19 @@ public class BookmarksController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi
-            || request.Fraction is not { } fraction
-            || double.IsNaN(fraction) || fraction < 0 || fraction > 1
-            || request.Text is not { Length: <= MaxTextLength } text)
+        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidCfi"));
+        }
+
+        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        {
+            return BadRequest(new RequestRefusal("invalidFraction"));
+        }
+
+        if (request.Text is not { Length: <= MaxTextLength } text)
+        {
+            return BadRequest(new RequestRefusal("invalidText"));
         }
 
         if (!_itemAccess.CanSee(userId.Value, itemId))

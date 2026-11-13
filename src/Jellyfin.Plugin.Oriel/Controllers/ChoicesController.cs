@@ -16,6 +16,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Gets and keeps the theme and font the caller has chosen, so they follow the caller to every device.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Choices")]
 [Authorize]
 [StoreUnavailable]
@@ -115,7 +116,7 @@ public class ChoicesController : ControllerBase
         var families = _store.ListFonts(userId.Value).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
         if (Check(request, themes, families) is not { } choices)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidChoices"));
         }
 
         _store.SaveChoices(userId.Value, choices);

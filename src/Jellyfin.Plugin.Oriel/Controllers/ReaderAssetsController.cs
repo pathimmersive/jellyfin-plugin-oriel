@@ -12,6 +12,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Serves the reader page at /Oriel/ and the endpoint that identifies the caller.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel")]
 public class ReaderAssetsController : ControllerBase
 {

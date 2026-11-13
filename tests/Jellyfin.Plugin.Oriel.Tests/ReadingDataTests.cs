@@ -370,8 +370,8 @@ public sealed class ReadingDataTests : IDisposable
         var tooLarge = Controller(Reader, ReadingData.Serialize(Import(Entry(Dune, Cfi, Now))));
         tooLarge.HttpContext.Request.ContentLength = ReadingDataController.MaxImportBytes + 1L;
 
-        Assert.IsType<BadRequestResult>((await Controller(Reader, "{\"format\":"u8.ToArray()).Import()).Result);
-        Assert.IsType<BadRequestResult>((await tooLarge.Import()).Result);
+        Assert.Equal("malformed", Refused.Reason((await Controller(Reader, "{\"format\":"u8.ToArray()).Import()).Result));
+        Assert.Equal("tooLarge", Refused.Reason((await tooLarge.Import()).Result));
         Assert.Null(_store.Get(Reader, Dune.ItemId));
     }
 

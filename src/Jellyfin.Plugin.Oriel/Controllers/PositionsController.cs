@@ -14,6 +14,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 /// Reads and saves the caller's exact reading position in a book.
 /// </summary>
 [ApiController]
+[Refusals]
 [Route("Oriel/Positions")]
 [Authorize]
 [StoreUnavailable]
@@ -98,11 +99,14 @@ public class PositionsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= MaxCfiLength } cfi
-            || request.Fraction is not { } fraction
-            || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        if (request?.Cfi is not { Length: > 0 and <= MaxCfiLength } cfi)
         {
-            return BadRequest();
+            return BadRequest(new RequestRefusal("invalidCfi"));
+        }
+
+        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        {
+            return BadRequest(new RequestRefusal("invalidFraction"));
         }
 
         if (!_itemAccess.CanSee(userId.Value, itemId))

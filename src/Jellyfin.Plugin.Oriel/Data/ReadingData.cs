@@ -325,7 +325,15 @@ public class ReadingData
     /// </summary>
     /// <param name="json">The UTF-8 JSON.</param>
     /// <returns>The file, or null when it is not one this plugin can import.</returns>
-    public static ReadingDataFile? Parse(ReadOnlySpan<byte> json)
+    public static ReadingDataFile? Parse(ReadOnlySpan<byte> json) => Parse(json, out _);
+
+    /// <summary>
+    /// Reads a file as <see cref="Parse(ReadOnlySpan{byte})"/> does, saying why it refused one.
+    /// </summary>
+    /// <param name="json">The UTF-8 JSON.</param>
+    /// <param name="reason">notAnExport, newerVersion or malformed when the file is refused; null when it is read.</param>
+    /// <returns>The file, or null when it is not one this plugin can import.</returns>
+    public static ReadingDataFile? Parse(ReadOnlySpan<byte> json, out string? reason)
     {
         ReadingDataFile? file;
         try
@@ -334,16 +342,37 @@ public class ReadingData
         }
         catch (JsonException)
         {
+            reason = "malformed";
             return null;
         }
 
-        if (file is not { Format: Format, Version: >= 1 and <= Version, Positions: { } positions })
+        if (file?.Format != Format)
+        {
+            reason = "notAnExport";
+            return null;
+        }
+
+        if (file.Version > Version)
+        {
+            reason = "newerVersion";
+            return null;
+        }
+
+        reason = "malformed";
+        if (file is not { Version: >= 1, Positions: { } positions })
         {
             return null;
         }
 
-        return positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
-            && (file.Themes ?? []).All(Valid) && (file.Fonts ?? []).All(Valid) && file.Choices is null or { Theme: not null, Font: not null } ? file : null;
+        var valid = positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
+            && (file.Themes ?? []).All(Valid) && (file.Fonts ?? []).All(Valid) && file.Choices is null or { Theme: not null, Font: not null };
+        if (!valid)
+        {
+            return null;
+        }
+
+        reason = null;
+        return file;
     }
 
     /// <summary>
@@ -353,7 +382,7 @@ public class ReadingData
     /// and each highlight go to their book the same way, and are added unless the user has one at the same place.
     /// </summary>
     /// <param name="userId">The user.</param>
-    /// <param name="file">A file accepted by <see cref="Parse"/>.</param>
+    /// <param name="file">A file accepted by <see cref="Parse(ReadOnlySpan{byte})"/>.</param>
     /// <returns>What was imported, kept and left unmatched, and the limits reached.</returns>
     /// <exception cref="ImportRunningException">Another import of the user's is running.</exception>
     /// <remarks>
