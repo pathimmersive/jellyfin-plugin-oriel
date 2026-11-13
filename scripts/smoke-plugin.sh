@@ -236,6 +236,14 @@ check_spread_in_browser() {
     node "$reader/e2e/spread.e2e.mjs" || fail "the desktop spread, arrows and panels in chromium at $1"
 }
 
+# Oriel's settings page in Jellyfin's Dashboard at desktop size, in the browser
+# named by $2 when this run includes it: the page, saving each setting, and the
+# reader and jellyfin-web following without a restart.
+check_settings_in_browser() {
+    runs "$2" || return 0
+    ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id"     ORIEL_BROWSER="$2" node "$reader/e2e/settings.e2e.mjs" || fail "Oriel's settings page in $2 at $1"
+}
+
 # A phone in landscape: one column, the phone's controls and panels over the
 # right half, in WebKit at 844x390 with touch.
 check_landscape_in_browser() {
@@ -921,6 +929,7 @@ check_failures_in_browser "$base"
 check_book_scripts_in_browser "$base"
 check_branding_in_browser "$base"
 check_loading_in_browser "$base"
+check_settings_in_browser "$base" chromium
 
 # A database from a newer Oriel never stops Jellyfin: it starts, the reader and
 # the web integration are served, Oriel's data endpoints answer 503
@@ -983,6 +992,7 @@ check_reader_in_browser "http://127.0.0.1:$port/jf"
 check_web_patched "http://127.0.0.1:$port/jf"
 check_login_return "http://127.0.0.1:$port/jf" oriel
 check_login_return "http://127.0.0.1:$port/jf" data data
+check_settings_in_browser "http://127.0.0.1:$port/jf" webkit
 set_progress "http://127.0.0.1:$port/jf" "$PROGRESS_TICKS"
 check_takeover_in_browser "http://127.0.0.1:$port/jf" oriel Resume "$PROGRESS_TEXT"
 set_progress "http://127.0.0.1:$port/jf" 0

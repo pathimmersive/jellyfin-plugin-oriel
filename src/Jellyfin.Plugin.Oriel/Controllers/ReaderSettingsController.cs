@@ -44,7 +44,7 @@ public class ReaderSettingsController : ControllerBase
     }
 
     /// <summary>
-    /// The translation address the reader may open: the setting when it is an http or https address, else empty.
+    /// The translation address the reader may open: the setting when it is an https address, else empty.
     /// </summary>
     /// <param name="configured">The setting.</param>
     /// <returns>The address with {text} where the text goes, or empty when Translate is off.</returns>
@@ -52,7 +52,7 @@ public class ReaderSettingsController : ControllerBase
     {
         var address = configured?.Trim() ?? string.Empty;
         return Uri.TryCreate(address.Replace("{text}", "text", StringComparison.Ordinal), UriKind.Absolute, out var uri)
-            && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp)
+            && uri.Scheme == Uri.UriSchemeHttps
             ? address
             : string.Empty;
     }

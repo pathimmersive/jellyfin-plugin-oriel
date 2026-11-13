@@ -51,6 +51,8 @@
   <!-- The jellyfin-web launcher is served beside the reader at /Oriel/integration/launcher.js. -->
   <ItemGroup>
     <EmbeddedResource Include="..\integration\launcher.js" LogicalName="oriel-web/integration/launcher.js" />
+    <EmbeddedResource Include="Configuration\settingsPage.html" LogicalName="oriel-settings/settingsPage.html" />
+    <EmbeddedResource Include="Configuration\settingsPage.js" LogicalName="oriel-settings/settingsPage.js" />
   </ItemGroup>
 
   <!-- WordNet, as scripts/build-dictionary.py builds it, for Define. -->
