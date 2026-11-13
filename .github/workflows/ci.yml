@@ -49,7 +49,7 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: src/reader/package-lock.json
-      - run: npm ci
+      - run: npm ci --ignore-scripts
         working-directory: src/reader
       # The smoke script installs its browser itself; the runner also needs the
       # browser's system libraries. The runner's package mirror sometimes slows

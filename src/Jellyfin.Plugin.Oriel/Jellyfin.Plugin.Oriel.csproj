@@ -33,7 +33,7 @@
   </ItemGroup>
 
   <Target Name="RestoreReader" Inputs="$(ReaderDir)package.json;$(ReaderDir)package-lock.json" Outputs="$(ReaderDir)node_modules\.package-lock.json">
-    <Exec Command="npm ci --no-audit --no-fund" WorkingDirectory="$(ReaderDir)" />
+    <Exec Command="npm ci --ignore-scripts --no-audit --no-fund" WorkingDirectory="$(ReaderDir)" />
   </Target>
 
   <Target Name="BuildReader" DependsOnTargets="RestoreReader" BeforeTargets="BeforeBuild" Inputs="@(ReaderSource)" Outputs="$(ReaderDir)dist\index.html">
