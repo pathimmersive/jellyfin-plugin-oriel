@@ -14,7 +14,8 @@
 # shares as parallel jobs; together they make every check.
 set -euo pipefail
 
-IMAGE="${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.2.20261005-225228}"
+IMAGE="${JELLYFIN_IMAGE:-$(sed -n 's/^FROM \([^[:space:]]*\).*/\1/p' "$(dirname "$0")/../docker/jellyfin/Dockerfile")}"
+[ -n "$IMAGE" ] || { echo "FAIL: docker/jellyfin/Dockerfile names no image" >&2; exit 1; }
 PLUGIN_NAME="Oriel"
 PLUGIN_VERSION="0.1.0.0"
 ADMIN_USER="smoke"

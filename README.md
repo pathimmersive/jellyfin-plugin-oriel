@@ -68,7 +68,7 @@ bash scripts/test-package.sh           # release packaging: the zip and the repo
 
 Releases are switched off until the repository variable `RELEASES_ENABLED` is set to `true` under **Settings → Secrets and variables → Actions → Variables**. While it is off, a pushed tag runs the release workflow, which fails at its first job with "Releases are switched off" and builds, releases and publishes nothing.
 
-Once releases are on, pushing a tag `vX.Y.Z` on `main` runs the release workflow: it builds the plugin as version `X.Y.Z.0`, attaches `oriel_X.Y.Z.0.zip` to a GitHub release, and publishes `manifest.json` to GitHub Pages with every earlier version still listed. `scripts/package-plugin.py` does the packaging and can be run locally the same way.
+Once releases are on, pushing a tag `vX.Y.Z` on `main` runs the release workflow: it builds the plugin as version `X.Y.Z.0`, attaches `oriel_X.Y.Z.0.zip` and its SHA-256 (`oriel_X.Y.Z.0.zip.sha256`) to a GitHub release, and publishes `manifest.json` to GitHub Pages with every earlier version still listed. The zip's build provenance is attested, so `gh attestation verify oriel_X.Y.Z.0.zip --repo pathimmersive/jellyfin-plugin-oriel` shows it was built by this repository's release workflow. The build runs no dependency install scripts, and the job that publishes builds nothing; only repository admins can push `v*` tags. `scripts/package-plugin.py` does the packaging and can be run locally the same way.
 
 ## Contributing and security
 

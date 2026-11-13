@@ -96,7 +96,11 @@ def main():
             target.write(source.read())
 
     with open(zip_path, "rb") as f:
-        checksum = hashlib.md5(f.read()).hexdigest()
+        data = f.read()
+    # Jellyfin's catalog reads the MD5; the SHA-256 is published beside the zip for anyone checking it.
+    checksum = hashlib.md5(data).hexdigest()
+    with open(zip_path + ".sha256", "w", encoding="utf-8", newline="\n") as f:
+        f.write(f"{hashlib.sha256(data).hexdigest()}  {zip_name}\n")
 
     if plugin is None:
         plugin = {key: meta[key] for key in ["guid", "name", "description", "overview", "owner", "category"]}

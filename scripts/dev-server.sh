@@ -22,7 +22,7 @@
 # Needs: bash, docker, Node and npm, the .NET 10 SDK.
 set -euo pipefail
 
-IMAGE="${JELLYFIN_IMAGE:-jellyfin/jellyfin:12.2.20261005-225228}"
+IMAGE="${JELLYFIN_IMAGE:-$(sed -n 's/^FROM \([^[:space:]]*\).*/\1/p' "$(dirname "$0")/../docker/jellyfin/Dockerfile")}"
 PORT="${ORIEL_DEV_PORT:-8096}"
 CONTAINER="oriel-dev"
 PLUGIN_DIR_NAME="Oriel_0.1.0.0"

@@ -12,3 +12,39 @@ updates:
       actions:
         patterns:
           - "*"
+
+  # The reader's npm packages.
+  - package-ecosystem: npm
+    directory: /src/reader
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    groups:
+      reader:
+        patterns:
+          - "*"
+
+  # The plugin's and the tests' NuGet packages. Jellyfin's own packages are left
+  # out: the plugin builds against the exact version the pinned image runs, and
+  # they move with that image.
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: "Jellyfin.*"
+    groups:
+      packages:
+        patterns:
+          - "*"
+
+  # The Jellyfin image the smoke test and the dev server run.
+  - package-ecosystem: docker
+    directory: /docker/jellyfin
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: ci

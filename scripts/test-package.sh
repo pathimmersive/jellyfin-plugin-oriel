@@ -56,10 +56,12 @@ assert version["version"] == "0.9.0.0", version["version"]
 assert version["targetAbi"] == "12.0.0.0", version["targetAbi"]
 assert version["sourceUrl"] == f"{url}/v0.9.0/oriel_0.9.0.0.zip", version["sourceUrl"]
 assert version["checksum"] == hashlib.md5(open(zip_path, "rb").read()).hexdigest(), "checksum is not the zip's MD5"
+sha256 = open(zip_path + ".sha256", encoding="utf-8").read()
+assert sha256 == f"{hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()}  oriel_0.9.0.0.zip\n", f"the .sha256 file reads {sha256!r}"
 assert version["changelog"] == "First test release.", version["changelog"]
 assert version["timestamp"].endswith("Z"), version["timestamp"]
 EOF
-pass "the zip holds only the plugin assembly, meta.json and its image at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5"
+pass "the zip holds only the plugin assembly, meta.json and its image at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5; the .sha256 file holds the zip's SHA-256 and name"
 
 package --version 0.9.1 --out "$work/second" --url-base "$url" --manifest "$work/first/manifest.json" \
     || fail "packaging 0.9.1 on top of 0.9.0"
