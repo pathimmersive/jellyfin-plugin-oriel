@@ -4,8 +4,10 @@
 # failed check and always removes the container.
 #
 # Needs: bash, curl, docker, Node and npm, the .NET 10 SDK.
-# Override the image with JELLYFIN_IMAGE=jellyfin/jellyfin:<tag>. The plugin is
-# built against the Jellyfin version in the tag; JELLYFIN_VERSION overrides it.
+# The image is the latest Jellyfin 12.x (docker/jellyfin/Dockerfile), or 12.2,
+# the oldest Oriel supports, with a second argument floor (docker/jellyfin-floor);
+# JELLYFIN_IMAGE=jellyfin/jellyfin:<tag> overrides both. The plugin is built once,
+# against JellyfinVersion in Directory.Build.props; JELLYFIN_VERSION overrides it.
 #
 # Every check runs by default. The argument webkit (or ORIEL_SMOKE_BROWSERS=webkit)
 # runs WebKit's share: the checks that need no browser, every WebKit check, the
@@ -14,8 +16,17 @@
 # shares as parallel jobs; together they make every check.
 set -euo pipefail
 
-IMAGE="${JELLYFIN_IMAGE:-$(sed -n 's/^FROM \([^[:space:]]*\).*/\1/p' "$(dirname "$0")/../docker/jellyfin/Dockerfile")}"
-[ -n "$IMAGE" ] || { echo "FAIL: docker/jellyfin/Dockerfile names no image" >&2; exit 1; }
+# The Jellyfin to run: the latest 12.x (docker/jellyfin) by default, or the
+# oldest Oriel supports (docker/jellyfin-floor) with the second argument floor,
+# or ORIEL_JELLYFIN=floor.
+ORIEL_JELLYFIN="${2:-${ORIEL_JELLYFIN:-latest}}"
+case "$ORIEL_JELLYFIN" in
+    latest) image_file="docker/jellyfin/Dockerfile" ;;
+    floor) image_file="docker/jellyfin-floor/Dockerfile" ;;
+    *) echo "FAIL: ORIEL_JELLYFIN is '$ORIEL_JELLYFIN', expected latest or floor" >&2; exit 2 ;;
+esac
+IMAGE="${JELLYFIN_IMAGE:-$(sed -n 's/^FROM \([^[:space:]]*\).*/\1/p' "$(dirname "$0")/../$image_file")}"
+[ -n "$IMAGE" ] || { echo "FAIL: $image_file names no image" >&2; exit 1; }
 PLUGIN_NAME="Oriel"
 PLUGIN_VERSION="0.1.0.0"
 ADMIN_USER="smoke"
@@ -69,7 +80,9 @@ project="$repo/src/Jellyfin.Plugin.Oriel/Jellyfin.Plugin.Oriel.csproj"
 
 # The Jellyfin version the image runs: the tag's major.minor, and its patch
 # unless that field is a build date (12.2.20261005-225228 is 12.2.0). The
-# plugin is built against it, or against JELLYFIN_VERSION when that is set.
+# plugin is built once, as a release is, against the oldest version Oriel
+# supports (JellyfinVersion in Directory.Build.props), or against
+# JELLYFIN_VERSION when that is set, and runs on any image at least as new.
 tag="${IMAGE##*:}"
 image_version=""
 if [[ "$tag" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))? ]]; then
@@ -77,8 +90,12 @@ if [[ "$tag" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))? ]]; then
     [ "${#patch}" -lt 8 ] || patch=0
     image_version="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$patch"
 fi
-JELLYFIN_VERSION="${JELLYFIN_VERSION:-$image_version}"
-[ -n "$JELLYFIN_VERSION" ] || fail "cannot read a Jellyfin version from image tag '$tag'; set JELLYFIN_VERSION"
+floor_version="$(sed -n 's/.*<JellyfinVersion[^>]*>\([0-9.]*\)<\/JellyfinVersion>.*/\1/p' "$repo/Directory.Build.props")"
+JELLYFIN_VERSION="${JELLYFIN_VERSION:-$floor_version}"
+[ -n "$JELLYFIN_VERSION" ] || fail "cannot read JellyfinVersion from Directory.Build.props; set JELLYFIN_VERSION"
+[ -n "$image_version" ] || fail "cannot read a Jellyfin version from image tag '$tag'"
+older() { [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -1)" = "$1" ] && [ "$1" != "$2" ]; }
+older "$image_version" "$JELLYFIN_VERSION" && fail "$IMAGE runs Jellyfin $image_version, older than the $JELLYFIN_VERSION the plugin is built against"
 
 plugin_dir="$work/plugins/${PLUGIN_NAME}_${PLUGIN_VERSION}"
 dotnet publish "$project" -c Release -o "$plugin_dir" --nologo -v quiet -p:JellyfinVersion="$JELLYFIN_VERSION" \
@@ -88,14 +105,12 @@ dotnet publish "$project" -c Release -o "$plugin_dir" --nologo -v quiet -p:Jelly
 assets="$(dirname "$project")/obj/project.assets.json"
 built="$(grep -o '"Jellyfin\.Controller/[^"]*"' "$assets" | head -1 | sed 's/^"Jellyfin\.Controller\/\(.*\)"$/\1/' || true)"
 [ "$built" = "$JELLYFIN_VERSION" ] || fail "plugin built against Jellyfin.Controller '$built', expected $JELLYFIN_VERSION"
-[ -z "$image_version" ] || [ "$built" = "$image_version" ] \
-    || fail "plugin built against Jellyfin.Controller $built, but $IMAGE runs $image_version"
-pass "plugin built against Jellyfin.Controller $built for $IMAGE"
+pass "plugin built against Jellyfin.Controller $built, installed on $IMAGE (Jellyfin $image_version)"
 
 [ -f "$plugin_dir/Jellyfin.Plugin.Oriel.dll" ] || fail "plugin assembly missing from publish output"
 [ -f "$plugin_dir/meta.json" ] || fail "meta.json missing from publish output"
-grep -q '"targetAbi": *"12.0.0.0"' "$plugin_dir/meta.json" || fail "meta.json does not declare targetAbi 12.0.0.0"
-pass "meta.json declares targetAbi 12.0.0.0"
+grep -q '"targetAbi": *"12.2.0.0"' "$plugin_dir/meta.json" || fail "meta.json does not declare targetAbi 12.2.0.0"
+pass "meta.json declares targetAbi 12.2.0.0, so Jellyfin 12.0 and 12.1 do not load it"
 
 bundled="$(cd "$plugin_dir" && ls -1 *.dll \
     | grep -E '^(Jellyfin\.|MediaBrowser\.|Emby\.|Microsoft\.Data\.Sqlite|Microsoft\.EntityFrameworkCore|SQLitePCLRaw)' \
@@ -894,7 +909,7 @@ set_progress "$base" "$PROGRESS_TICKS"
 check_takeover_in_browser "$base" oriel Resume "$PROGRESS_TEXT"
 # Beside File Transformation, which an admin may keep for other plugins. The
 # pinned release is built for one server version.
-if [ "$JELLYFIN_VERSION" = "$FT_SERVER_VERSION" ]; then
+if [ "$image_version" = "$FT_SERVER_VERSION" ]; then
     MSYS_NO_PATHCONV=1 docker exec "$container" cp -r /oriel-ft "/config/plugins/FileTransformation_$FT_VERSION" || fail "install File Transformation"
     docker restart "$container" >/dev/null || fail "docker restart"
     port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
@@ -906,7 +921,7 @@ if [ "$JELLYFIN_VERSION" = "$FT_SERVER_VERSION" ]; then
     check_takeover_in_browser "$base" oriel Play
     pass "beside File Transformation $FT_VERSION, index.html still carries one launcher script and Play opens Oriel"
 else
-    echo "SKIP: the check beside File Transformation needs Jellyfin $FT_SERVER_VERSION, the version File Transformation $FT_VERSION is built for; $IMAGE runs $JELLYFIN_VERSION"
+    echo "SKIP: the check beside File Transformation needs Jellyfin $FT_SERVER_VERSION, the version File Transformation $FT_VERSION is built for; $IMAGE runs $image_version"
 fi
 fi
 # The desktop input check, in this run's browsers, from the start of the book.

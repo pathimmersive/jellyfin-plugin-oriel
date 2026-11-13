@@ -43,7 +43,7 @@ assert meta["imagePath"] == "oriel.png", f"meta.json imagePath {meta.get('imageP
 assert image[:4] == b"\x89PNG", "oriel.png in the zip is not a PNG"
 assert open(f"{out}/oriel.png", "rb").read() == image, "the image beside the zip differs from the one in it"
 assert meta["version"] == "0.9.0.0", f"meta.json version {meta['version']}"
-assert meta["targetAbi"] == "12.0.0.0", f"meta.json targetAbi {meta['targetAbi']}"
+assert meta["targetAbi"] == "12.2.0.0", f"meta.json targetAbi {meta['targetAbi']}"
 manifest = json.load(open(f"{out}/manifest.json", encoding="utf-8"))
 assert len(manifest) == 1, f"{len(manifest)} plugins in the manifest"
 plugin = manifest[0]
@@ -53,7 +53,7 @@ assert plugin["imageUrl"] == f"{url}/v0.9.0/oriel.png", plugin.get("imageUrl")
 assert len(plugin["versions"]) == 1, f"{len(plugin['versions'])} versions"
 version = plugin["versions"][0]
 assert version["version"] == "0.9.0.0", version["version"]
-assert version["targetAbi"] == "12.0.0.0", version["targetAbi"]
+assert version["targetAbi"] == "12.2.0.0", version["targetAbi"]
 assert version["sourceUrl"] == f"{url}/v0.9.0/oriel_0.9.0.0.zip", version["sourceUrl"]
 assert version["checksum"] == hashlib.md5(open(zip_path, "rb").read()).hexdigest(), "checksum is not the zip's MD5"
 sha256 = open(zip_path + ".sha256", encoding="utf-8").read()

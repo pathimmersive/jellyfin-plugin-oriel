@@ -65,7 +65,7 @@ public class PluginShapeTests
     {
         using var meta = JsonDocument.Parse(File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "meta.json")));
 
-        Assert.Equal("12.0.0.0", meta.RootElement.GetProperty("targetAbi").GetString());
+        Assert.Equal("12.2.0.0", meta.RootElement.GetProperty("targetAbi").GetString());
         Assert.Equal(Plugin.PluginId, meta.RootElement.GetProperty("guid").GetString());
     }
 
