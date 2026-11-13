@@ -25,9 +25,10 @@ updates:
         patterns:
           - "*"
 
-  # The plugin's and the tests' NuGet packages. Jellyfin's own packages are left
-  # out: the plugin builds against the exact version the pinned image runs, and
-  # they move with that image.
+  # The plugin's and the tests' NuGet packages. The packages the Jellyfin server
+  # provides to the plugin at runtime are left out: Jellyfin's own, which the
+  # plugin builds against at the exact version the pinned image runs, and SQLite,
+  # which the plugin loads from the server. They move with that image.
   - package-ecosystem: nuget
     directory: /
     schedule:
@@ -36,6 +37,8 @@ updates:
       prefix: build
     ignore:
       - dependency-name: "Jellyfin.*"
+      - dependency-name: "Microsoft.Data.Sqlite*"
+      - dependency-name: "SQLitePCLRaw.*"
     groups:
       packages:
         patterns:
