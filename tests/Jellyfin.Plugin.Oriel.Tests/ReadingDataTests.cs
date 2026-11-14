@@ -29,12 +29,12 @@ public sealed class ReadingDataTests : IDisposable
     private static readonly BookInfo Hidden = new(Guid.NewGuid(), "Hidden", ["Nobody"], "hidden.epub");
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-data-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
     private readonly PluginConfiguration _configuration = new() { EnableFontUploads = true };
 
     public ReadingDataTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -49,9 +49,9 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ExportsTheUsersOwnPositionsInBooksTheyCanSee()
     {
-        _store.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
-        _store.Save(Reader, Hidden.ItemId, new StoredPosition(Cfi, 0.2, Now));
-        _store.Save(OtherReader, Emma.ItemId, new StoredPosition(OtherCfi, 0.3, Now));
+        _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
+        _store.Positions.Save(Reader, Hidden.ItemId, new StoredPosition(Cfi, 0.2, Now));
+        _store.Positions.Save(OtherReader, Emma.ItemId, new StoredPosition(OtherCfi, 0.3, Now));
 
         var file = Data(Dune, Emma).Export(Reader, Now.AddHours(1));
 
@@ -65,7 +65,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void AnExportedFileReadsBackUnchanged()
     {
-        _store.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now.AddTicks(1234567)));
+        _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now.AddTicks(1234567)));
         var file = Data(Dune).Export(Reader, Now);
 
         var parsed = ReadingData.Parse(ReadingData.Serialize(file));
@@ -88,7 +88,7 @@ public sealed class ReadingDataTests : IDisposable
         { "a null position", File("null") },
         { "a position without a CFI", File("{\"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
         { "an empty CFI", File("{\"cfi\": \"\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
-        { "a CFI that is too long", File($"{{\"cfi\": \"{new string('a', ReadingData.MaxCfiLength + 1)}\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a CFI that is too long", File($"{{\"cfi\": \"{new string('a', ReadingRules.MaxCfiLength + 1)}\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}}") },
         { "a fraction above 1", File("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 1.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a fraction below 0", File("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": -0.1, \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
         { "no fraction", File("{\"cfi\": \"epubcfi(/6/2)\", \"savedAt\": \"2026-10-27T12:00:00Z\"}") },
@@ -99,15 +99,15 @@ public sealed class ReadingDataTests : IDisposable
         { "a null bookmark", WithBookmark("null") },
         { "a bookmark without a CFI", WithBookmark("{\"fraction\": 0.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a bookmark without text", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
-        { "a bookmark's text that is too long", WithBookmark($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"{new string('a', BookmarksController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a bookmark's text that is too long", WithBookmark($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"{new string('a', ReadingRules.MaxBookmarkTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
         { "a bookmark's fraction above 1", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 1.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a bookmark without a time", WithBookmark("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Page\"}") },
         { "a null highlight", WithHighlight("null") },
         { "a highlight without a CFI", WithHighlight("{\"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a highlight without a colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
         { "a highlight with an empty colour", WithHighlight("{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}") },
-        { "a highlight's text that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"{new string('a', HighlightsController.MaxTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
-        { "a highlight's note that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"note\": \"{new string('a', HighlightsController.MaxNoteLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a highlight's text that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"{new string('a', ReadingRules.MaxHighlightTextLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
+        { "a highlight's note that is too long", WithHighlight($"{{\"cfi\": \"epubcfi(/6/2)\", \"fraction\": 0.5, \"colour\": \"yellow\", \"text\": \"Words\", \"note\": \"{new string('a', ReadingRules.MaxNoteLength + 1)}\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}") },
         { "a null highlighter", WithHighlighter("null") },
         { "a highlighter without an id", WithHighlighter("{\"name\": \"Questions\", \"colour\": \"#b39ddb\"}") },
         { "a highlighter without a name", WithHighlighter("{\"id\": \"q\", \"name\": \" \", \"colour\": \"#b39ddb\"}") },
@@ -125,9 +125,9 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ExportsAndImportsBookmarksWithoutDuplicatingThem()
     {
-        _store.AddBookmark(Reader, Dune.ItemId, Cfi, 0.6, "It begins", Now);
-        _store.AddBookmark(Reader, Hidden.ItemId, Cfi, 0.2, "Not exported", Now);
-        _store.AddBookmark(OtherReader, Emma.ItemId, OtherCfi, 0.3, "Not mine", Now);
+        _store.Bookmarks.Add(Reader, Dune.ItemId, Cfi, 0.6, "It begins", Now);
+        _store.Bookmarks.Add(Reader, Hidden.ItemId, Cfi, 0.2, "Not exported", Now);
+        _store.Bookmarks.Add(OtherReader, Emma.ItemId, OtherCfi, 0.3, "Not mine", Now);
         var file = Data(Dune, Emma).Export(Reader, Now);
 
         var exported = Assert.Single(file.Bookmarks!);
@@ -136,16 +136,16 @@ public sealed class ReadingDataTests : IDisposable
         var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
         Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Bookmarks);
         Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Bookmarks);
-        Assert.Single(_store.ListBookmarks(Reader, Dune.ItemId));
-        Assert.Equal("It begins", Assert.Single(_store.ListBookmarks(OtherReader, Dune.ItemId)).Text);
+        Assert.Single(_store.Bookmarks.List(Reader, Dune.ItemId));
+        Assert.Equal("It begins", Assert.Single(_store.Bookmarks.List(OtherReader, Dune.ItemId)).Text);
     }
 
     [Fact]
     public void ExportsAndImportsHighlightsWithoutDuplicatingThem()
     {
-        _store.AddHighlight(Reader, Dune.ItemId, Cfi, 0.6, "blue", "It begins", Now, "Where it starts.");
-        _store.AddHighlight(Reader, Hidden.ItemId, Cfi, 0.2, "pink", "Not exported", Now);
-        _store.AddHighlight(OtherReader, Emma.ItemId, OtherCfi, 0.3, "green", "Not mine", Now);
+        _store.Highlights.Add(Reader, Dune.ItemId, Cfi, 0.6, "blue", "It begins", Now, "Where it starts.");
+        _store.Highlights.Add(Reader, Hidden.ItemId, Cfi, 0.2, "pink", "Not exported", Now);
+        _store.Highlights.Add(OtherReader, Emma.ItemId, OtherCfi, 0.3, "green", "Not mine", Now);
         var file = Data(Dune, Emma).Export(Reader, Now);
 
         var exported = Assert.Single(file.Highlights!);
@@ -154,8 +154,8 @@ public sealed class ReadingDataTests : IDisposable
         var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
         Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Highlights);
         Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Highlights);
-        Assert.Single(_store.ListHighlights(Reader, Dune.ItemId));
-        var theirs = Assert.Single(_store.ListHighlights(OtherReader, Dune.ItemId));
+        Assert.Single(_store.Highlights.List(Reader, Dune.ItemId));
+        var theirs = Assert.Single(_store.Highlights.List(OtherReader, Dune.ItemId));
         Assert.Equal(("blue", "It begins", "Where it starts."), (theirs.Colour, theirs.Text, theirs.Note));
     }
 
@@ -163,8 +163,8 @@ public sealed class ReadingDataTests : IDisposable
     public void ExportsAndImportsHighlightersAndTheHighlightsInThem()
     {
         var questions = new HighlighterEntry("questions", "Questions", "#b39ddb");
-        _store.ReplaceHighlighters(Reader, [new("yellow", "Lines", "#ffb74d"), .. PositionStore.BuiltInHighlighters.Skip(1), questions]);
-        _store.AddHighlight(Reader, Dune.ItemId, Cfi, 0.6, "questions", "It begins", Now);
+        _store.Highlighters.Replace(Reader, [new("yellow", "Lines", "#ffb74d"), .. ReadingRules.BuiltInHighlighters.Skip(1), questions]);
+        _store.Highlights.Add(Reader, Dune.ItemId, Cfi, 0.6, "questions", "It begins", Now);
         var file = Data(Dune).Export(Reader, Now);
 
         Assert.Equal(
@@ -174,9 +174,9 @@ public sealed class ReadingDataTests : IDisposable
         var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
         var result = Data(Dune).Import(OtherReader, parsed);
         Assert.Equal((1, 1), (result.Highlighters, result.Highlights));
-        var theirs = _store.ListHighlighters(OtherReader);
+        var theirs = _store.Highlighters.List(OtherReader);
         Assert.Equal(["Quotes", "Green", "Vocabulary", "Pink", "Questions"], theirs.Select(highlighter => highlighter.Name));
-        Assert.Equal("questions", Assert.Single(_store.ListHighlights(OtherReader, Dune.ItemId)).Colour);
+        Assert.Equal("questions", Assert.Single(_store.Highlights.List(OtherReader, Dune.ItemId)).Colour);
         Assert.Equal(0, Data(Dune).Import(OtherReader, parsed).Highlighters);
     }
 
@@ -187,7 +187,7 @@ public sealed class ReadingDataTests : IDisposable
 
         Assert.NotNull(file);
         Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
-        Assert.Equal("yellow", Assert.Single(_store.ListHighlights(Reader, Dune.ItemId)).Colour);
+        Assert.Equal("yellow", Assert.Single(_store.Highlights.List(Reader, Dune.ItemId)).Colour);
     }
 
     [Fact]
@@ -197,7 +197,7 @@ public sealed class ReadingDataTests : IDisposable
 
         Assert.NotNull(file);
         Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
-        Assert.Equal(string.Empty, Assert.Single(_store.ListHighlights(Reader, Dune.ItemId)).Note);
+        Assert.Equal(string.Empty, Assert.Single(_store.Highlights.List(Reader, Dune.ItemId)).Note);
     }
 
     [Fact]
@@ -232,14 +232,14 @@ public sealed class ReadingDataTests : IDisposable
 
         Assert.Single(result.Unmatched);
         Assert.Equal(0, result.Bookmarks);
-        Assert.Empty(_store.ListBookmarks(Reader, Hidden.ItemId));
+        Assert.Empty(_store.Bookmarks.List(Reader, Hidden.ItemId));
     }
 
     [Fact]
     public void KeepsWhicheverPositionWasSavedLast()
     {
-        _store.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
-        _store.Save(Reader, Emma.ItemId, new StoredPosition(Cfi, 0.6, Now));
+        _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
+        _store.Positions.Save(Reader, Emma.ItemId, new StoredPosition(Cfi, 0.6, Now));
         var data = Data(Dune, Emma);
 
         var result = data.Import(Reader, Import(
@@ -247,8 +247,8 @@ public sealed class ReadingDataTests : IDisposable
             Entry(Emma, OtherCfi, Now.AddMinutes(1))));
 
         Assert.Equal((1, 1), (result.Imported, result.Kept));
-        Assert.Equal(Cfi, _store.Get(Reader, Dune.ItemId)!.Cfi);
-        Assert.Equal(new StoredPosition(OtherCfi, 0.4, Now.AddMinutes(1)), _store.Get(Reader, Emma.ItemId));
+        Assert.Equal(Cfi, _store.Positions.Get(Reader, Dune.ItemId)!.Cfi);
+        Assert.Equal(new StoredPosition(OtherCfi, 0.4, Now.AddMinutes(1)), _store.Positions.Get(Reader, Emma.ItemId));
     }
 
     [Fact]
@@ -261,7 +261,7 @@ public sealed class ReadingDataTests : IDisposable
         var again = data.Import(Reader, file);
 
         Assert.Equal((0, 1), (again.Imported, again.Kept));
-        Assert.Equal(new StoredPosition(Cfi, 0.4, Now), _store.Get(Reader, Dune.ItemId));
+        Assert.Equal(new StoredPosition(Cfi, 0.4, Now), _store.Positions.Get(Reader, Dune.ItemId));
     }
 
     [Fact]
@@ -269,7 +269,7 @@ public sealed class ReadingDataTests : IDisposable
     {
         Data(Dune).Import(Reader, Import(Entry(Dune, Cfi, Now)));
 
-        Assert.Null(_store.Get(OtherReader, Dune.ItemId));
+        Assert.Null(_store.Positions.Get(OtherReader, Dune.ItemId));
     }
 
     [Fact]
@@ -281,7 +281,7 @@ public sealed class ReadingDataTests : IDisposable
         var result = Data(Dune, anthology).Import(Reader, Import(entry));
 
         Assert.Equal(1, result.Imported);
-        Assert.NotNull(_store.Get(Reader, anthology.ItemId));
+        Assert.NotNull(_store.Positions.Get(Reader, anthology.ItemId));
     }
 
     [Fact]
@@ -290,7 +290,7 @@ public sealed class ReadingDataTests : IDisposable
         var entry = Entry(Dune, Cfi, Now) with { ItemId = null, Title = "Dune (Special Edition)", FileName = "DUNE.epub" };
 
         Assert.Equal(1, Data(Dune).Import(Reader, Import(entry)).Imported);
-        Assert.NotNull(_store.Get(Reader, Dune.ItemId));
+        Assert.NotNull(_store.Positions.Get(Reader, Dune.ItemId));
     }
 
     [Fact]
@@ -311,8 +311,8 @@ public sealed class ReadingDataTests : IDisposable
         var entry = Entry(Dune, Cfi, Now) with { ItemId = null, FileName = "dune-copy.epub" };
 
         Assert.Equal(1, Data(Dune, copy).Import(Reader, Import(entry)).Imported);
-        Assert.NotNull(_store.Get(Reader, copy.ItemId));
-        Assert.Null(_store.Get(Reader, Dune.ItemId));
+        Assert.NotNull(_store.Positions.Get(Reader, copy.ItemId));
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
     }
 
     [Fact]
@@ -327,8 +327,8 @@ public sealed class ReadingDataTests : IDisposable
         Assert.Equal((0, 0), (result.Imported, result.Kept));
         Assert.Equal(["Dune", "Missing"], result.Unmatched.Select(book => book.Title));
         Assert.Equal(["Nobody"], result.Unmatched[1].Authors);
-        Assert.Null(_store.Get(Reader, Dune.ItemId));
-        Assert.Null(_store.Get(Reader, copy.ItemId));
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
+        Assert.Null(_store.Positions.Get(Reader, copy.ItemId));
     }
 
     [Fact]
@@ -337,13 +337,13 @@ public sealed class ReadingDataTests : IDisposable
         var result = Data(Dune).Import(Reader, Import(Entry(Hidden, Cfi, Now)));
 
         Assert.Single(result.Unmatched);
-        Assert.Null(_store.Get(Reader, Hidden.ItemId));
+        Assert.Null(_store.Positions.Get(Reader, Hidden.ItemId));
     }
 
     [Fact]
     public async Task ServesTheExportAsADownload()
     {
-        _store.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
+        _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
 
         var result = Assert.IsType<FileContentResult>(await Controller(Reader).Export());
 
@@ -361,7 +361,7 @@ public sealed class ReadingDataTests : IDisposable
 
         Assert.NotNull(result);
         Assert.Equal((1, 0, 0), (result.Imported, result.Kept, result.Unmatched.Count));
-        Assert.NotNull(_store.Get(Reader, Dune.ItemId));
+        Assert.NotNull(_store.Positions.Get(Reader, Dune.ItemId));
     }
 
     [Fact]
@@ -372,7 +372,7 @@ public sealed class ReadingDataTests : IDisposable
 
         Assert.Equal("malformed", Refused.Reason((await Controller(Reader, "{\"format\":"u8.ToArray()).Import()).Result));
         Assert.Equal("tooLarge", Refused.Reason((await tooLarge.Import()).Result));
-        Assert.Null(_store.Get(Reader, Dune.ItemId));
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
     }
 
     [Fact]
@@ -399,15 +399,15 @@ public sealed class ReadingDataTests : IDisposable
         var result = Data(Dune).Import(OtherReader, file);
 
         Assert.Equal((1, 1, true), (result.Themes, result.Fonts, result.Choices));
-        Assert.Equal([theme], _store.ListThemes(OtherReader).Select(entry => entry.Id));
-        Assert.Equal(2, _store.ListFonts(OtherReader).Count);
-        Assert.Equal(new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"), _store.GetChoices(OtherReader));
+        Assert.Equal([theme], _store.Themes.List(OtherReader).Select(entry => entry.Id));
+        Assert.Equal(2, _store.Fonts.List(OtherReader).Count);
+        Assert.Equal(new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"), _store.Choices.Get(OtherReader));
 
         var again = Data(Dune).Import(OtherReader, file);
 
         Assert.Equal((0, 0, false), (again.Themes, again.Fonts, again.Choices));
-        Assert.Single(_store.ListThemes(OtherReader));
-        Assert.Equal(2, _store.ListFonts(OtherReader).Count);
+        Assert.Single(_store.Themes.List(OtherReader));
+        Assert.Equal(2, _store.Fonts.List(OtherReader).Count);
     }
 
     [Fact]
@@ -420,9 +420,9 @@ public sealed class ReadingDataTests : IDisposable
         var result = Data(Dune).Import(OtherReader, file);
 
         Assert.Equal((1, 0), (result.Themes, result.Fonts));
-        Assert.Equal([theme], _store.ListThemes(OtherReader).Select(entry => entry.Id));
-        Assert.Empty(_store.ListFonts(OtherReader));
-        Assert.Equal(2, _store.ListFonts(Reader).Count);
+        Assert.Equal([theme], _store.Themes.List(OtherReader).Select(entry => entry.Id));
+        Assert.Empty(_store.Fonts.List(OtherReader));
+        Assert.Equal(2, _store.Fonts.List(Reader).Count);
     }
 
     [Fact]
@@ -430,24 +430,24 @@ public sealed class ReadingDataTests : IDisposable
     {
         SetUp(Reader);
         var file = Data(Dune).Export(Reader, Now);
-        _store.SaveChoices(OtherReader, new StoredChoices("sepia", "Literata"));
+        _store.Choices.Save(OtherReader, new StoredChoices("sepia", "Literata"));
 
         var result = Data(Dune).Import(OtherReader, file);
 
         Assert.False(result.Choices);
-        Assert.Equal(new StoredChoices("sepia", "Literata"), _store.GetChoices(OtherReader));
+        Assert.Equal(new StoredChoices("sepia", "Literata"), _store.Choices.Get(OtherReader));
     }
 
     [Fact]
     public void AddsThemesOnlyWhileThereIsRoom()
     {
-        _store.ReplaceThemes(OtherReader, Enumerable.Range(0, PositionStore.MaxThemes).Select(at => new ThemeEntry($"t{at}", $"Theme {at}", NightBlue)).ToList());
+        _store.Themes.Replace(OtherReader, Enumerable.Range(0, ReadingRules.MaxThemes).Select(at => new ThemeEntry($"t{at}", $"Theme {at}", NightBlue)).ToList());
         SetUp(Reader);
 
         var result = Data(Dune).Import(OtherReader, Data(Dune).Export(Reader, Now));
 
         Assert.Equal(0, result.Themes);
-        Assert.Equal(PositionStore.MaxThemes, _store.ListThemes(OtherReader).Count);
+        Assert.Equal(ReadingRules.MaxThemes, _store.Themes.List(OtherReader).Count);
         Assert.False(result.Choices);
     }
 
@@ -469,7 +469,7 @@ public sealed class ReadingDataTests : IDisposable
         var data = Convert.ToBase64String(FontsControllerTests.HostileWoff2(what));
 
         Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], \"fonts\": [{{\"family\": \"X\", \"data\": \"{data}\"}}]}}")) is null, what);
-        Assert.Empty(_store.ListFonts(Reader));
+        Assert.Empty(_store.Fonts.List(Reader));
     }
 
     [Fact]
@@ -480,7 +480,7 @@ public sealed class ReadingDataTests : IDisposable
         var result = Data(Dune).Import(Reader, file);
 
         Assert.Equal((1, 0, 0, false), (result.Highlighters, result.Themes, result.Fonts, result.Choices));
-        Assert.Null(_store.GetChoices(Reader));
+        Assert.Null(_store.Choices.Get(Reader));
     }
 
     [Fact]
@@ -496,12 +496,12 @@ public sealed class ReadingDataTests : IDisposable
     // A reader with Night Blue, two Atkinson Hyperlegible files and both chosen: the theme's id and the files.
     private (string Theme, byte[] Regular, byte[] Italic) SetUp(Guid reader)
     {
-        var theme = _store.ReplaceThemes(reader, [new ThemeEntry(Guid.NewGuid().ToString("N"), "Night Blue", NightBlue)])[0].Id;
+        var theme = _store.Themes.Replace(reader, [new ThemeEntry(Guid.NewGuid().ToString("N"), "Night Blue", NightBlue)])[0].Id;
         var regular = System.IO.File.ReadAllBytes(FontsControllerTests.Fontsource("atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2"));
         var italic = System.IO.File.ReadAllBytes(FontsControllerTests.Fontsource("atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-italic.woff2"));
-        _store.AddFont(reader, FontFile.Read(regular)!, regular, Now);
-        _store.AddFont(reader, FontFile.Read(italic)!, italic, Now);
-        _store.SaveChoices(reader, new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"));
+        _store.Fonts.Add(reader, FontFile.Read(regular)!, regular, Now);
+        _store.Fonts.Add(reader, FontFile.Read(italic)!, italic, Now);
+        _store.Choices.Save(reader, new StoredChoices($"own:{theme}", "own:Atkinson Hyperlegible"));
         return (theme, regular, italic);
     }
 
@@ -523,7 +523,7 @@ public sealed class ReadingDataTests : IDisposable
     private static ReadingDataFile Import(params ExportedPosition[] positions) =>
         new(ReadingData.Format, ReadingData.Version, Now, positions);
 
-    private ReadingData Data(params BookInfo[] visible) => new(_store, new FakeCatalog(visible), () => _configuration);
+    private ReadingData Data(params BookInfo[] visible) => new(_store.Database, _store.All, new FakeCatalog(visible), () => _configuration);
 
     private ReadingDataController Controller(Guid caller, byte[]? body = null)
     {

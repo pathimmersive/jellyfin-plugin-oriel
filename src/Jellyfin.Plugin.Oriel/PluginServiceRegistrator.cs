@@ -31,8 +31,16 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
 
         serviceCollection.TryAddSingleton(TimeProvider.System);
         serviceCollection.AddSingleton<IItemAccess, LibraryItemAccess>();
-        serviceCollection.AddSingleton(services => new PositionStore(Path.Combine(DataFolder(services), DatabaseFileName)));
-        serviceCollection.AddHostedService<PositionStoreStartup>();
+        serviceCollection.AddSingleton(services => new OrielDatabase(Path.Combine(DataFolder(services), DatabaseFileName)));
+        serviceCollection.AddSingleton<PositionsStore>();
+        serviceCollection.AddSingleton<BookmarksStore>();
+        serviceCollection.AddSingleton<HighlightsStore>();
+        serviceCollection.AddSingleton<HighlightersStore>();
+        serviceCollection.AddSingleton<FontsStore>();
+        serviceCollection.AddSingleton<ThemesStore>();
+        serviceCollection.AddSingleton<ChoicesStore>();
+        serviceCollection.AddSingleton<ReadingStores>();
+        serviceCollection.AddHostedService<DatabaseStartup>();
         serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserDeletion>();
         serviceCollection.AddSingleton<IBookCatalog, LibraryBookCatalog>();
         serviceCollection.AddSingleton<ReadingData>();

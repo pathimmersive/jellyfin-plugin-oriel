@@ -24,12 +24,12 @@ public sealed class FontsControllerTests : IDisposable
     private static readonly Guid OtherReader = Guid.NewGuid();
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-fonts-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
     private readonly PluginConfiguration _configuration = new() { EnableFontUploads = true };
 
     public FontsControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -120,7 +120,7 @@ public sealed class FontsControllerTests : IDisposable
     public void ReadsAHostileWoff2WithoutAllocatingPastItsDeclaredTables(string what, int most)
     {
         var bomb = HostileWoff2(what);
-        Assert.True(bomb.Length < FontsController.MaxBytes);
+        Assert.True(bomb.Length < ReadingRules.MaxFontFileBytes);
         FontFile.Read(bomb);
 
         var before = GC.GetAllocatedBytesForCurrentThread();
@@ -183,21 +183,21 @@ public sealed class FontsControllerTests : IDisposable
 
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, Sfnt(0x00010000, Tables("Other", "Regular", 400, false))).AddFont()).Result);
         Assert.Equal("tooMany", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
-        Assert.Equal(PositionStore.MaxFonts, (await Controller(Reader).GetFonts()).Value!.Count);
+        Assert.Equal(ReadingRules.MaxFonts, (await Controller(Reader).GetFonts()).Value!.Count);
 
         Assert.Equal("Bold", (await Controller(Reader, Sfnt(0x00010000, Tables("Charter", "Bold", 700, false))).AddFont()).Value!.Style);
-        Assert.Equal(PositionStore.MaxFonts, (await Controller(Reader).GetFonts()).Value!.Count);
+        Assert.Equal(ReadingRules.MaxFonts, (await Controller(Reader).GetFonts()).Value!.Count);
     }
 
     [Fact]
     public async Task RefusesAFileOver5MbAndAFileThatIsNotAFont()
     {
-        var over = new byte[FontsController.MaxBytes + 1];
+        var over = new byte[ReadingRules.MaxFontFileBytes + 1];
         var tooLarge = Assert.IsType<ObjectResult>((await Controller(Reader, over).AddFont()).Result);
         Assert.Equal(StatusCodes.Status413PayloadTooLarge, tooLarge.StatusCode);
         Assert.Equal("tooLarge", Assert.IsType<FontsController.Refusal>(tooLarge.Value).Reason);
 
-        var atLimit = new byte[FontsController.MaxBytes];
+        var atLimit = new byte[ReadingRules.MaxFontFileBytes];
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, atLimit).AddFont()).Result);
         Assert.Equal("notAFont", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
 
@@ -237,7 +237,7 @@ public sealed class FontsControllerTests : IDisposable
     [Fact]
     public async Task RefusesAnUploadWhenThereIsNoConfiguration()
     {
-        var controller = new FontsController(_store, new FakeAuthorization(Reader), TimeProvider.System, () => null)
+        var controller = new FontsController(_store.Fonts, new FakeAuthorization(Reader), TimeProvider.System, () => null)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(Sfnt(0x00010000, Tables("Charter", "Regular", 400, false))) } } },
         };
@@ -249,16 +249,16 @@ public sealed class FontsControllerTests : IDisposable
     public async Task RefusesAFilePast100MbOfFontsAsQuotaFull()
     {
         // Files kept before the limits they now meet: two of 50 MB come to the quota exactly.
-        var half = new byte[(int)(PositionStore.MaxFontBytes / 2)];
-        Assert.Equal(FontAdded.Added, _store.AddFont(Reader, new FontFile("ttf", "Big", "Regular", 400, false), half, DateTimeOffset.UtcNow).Result);
-        Assert.Equal(FontAdded.Added, _store.AddFont(Reader, new FontFile("ttf", "Big", "Bold", 700, false), half, DateTimeOffset.UtcNow).Result);
+        var half = new byte[(int)(ReadingRules.MaxFontBytes / 2)];
+        Assert.Equal(FontAdded.Added, _store.Fonts.Add(Reader, new FontFile("ttf", "Big", "Regular", 400, false), half, DateTimeOffset.UtcNow).Result);
+        Assert.Equal(FontAdded.Added, _store.Fonts.Add(Reader, new FontFile("ttf", "Big", "Bold", 700, false), half, DateTimeOffset.UtcNow).Result);
 
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader).AddFont()).Result);
         Assert.Equal("quotaFull", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
         Assert.Equal(2, (await Controller(Reader).GetFonts()).Value!.Count);
 
         // A file that replaces one of them is measured without it.
-        var replacing = _store.AddFont(Reader, new FontFile("ttf", "Big", "Bold", 700, false), new byte[1024], DateTimeOffset.UtcNow);
+        var replacing = _store.Fonts.Add(Reader, new FontFile("ttf", "Big", "Bold", 700, false), new byte[1024], DateTimeOffset.UtcNow);
         Assert.Equal(FontAdded.Added, replacing.Result);
         Assert.Equal("Charter", (await Controller(Reader).AddFont()).Value!.Family);
     }
@@ -518,7 +518,7 @@ public sealed class FontsControllerTests : IDisposable
     {
         var context = new DefaultHttpContext();
         context.Request.Body = new MemoryStream(body ?? Sfnt(0x00010000, Tables("Charter", "Regular", 400, false)));
-        return new(_store, new FakeAuthorization(caller), TimeProvider.System, () => _configuration)
+        return new(_store.Fonts, new FakeAuthorization(caller), TimeProvider.System, () => _configuration)
         {
             ControllerContext = new ControllerContext { HttpContext = context },
         };

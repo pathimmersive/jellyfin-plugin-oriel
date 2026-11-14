@@ -20,11 +20,11 @@ public sealed class ChoicesControllerTests : IDisposable
     private static readonly Guid OtherReader = Guid.NewGuid();
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-choices-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public ChoicesControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -110,7 +110,7 @@ public sealed class ChoicesControllerTests : IDisposable
 
     private async Task<string> OwnTheme(Guid reader)
     {
-        var themes = new ThemesController(_store, new FakeAuthorization(reader))
+        var themes = new ThemesController(_store.Themes, new FakeAuthorization(reader))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -119,10 +119,10 @@ public sealed class ChoicesControllerTests : IDisposable
     }
 
     private void AddFont(Guid reader, string family) =>
-        _store.AddFont(reader, new FontFile("ttf", family, "Regular", 400, false), [0, 1, 0, 0], DateTimeOffset.UtcNow);
+        _store.Fonts.Add(reader, new FontFile("ttf", family, "Regular", 400, false), [0, 1, 0, 0], DateTimeOffset.UtcNow);
 
     private ChoicesController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller))
+        new(_store.Choices, _store.Themes, _store.Fonts, new FakeAuthorization(caller))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

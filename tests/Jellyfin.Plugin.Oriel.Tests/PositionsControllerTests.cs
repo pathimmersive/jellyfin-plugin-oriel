@@ -21,11 +21,11 @@ public sealed class PositionsControllerTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 10, 27, 12, 0, 0, TimeSpan.Zero);
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-api-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public PositionsControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -58,12 +58,12 @@ public sealed class PositionsControllerTests : IDisposable
     [Fact]
     public async Task ReturnsNotFoundForABookTheCallerCannotSee()
     {
-        _store.Save(Reader, HiddenBook, new StoredPosition("epubcfi(/6/8!/4/2/1:0)", 0.6, Now));
+        _store.Positions.Save(Reader, HiddenBook, new StoredPosition("epubcfi(/6/8!/4/2/1:0)", 0.6, Now));
         var controller = Controller(Reader);
 
         Assert.IsType<NotFoundResult>((await controller.GetPosition(HiddenBook)).Result);
         Assert.IsType<NotFoundResult>((await controller.PutPosition(HiddenBook, new("epubcfi(/6/2!/4/2/1:0)", 0.1))).Result);
-        Assert.Equal("epubcfi(/6/8!/4/2/1:0)", _store.Get(Reader, HiddenBook)!.Cfi);
+        Assert.Equal("epubcfi(/6/8!/4/2/1:0)", _store.Positions.Get(Reader, HiddenBook)!.Cfi);
     }
 
     [Fact]
@@ -79,7 +79,7 @@ public sealed class PositionsControllerTests : IDisposable
     {
         { null, 0.5 },
         { string.Empty, 0.5 },
-        { new string('a', PositionsController.MaxCfiLength + 1), 0.5 },
+        { new string('a', ReadingRules.MaxCfiLength + 1), 0.5 },
         { "epubcfi(/6/8!/4/2/1:0)", null },
         { "epubcfi(/6/8!/4/2/1:0)", -0.01 },
         { "epubcfi(/6/8!/4/2/1:0)", 1.01 },
@@ -90,9 +90,9 @@ public sealed class PositionsControllerTests : IDisposable
     [MemberData(nameof(MalformedPositions))]
     public async Task RejectsAMalformedPositionAndStoresNothing(string? cfi, double? fraction)
     {
-        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi" : "invalidFraction";
+        var expected = cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } ? "invalidCfi" : "invalidFraction";
         Assert.Equal(expected, Refused.Reason((await Controller(Reader).PutPosition(Book, new(cfi, fraction))).Result));
-        Assert.Null(_store.Get(Reader, Book));
+        Assert.Null(_store.Positions.Get(Reader, Book));
     }
 
     [Fact]
@@ -100,12 +100,12 @@ public sealed class PositionsControllerTests : IDisposable
     {
         var controller = Controller(Reader);
 
-        Assert.NotNull((await controller.PutPosition(Book, new(new string('a', PositionsController.MaxCfiLength), 0))).Value);
+        Assert.NotNull((await controller.PutPosition(Book, new(new string('a', ReadingRules.MaxCfiLength), 0))).Value);
         Assert.NotNull((await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 1))).Value);
     }
 
     private PositionsController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
+        new(_store.Positions, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

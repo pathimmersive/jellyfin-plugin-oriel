@@ -25,11 +25,11 @@ public sealed class HighlightsControllerTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-highlights-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public HighlightsControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -114,8 +114,8 @@ public sealed class HighlightsControllerTests : IDisposable
     [Fact]
     public async Task ReturnsNotFoundForABookTheCallerCannotSeeOrAHighlightTheyDoNotHave()
     {
-        _store.AddHighlight(Reader, HiddenBook, Cfi, 0.6, "yellow", "Hidden", Now);
-        var hidden = _store.ListHighlights(Reader, HiddenBook).Single().Id;
+        _store.Highlights.Add(Reader, HiddenBook, Cfi, 0.6, "yellow", "Hidden", Now);
+        var hidden = _store.Highlights.List(Reader, HiddenBook).Single().Id;
         var controller = Controller(Reader);
 
         Assert.IsType<NotFoundResult>((await controller.GetHighlights(HiddenBook)).Result);
@@ -124,7 +124,7 @@ public sealed class HighlightsControllerTests : IDisposable
         Assert.IsType<NotFoundResult>(await controller.DeleteHighlight(HiddenBook, hidden));
         Assert.IsType<NotFoundResult>((await controller.PatchHighlight(Book, Guid.NewGuid(), new("pink"))).Result);
         Assert.IsType<NotFoundResult>(await controller.DeleteHighlight(Book, Guid.NewGuid()));
-        Assert.Equal("yellow", Assert.Single(_store.ListHighlights(Reader, HiddenBook)).Colour);
+        Assert.Equal("yellow", Assert.Single(_store.Highlights.List(Reader, HiddenBook)).Colour);
     }
 
     [Fact]
@@ -142,7 +142,7 @@ public sealed class HighlightsControllerTests : IDisposable
     {
         { null, 0.5, "yellow", "Text" },
         { string.Empty, 0.5, "yellow", "Text" },
-        { new string('a', PositionsController.MaxCfiLength + 1), 0.5, "yellow", "Text" },
+        { new string('a', ReadingRules.MaxCfiLength + 1), 0.5, "yellow", "Text" },
         { Cfi, null, "yellow", "Text" },
         { Cfi, -0.01, "yellow", "Text" },
         { Cfi, 1.01, "yellow", "Text" },
@@ -151,29 +151,29 @@ public sealed class HighlightsControllerTests : IDisposable
         { Cfi, 0.5, "purple", "Text" },
         { Cfi, 0.5, "Yellow", "Text" },
         { Cfi, 0.5, "yellow", null },
-        { Cfi, 0.5, "yellow", new string('a', HighlightsController.MaxTextLength + 1) },
+        { Cfi, 0.5, "yellow", new string('a', ReadingRules.MaxHighlightTextLength + 1) },
     };
 
     [Theory]
     [MemberData(nameof(MalformedHighlights))]
     public async Task RejectsAMalformedHighlightAndStoresNothing(string? cfi, double? fraction, string? colour, string? text)
     {
-        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi"
+        var expected = cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } ? "invalidCfi"
             : fraction is not (>= 0 and <= 1) ? "invalidFraction"
             : colour is not ("yellow" or "green" or "blue" or "pink") ? "unknownHighlighter"
             : "invalidText";
         Assert.Equal(expected, Refused.Reason((await Controller(Reader).PostHighlight(Book, new(cfi, fraction, colour, text))).Result));
-        Assert.Empty(_store.ListHighlights(Reader, Book));
+        Assert.Empty(_store.Highlights.List(Reader, Book));
     }
 
     [Fact]
     public async Task RejectsANoteThatIsTooLongAndStoresNothing()
     {
         var controller = Controller(Reader);
-        var tooLong = new string('a', HighlightsController.MaxNoteLength + 1);
+        var tooLong = new string('a', ReadingRules.MaxNoteLength + 1);
 
         Assert.Equal("noteTooLong", Refused.Reason((await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", tooLong))).Result));
-        var added = (await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", new string('a', HighlightsController.MaxNoteLength)))).Value!;
+        var added = (await controller.PostHighlight(Book, new(Cfi, 0.5, "yellow", "Text", new string('a', ReadingRules.MaxNoteLength)))).Value!;
         Assert.Equal("noteTooLong", Refused.Reason((await controller.PatchHighlight(Book, Guid.Parse(added.Id), new(null, tooLong))).Result));
         Assert.Equal([added], (await controller.GetHighlights(Book)).Value!);
     }
@@ -191,7 +191,7 @@ public sealed class HighlightsControllerTests : IDisposable
     }
 
     private HighlightsController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
+        new(_store.Highlights, _store.Highlighters, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

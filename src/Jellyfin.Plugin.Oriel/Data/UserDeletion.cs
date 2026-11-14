@@ -13,17 +13,17 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// </summary>
 public sealed partial class UserDeletion : IEventConsumer<UserDeletedEventArgs>
 {
-    private readonly PositionStore _store;
+    private readonly OrielDatabase _database;
     private readonly ILogger<UserDeletion> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="UserDeletion"/> class.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="database">The database.</param>
     /// <param name="logger">The logger.</param>
-    public UserDeletion(PositionStore store, ILogger<UserDeletion> logger)
+    public UserDeletion(OrielDatabase database, ILogger<UserDeletion> logger)
     {
-        _store = store;
+        _database = database;
         _logger = logger;
     }
 
@@ -31,22 +31,22 @@ public sealed partial class UserDeletion : IEventConsumer<UserDeletedEventArgs>
     public Task OnEvent(UserDeletedEventArgs eventArgs)
     {
         ArgumentNullException.ThrowIfNull(eventArgs);
-        Delete(_store, _logger, eventArgs.Argument.Id, "deleted in Jellyfin");
+        Delete(_database, _logger, eventArgs.Argument.Id, "deleted in Jellyfin");
         return Task.CompletedTask;
     }
 
     /// <summary>
     /// Deletes a user's rows and logs how many of each kind went; a store that cannot be opened is logged and left alone.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="database">The database.</param>
     /// <param name="logger">Where to log it.</param>
     /// <param name="userId">The user.</param>
     /// <param name="why">Why the user's data goes, for the log.</param>
-    internal static void Delete(PositionStore store, ILogger logger, Guid userId, string why)
+    internal static void Delete(OrielDatabase database, ILogger logger, Guid userId, string why)
     {
         try
         {
-            var removed = store.DeleteUser(userId);
+            var removed = database.DeleteUser(userId);
             LogDeleted(logger, userId, why, removed.Values.Sum(), Describe(removed));
         }
         catch (StoreUnavailableException)

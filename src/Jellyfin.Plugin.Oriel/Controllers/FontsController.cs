@@ -25,11 +25,6 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class FontsController : ControllerBase
 {
-    /// <summary>
-    /// The largest font file kept: 5 MB.
-    /// </summary>
-    public const int MaxBytes = 5 * 1024 * 1024;
-
     private static readonly Dictionary<string, string> Types = new(StringComparer.Ordinal)
     {
         ["ttf"] = "font/ttf",
@@ -37,7 +32,7 @@ public class FontsController : ControllerBase
         ["woff2"] = "font/woff2",
     };
 
-    private readonly PositionStore _store;
+    private readonly FontsStore _fonts;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly TimeProvider _time;
     private readonly Func<PluginConfiguration?> _configuration;
@@ -45,25 +40,25 @@ public class FontsController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the <see cref="FontsController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="fonts">The fonts store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="time">The clock a file's added time is read from.</param>
     [ActivatorUtilitiesConstructor]
-    public FontsController(PositionStore store, IAuthorizationContext authorizationContext, TimeProvider time)
-        : this(store, authorizationContext, time, () => Plugin.Instance?.Configuration)
+    public FontsController(FontsStore fonts, IAuthorizationContext authorizationContext, TimeProvider time)
+        : this(fonts, authorizationContext, time, () => Plugin.Instance?.Configuration)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="FontsController"/> class with a given configuration.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="fonts">The fonts store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="time">The clock a file's added time is read from.</param>
     /// <param name="configuration">The plugin's settings as they are now.</param>
-    public FontsController(PositionStore store, IAuthorizationContext authorizationContext, TimeProvider time, Func<PluginConfiguration?> configuration)
+    public FontsController(FontsStore fonts, IAuthorizationContext authorizationContext, TimeProvider time, Func<PluginConfiguration?> configuration)
     {
-        _store = store;
+        _fonts = fonts;
         _authorizationContext = authorizationContext;
         _time = time;
         _configuration = configuration;
@@ -85,7 +80,7 @@ public class FontsController : ControllerBase
             return Unauthorized();
         }
 
-        return _store.ListFonts(userId.Value).Select(Reply).ToList();
+        return _fonts.List(userId.Value).Select(Reply).ToList();
     }
 
     /// <summary>
@@ -96,7 +91,7 @@ public class FontsController : ControllerBase
     /// 403 while font uploads are off.
     /// </returns>
     [HttpPost]
-    [RequestSizeLimit(MaxBytes + (1024 * 1024))]
+    [RequestSizeLimit(ReadingRules.MaxFontFileBytes + (1024 * 1024))]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -123,7 +118,7 @@ public class FontsController : ControllerBase
         while ((read = await Request.Body.ReadAsync(buffer).ConfigureAwait(false)) > 0)
         {
             body.Write(buffer, 0, read);
-            if (body.Length > MaxBytes)
+            if (body.Length > ReadingRules.MaxFontFileBytes)
             {
                 return StatusCode(StatusCodes.Status413PayloadTooLarge, new Refusal("tooLarge"));
             }
@@ -135,7 +130,7 @@ public class FontsController : ControllerBase
             return BadRequest(new Refusal("notAFont"));
         }
 
-        var (stored, result) = _store.AddFont(userId.Value, font, data, _time.GetUtcNow());
+        var (stored, result) = _fonts.Add(userId.Value, font, data, _time.GetUtcNow());
         return result switch
         {
             FontAdded.Added when stored is not null => Reply(stored),
@@ -161,7 +156,7 @@ public class FontsController : ControllerBase
             return Unauthorized();
         }
 
-        if (_store.GetFontData(userId.Value, fontId) is not { } file)
+        if (_fonts.GetData(userId.Value, fontId) is not { } file)
         {
             return NotFound();
         }
@@ -188,7 +183,7 @@ public class FontsController : ControllerBase
             return Unauthorized();
         }
 
-        return family is not null && _store.RemoveFontFamily(userId.Value, family) > 0 ? NoContent() : NotFound();
+        return family is not null && _fonts.RemoveFamily(userId.Value, family) > 0 ? NoContent() : NotFound();
     }
 
     private static FontResponse Reply(StoredFont font) =>

@@ -22,65 +22,18 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class ThemesController : ControllerBase
 {
-    /// <summary>
-    /// The longest name a theme keeps.
-    /// </summary>
-    public const int MaxNameLength = 40;
-
-    private readonly PositionStore _store;
+    private readonly ThemesStore _themes;
     private readonly IAuthorizationContext _authorizationContext;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ThemesController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="themes">The themes store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
-    public ThemesController(PositionStore store, IAuthorizationContext authorizationContext)
+    public ThemesController(ThemesStore themes, IAuthorizationContext authorizationContext)
     {
-        _store = store;
+        _themes = themes;
         _authorizationContext = authorizationContext;
-    }
-
-    /// <summary>
-    /// Checks a whole list of themes for a user whose own themes have the ids in <paramref name="own"/>:
-    /// at most 12, each id one of the user's own and not repeated, a name of 1 to 40 characters and
-    /// ten colours written as #rrggbb. Entries without an id are new and are given one.
-    /// </summary>
-    /// <param name="list">The list as sent.</param>
-    /// <param name="own">The ids of the user's own themes.</param>
-    /// <returns>The list to keep, or null when it is malformed.</returns>
-    public static IReadOnlyList<ThemeEntry>? Check(IReadOnlyList<ThemeRequest?>? list, IReadOnlySet<string> own)
-    {
-        if (list is not { Count: <= PositionStore.MaxThemes })
-        {
-            return null;
-        }
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var kept = new List<ThemeEntry>();
-        foreach (var entry in list)
-        {
-            if (entry?.Name?.Trim() is not { Length: > 0 and <= MaxNameLength } name)
-            {
-                return null;
-            }
-
-            var colours = entry.Colours();
-            if (!colours.All(HighlightersController.IsColour))
-            {
-                return null;
-            }
-
-            var id = entry.Id ?? Guid.NewGuid().ToString("N");
-            if (!seen.Add(id) || (entry.Id is not null && !own.Contains(id)))
-            {
-                return null;
-            }
-
-            kept.Add(new ThemeEntry(id, name, colours.Select(colour => colour!.ToLowerInvariant()).ToList()));
-        }
-
-        return kept;
     }
 
     /// <summary>
@@ -99,7 +52,7 @@ public class ThemesController : ControllerBase
             return Unauthorized();
         }
 
-        return _store.ListThemes(userId.Value).Select(Reply).ToList();
+        return _themes.List(userId.Value).Select(Reply).ToList();
     }
 
     /// <summary>
@@ -123,13 +76,13 @@ public class ThemesController : ControllerBase
             return Unauthorized();
         }
 
-        var own = _store.ListThemes(userId.Value).Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
-        if (Check(request, own) is not { } list)
+        var own = _themes.List(userId.Value).Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
+        if (ReadingRules.CheckThemes(request?.Select(entry => entry is null ? ((string?, string?, IReadOnlyList<string?>)?)null : (entry.Id, entry.Name, entry.Colours())).ToList(), own) is not { } list)
         {
             return BadRequest(new RequestRefusal("invalidThemes"));
         }
 
-        return _store.ReplaceThemes(userId.Value, list).Select(Reply).ToList();
+        return _themes.Replace(userId.Value, list).Select(Reply).ToList();
     }
 
     private static ThemeResponse Reply(ThemeEntry theme) => new(

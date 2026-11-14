@@ -22,12 +22,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class BookmarksController : ControllerBase
 {
-    /// <summary>
-    /// The longest text a bookmark keeps.
-    /// </summary>
-    public const int MaxTextLength = 500;
-
-    private readonly PositionStore _store;
+    private readonly BookmarksStore _bookmarks;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly IItemAccess _itemAccess;
     private readonly TimeProvider _time;
@@ -35,13 +30,13 @@ public class BookmarksController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the <see cref="BookmarksController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="bookmarks">The bookmarks store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="itemAccess">Whether the caller can see a book.</param>
     /// <param name="time">The clock bookmarks are stamped with.</param>
-    public BookmarksController(PositionStore store, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
+    public BookmarksController(BookmarksStore bookmarks, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
     {
-        _store = store;
+        _bookmarks = bookmarks;
         _authorizationContext = authorizationContext;
         _itemAccess = itemAccess;
         _time = time;
@@ -70,7 +65,7 @@ public class BookmarksController : ControllerBase
             return NotFound();
         }
 
-        return _store.ListBookmarks(userId.Value, itemId).Select(Reply).ToList();
+        return _bookmarks.List(userId.Value, itemId).Select(Reply).ToList();
     }
 
     /// <summary>
@@ -100,7 +95,7 @@ public class BookmarksController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi)
+        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
@@ -110,7 +105,7 @@ public class BookmarksController : ControllerBase
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
 
-        if (request.Text is not { Length: <= MaxTextLength } text)
+        if (request.Text is not { Length: <= ReadingRules.MaxBookmarkTextLength } text)
         {
             return BadRequest(new RequestRefusal("invalidText"));
         }
@@ -122,7 +117,7 @@ public class BookmarksController : ControllerBase
 
         try
         {
-            var (bookmark, _) = _store.AddBookmark(userId.Value, itemId, cfi, fraction, text, _time.GetUtcNow());
+            var (bookmark, _) = _bookmarks.Add(userId.Value, itemId, cfi, fraction, text, _time.GetUtcNow());
             return Reply(bookmark);
         }
         catch (LimitReachedException)
@@ -149,7 +144,7 @@ public class BookmarksController : ControllerBase
             return Unauthorized();
         }
 
-        if (!_itemAccess.CanSee(userId.Value, itemId) || !_store.RemoveBookmark(userId.Value, itemId, bookmarkId))
+        if (!_itemAccess.CanSee(userId.Value, itemId) || !_bookmarks.Remove(userId.Value, itemId, bookmarkId))
         {
             return NotFound();
         }
