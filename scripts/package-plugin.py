@@ -3,7 +3,8 @@
 
 Usage:
   package-plugin.py --version X.Y.Z --out DIR --url-base URL
-                    [--manifest EXISTING] [--changelog TEXT] [--jellyfin-version V]
+                    [--manifest EXISTING] [--changelog TEXT | --changelog-file CHANGELOG.md]
+                    [--jellyfin-version V]
 
 The zip, oriel_X.Y.Z.0.zip, holds the plugin assembly, meta.json and the
 plugin's image, oriel.png, which meta.json names. Its download address in the
@@ -12,8 +13,10 @@ downloads. oriel.png is also written beside the zip, to be released with it:
 the manifest's imageUrl, <url-base>/vX.Y.Z/oriel.png, is what Jellyfin's
 catalog shows. With --manifest, the new version is added to
 that manifest's versions, newest first; without it a new manifest is started.
-A malformed version, or one the manifest already lists, fails before anything
-is written. Needs Python 3 and the .NET 10 SDK.
+With --changelog-file, the version's section of that file (## [X.Y.Z] - date,
+up to the next ## heading) is the manifest's changelog text. A malformed
+version, one the manifest already lists, or one with no section in the
+changelog file fails before anything is written. Needs Python 3 and the .NET 10 SDK.
 """
 import argparse
 import datetime
@@ -39,6 +42,24 @@ def fail(message):
     sys.exit(1)
 
 
+def section_of(path, release):
+    """The text under a changelog's '## [release]' heading, up to the next '## ' heading."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            lines = f.read().splitlines()
+    except OSError as error:
+        fail(f"cannot read {path}: {error}")
+    heading = re.compile(r"^## \[" + re.escape(release) + r"\](\s|$)")
+    start = next((i for i, line in enumerate(lines) if heading.match(line)), None)
+    if start is None:
+        fail(f"{path} has no '## [{release}]' section")
+    end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+    text = "\n".join(lines[start + 1:end]).strip()
+    if not text:
+        fail(f"{path}'s '## [{release}]' section is empty")
+    return text
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--version", required=True, help="the release version, X.Y.Z (a leading v is allowed)")
@@ -46,6 +67,7 @@ def main():
     parser.add_argument("--url-base", required=True, help="where release downloads live")
     parser.add_argument("--manifest", help="an existing manifest.json to add this version to")
     parser.add_argument("--changelog", default="", help="what changed in this version")
+    parser.add_argument("--changelog-file", help="a Keep a Changelog file whose section for this version is the changelog text")
     parser.add_argument("--jellyfin-version", help="the Jellyfin.Controller version to build against")
     args = parser.parse_args()
 
@@ -54,6 +76,10 @@ def main():
         fail(f"'{args.version}' is not a version like 1.2.3")
     release = ".".join(match.groups())
     version = release + ".0"
+
+    changelog = args.changelog
+    if args.changelog_file:
+        changelog = section_of(args.changelog_file, release)
 
     manifest = []
     if args.manifest:
@@ -109,7 +135,7 @@ def main():
     plugin["imageUrl"] = f"{args.url_base.rstrip('/')}/v{release}/{IMAGE}"
     plugin["versions"].insert(0, {
         "version": version,
-        "changelog": args.changelog,
+        "changelog": changelog,
         "targetAbi": meta["targetAbi"],
         "sourceUrl": f"{args.url_base.rstrip('/')}/v{release}/{zip_name}",
         "checksum": checksum,

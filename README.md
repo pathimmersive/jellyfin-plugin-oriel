@@ -58,6 +58,24 @@ When Jellyfin deletes a user, Oriel deletes everything it keeps for them. A user
 
 Uninstalling Oriel leaves `oriel.db` in place, so reinstalling keeps everyone's data. To remove it, stop Jellyfin and delete the `plugins/Jellyfin.Plugin.Oriel` folder.
 
+## FAQ and troubleshooting
+
+**Which apps get Oriel?** Oriel runs in jellyfin-web: in a browser, as a home-screen app, and inside the official Jellyfin apps for iOS and Android, which show jellyfin-web. Native clients that draw their own interface, such as Swiftfin, Findroid and Infuse, do not show jellyfin-web and so cannot open Oriel. Jellyfin Media Player and Android TV have not been tested.
+
+**Does it work behind a reverse proxy or with a BaseUrl?** Yes. Oriel uses the same address as jellyfin-web, including a BaseUrl such as `/jellyfin`; the proxy only has to pass `/Oriel/` through as it does `/web/`. Oriel sends its own Content-Security-Policy on `/Oriel/` responses, so a proxy that adds a stricter one there can stop the reader loading.
+
+**I host jellyfin-web separately from the server.** Oriel adds its Play takeover to the jellyfin-web the server serves. A separately hosted copy does not get it, so Play opens Jellyfin's own reader there. Oriel itself still works at `<server>/Oriel/?id=<itemId>`.
+
+**Where is my data kept?** See [Your data](#your-data).
+
+**Play opens Jellyfin's own reader.** Check that **Open books in Oriel** is on under Dashboard → Plugins → Oriel, then reload jellyfin-web (on a phone, close and reopen the app) so it picks up the change. If the server log says Oriel found no place to change jellyfin-web, your jellyfin-web is newer than this Oriel; please open an issue.
+
+**There is no Add font button.** Readers can add their own fonts only when an admin turns on **Let readers add their own fonts** in Oriel's settings. Fonts added earlier keep working while it is off.
+
+**The reader says my reading data is unavailable.** Oriel could not open `oriel.db`; the server log says why at Critical. Books still open, but places and notes are not saved until the file is fixed and Jellyfin restarts. Oriel never deletes or moves the file itself.
+
+Questions and ideas are welcome in [Discussions](https://github.com/pathimmersive/jellyfin-plugin-oriel/discussions); please keep issues for bugs and feature requests.
+
 ## Building and testing
 
 You need the .NET 10 SDK, Node.js 24 with npm, bash and, for the smoke test, Docker.
