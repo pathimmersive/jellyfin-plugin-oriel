@@ -29,15 +29,18 @@ jobs:
       - run: npm --prefix src/reader test
       - run: bash scripts/check-community-files.sh
 
-  # The smoke checks, WebKit's and Chromium's shares in parallel, each with its
-  # own Jellyfin (ORIEL_SMOKE_BROWSERS in scripts/smoke-plugin.sh).
+  # The smoke checks on the latest Jellyfin 12.x and on 12.2, the oldest Oriel
+  # supports, each in WebKit's and Chromium's share, all in parallel and each
+  # with its own Jellyfin (ORIEL_JELLYFIN and ORIEL_SMOKE_BROWSERS in
+  # scripts/smoke-plugin.sh).
   smoke-browser:
-    name: smoke-${{ matrix.browser }}
+    name: smoke-${{ matrix.jellyfin }}-${{ matrix.browser }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
+        jellyfin: [latest, floor]
         browser: [webkit, chromium]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,9 +63,10 @@ jobs:
         run: bash ../../scripts/install-browser-deps.sh npx playwright install --with-deps ${{ matrix.browser }}
       - run: bash scripts/smoke-plugin.sh
         env:
+          ORIEL_JELLYFIN: ${{ matrix.jellyfin }}
           ORIEL_SMOKE_BROWSERS: ${{ matrix.browser }}
 
-  # The required check: passes only when both shares pass. It runs even when one
+  # The required check: passes only when all four smoke jobs pass. It runs even when one
   # fails, because a required check that is skipped counts as passed.
   smoke:
     needs: smoke-browser

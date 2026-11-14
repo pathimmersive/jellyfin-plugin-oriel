@@ -1,4 +1,5 @@
-# The Jellyfin image Oriel is tested against. The smoke test and the dev server
-# read the tag from this line, and Dependabot proposes newer ones. The plugin is
-# built against the Jellyfin version the tag names (scripts/smoke-plugin.sh).
-FROM jellyfin/jellyfin:12.2.20261005-225228
+# The latest Jellyfin 12.x, which the smoke test and the dev server run by
+# default and Dependabot keeps current. Oriel is built against the oldest
+# version it supports (JellyfinVersion) and runs on this and on
+# docker/jellyfin-floor/Dockerfile.
+FROM jellyfin/jellyfin:12.4.20261026-211555

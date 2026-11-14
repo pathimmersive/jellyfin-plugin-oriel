@@ -37,7 +37,7 @@ Oriel has been tried in Safari and the Jellyfin app on iOS, and in the Jellyfin 
 
 ## Requirements
 
-- Jellyfin 12.0 or later. The build targets 12.2 and is tested against the `jellyfin/jellyfin:12.2.20261005-225228` image.
+- Jellyfin 12.2 or later. Each change is tested on 12.2 (`jellyfin/jellyfin:12.2.20261005-225228`) and on the latest 12.x (`jellyfin/jellyfin:12.4.20261026-211555` today).
 
 ## Installing
 
