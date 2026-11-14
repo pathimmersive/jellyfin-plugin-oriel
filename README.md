@@ -52,11 +52,11 @@ Updates appear in the same catalog. Each release's zip is also attached to its [
 
 ## Your data
 
-Oriel keeps each user's reading data (places, bookmarks, highlights and notes, highlighters, themes, fonts and the theme and font they chose) in one SQLite file, `oriel.db`, in the plugin's data folder: `plugins/Jellyfin.Plugin.Oriel` under Jellyfin's configuration folder (`/config/plugins/Jellyfin.Plugin.Oriel/oriel.db` in the official Docker image). Jellyfin's own backup does not include it; each user can export their data from Oriel's Your reading data page.
+Oriel keeps each user's reading data (places, bookmarks, highlights and notes, highlighters, themes, fonts and the theme and font they chose) in one SQLite file, `oriel.db`, in the plugin's data folder: `plugins/Jellyfin.Plugin.Oriel` under Jellyfin's configuration folder (`/config/plugins/Jellyfin.Plugin.Oriel/oriel.db` in the official Docker image). While Jellyfin runs, SQLite keeps two working files beside it, `oriel.db-wal` and `oriel.db-shm`; they belong to `oriel.db` and go wherever it goes. Jellyfin's own backup does not include them; each user can export their data from Oriel's Your reading data page.
 
 When Jellyfin deletes a user, Oriel deletes everything it keeps for them. A user deleted while Oriel was not loaded is caught the next time the server starts.
 
-Uninstalling Oriel leaves `oriel.db` in place, so reinstalling keeps everyone's data. To remove it, stop Jellyfin and delete the `plugins/Jellyfin.Plugin.Oriel` folder.
+Uninstalling Oriel leaves `oriel.db` in place, so reinstalling keeps everyone's data. To remove it, stop Jellyfin and delete the `plugins/Jellyfin.Plugin.Oriel` folder, which holds `oriel.db` with its `oriel.db-wal` and `oriel.db-shm` files. To copy or move the data by hand, stop Jellyfin first so the three files are consistent.
 
 ## FAQ and troubleshooting
 

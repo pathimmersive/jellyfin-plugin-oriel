@@ -21,11 +21,11 @@ public sealed class ThemesControllerTests : IDisposable
     private static readonly Guid OtherReader = Guid.NewGuid();
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-themes-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public ThemesControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -114,7 +114,7 @@ public sealed class ThemesControllerTests : IDisposable
     }
 
     private ThemesController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller))
+        new(_store.Themes, new FakeAuthorization(caller))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

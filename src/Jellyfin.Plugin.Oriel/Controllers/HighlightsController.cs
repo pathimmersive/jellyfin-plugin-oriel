@@ -22,17 +22,8 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class HighlightsController : ControllerBase
 {
-    /// <summary>
-    /// The longest text a highlight keeps.
-    /// </summary>
-    public const int MaxTextLength = 1000;
-
-    /// <summary>
-    /// The longest note a highlight keeps.
-    /// </summary>
-    public const int MaxNoteLength = 2000;
-
-    private readonly PositionStore _store;
+    private readonly HighlightsStore _highlights;
+    private readonly HighlightersStore _highlighters;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly IItemAccess _itemAccess;
     private readonly TimeProvider _time;
@@ -40,13 +31,15 @@ public class HighlightsController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the <see cref="HighlightsController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="highlights">The highlights store.</param>
+    /// <param name="highlighters">The highlighters store, whose ids a highlight's colour must be one of.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="itemAccess">Whether the caller can see a book.</param>
     /// <param name="time">The clock highlights are stamped with.</param>
-    public HighlightsController(PositionStore store, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
+    public HighlightsController(HighlightsStore highlights, HighlightersStore highlighters, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
     {
-        _store = store;
+        _highlights = highlights;
+        _highlighters = highlighters;
         _authorizationContext = authorizationContext;
         _itemAccess = itemAccess;
         _time = time;
@@ -75,7 +68,7 @@ public class HighlightsController : ControllerBase
             return NotFound();
         }
 
-        return _store.ListHighlights(userId.Value, itemId).Select(Reply).ToList();
+        return _highlights.List(userId.Value, itemId).Select(Reply).ToList();
     }
 
     /// <summary>
@@ -105,7 +98,7 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } cfi)
+        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
@@ -115,17 +108,17 @@ public class HighlightsController : ControllerBase
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
 
-        if (request.Colour is not { } colour || !_store.HighlighterIds(userId.Value).Contains(colour))
+        if (request.Colour is not { } colour || !_highlighters.Ids(userId.Value).Contains(colour))
         {
             return BadRequest(new RequestRefusal("unknownHighlighter"));
         }
 
-        if (request.Text is not { Length: <= MaxTextLength } text)
+        if (request.Text is not { Length: <= ReadingRules.MaxHighlightTextLength } text)
         {
             return BadRequest(new RequestRefusal("invalidText"));
         }
 
-        if (request.Note is { Length: > MaxNoteLength })
+        if (request.Note is { Length: > ReadingRules.MaxNoteLength })
         {
             return BadRequest(new RequestRefusal("noteTooLong"));
         }
@@ -138,7 +131,7 @@ public class HighlightsController : ControllerBase
         StoredHighlight highlight;
         try
         {
-            (highlight, _) = _store.AddHighlight(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow(), request.Note ?? string.Empty);
+            (highlight, _) = _highlights.Add(userId.Value, itemId, cfi, fraction, colour, text, _time.GetUtcNow(), request.Note ?? string.Empty);
         }
         catch (LimitReachedException)
         {
@@ -147,7 +140,7 @@ public class HighlightsController : ControllerBase
 
         if (highlight.Colour != colour || (request.Note is { } note && highlight.Note != note))
         {
-            highlight = _store.UpdateHighlight(userId.Value, itemId, highlight.Id, colour, request.Note) ?? highlight;
+            highlight = _highlights.Update(userId.Value, itemId, highlight.Id, colour, request.Note) ?? highlight;
         }
 
         return Reply(highlight);
@@ -184,17 +177,17 @@ public class HighlightsController : ControllerBase
             return BadRequest(new RequestRefusal("noChange"));
         }
 
-        if (request.Colour is { } colour && !_store.HighlighterIds(userId.Value).Contains(colour))
+        if (request.Colour is { } colour && !_highlighters.Ids(userId.Value).Contains(colour))
         {
             return BadRequest(new RequestRefusal("unknownHighlighter"));
         }
 
-        if (request.Note is { Length: > MaxNoteLength })
+        if (request.Note is { Length: > ReadingRules.MaxNoteLength })
         {
             return BadRequest(new RequestRefusal("noteTooLong"));
         }
 
-        if (!_itemAccess.CanSee(userId.Value, itemId) || _store.UpdateHighlight(userId.Value, itemId, highlightId, request.Colour, request.Note) is not { } highlight)
+        if (!_itemAccess.CanSee(userId.Value, itemId) || _highlights.Update(userId.Value, itemId, highlightId, request.Colour, request.Note) is not { } highlight)
         {
             return NotFound();
         }
@@ -220,7 +213,7 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (!_itemAccess.CanSee(userId.Value, itemId) || !_store.RemoveHighlight(userId.Value, itemId, highlightId))
+        if (!_itemAccess.CanSee(userId.Value, itemId) || !_highlights.Remove(userId.Value, itemId, highlightId))
         {
             return NotFound();
         }

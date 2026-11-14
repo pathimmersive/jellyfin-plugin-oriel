@@ -23,11 +23,11 @@ public sealed class HighlightersControllerTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-highlighters-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public HighlightersControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -41,7 +41,7 @@ public sealed class HighlightersControllerTests : IDisposable
 
     // The built-ins as a request sends them back.
     private static List<Entry?> BuiltIns() =>
-        [.. PositionStore.BuiltInHighlighters.Select(builtIn => (Entry?)new Entry(builtIn.Id, builtIn.Name, builtIn.Colour))];
+        [.. ReadingRules.BuiltInHighlighters.Select(builtIn => (Entry?)new Entry(builtIn.Id, builtIn.Name, builtIn.Colour))];
 
     [Fact]
     public async Task ListsTheFourBuiltInsForAReaderWhoHasChangedNothing()
@@ -67,7 +67,7 @@ public sealed class HighlightersControllerTests : IDisposable
         Assert.Equal(("Lines", "#ffb74d"), (saved[0].Name, saved[0].Colour));
         Assert.Equal(("Questions", "#b39ddb", false), (saved[1].Name, saved[1].Colour, saved[1].BuiltIn));
         Assert.Equal(saved, (await controller.GetHighlighters()).Value!);
-        Assert.Contains(saved[1].Id, _store.HighlighterIds(Reader));
+        Assert.Contains(saved[1].Id, _store.Highlighters.Ids(Reader));
     }
 
     [Fact]
@@ -77,9 +77,9 @@ public sealed class HighlightersControllerTests : IDisposable
         var list = BuiltIns();
         list.Add(new Entry(null, "Questions", "#b39ddb"));
         var questions = (await controller.PutHighlighters(list)).Value![4].Id;
-        _store.AddHighlight(Reader, Book, "epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, questions, "One", Now);
-        _store.AddHighlight(Reader, Book, "epubcfi(/6/4!/4/4,/1:0,/1:4)", 0.2, questions, "Two", Now);
-        _store.AddHighlight(Reader, Book, "epubcfi(/6/4!/4/6,/1:0,/1:4)", 0.2, "pink", "Three", Now);
+        _store.Highlights.Add(Reader, Book, "epubcfi(/6/4!/4/2,/1:0,/1:4)", 0.2, questions, "One", Now);
+        _store.Highlights.Add(Reader, Book, "epubcfi(/6/4!/4/4,/1:0,/1:4)", 0.2, questions, "Two", Now);
+        _store.Highlights.Add(Reader, Book, "epubcfi(/6/4!/4/6,/1:0,/1:4)", 0.2, "pink", "Three", Now);
 
         Assert.Equal([0, 0, 0, 1, 2], (await controller.GetHighlighters()).Value!.Select(highlighter => highlighter.Uses));
 
@@ -87,7 +87,7 @@ public sealed class HighlightersControllerTests : IDisposable
 
         Assert.Equal(4, after.Count);
         Assert.Equal(2, after[0].Uses);
-        Assert.Equal(["pink", "yellow", "yellow"], _store.ListHighlights(Reader, Book).Select(highlight => highlight.Colour).Order(StringComparer.Ordinal));
+        Assert.Equal(["pink", "yellow", "yellow"], _store.Highlights.List(Reader, Book).Select(highlight => highlight.Colour).Order(StringComparer.Ordinal));
     }
 
     [Fact]
@@ -138,13 +138,13 @@ public sealed class HighlightersControllerTests : IDisposable
             case "a built-in twice": list.Add(new Entry("pink", "Pink again", "#f06292")); break;
             case "an id the reader does not have": list.Add(new Entry("someone-else", "Theirs", "#a1887f")); break;
             case "an empty name": list.Add(new Entry(null, "  ", "#a1887f")); break;
-            case "a name too long": list.Add(new Entry(null, new string('a', HighlightersController.MaxNameLength + 1), "#a1887f")); break;
+            case "a name too long": list.Add(new Entry(null, new string('a', ReadingRules.MaxHighlighterNameLength + 1), "#a1887f")); break;
             case "a colour that is not #rrggbb": list.Add(new Entry(null, "Brownish", "brown")); break;
             case "a null entry": list.Add(null); break;
         }
 
         Assert.Equal("invalidHighlighters", Refused.Reason((await Controller(Reader).PutHighlighters(list)).Result));
-        Assert.Equal(4, _store.ListHighlighters(Reader).Count);
+        Assert.Equal(4, _store.Highlighters.List(Reader).Count);
     }
 
     [Fact]
@@ -153,11 +153,11 @@ public sealed class HighlightersControllerTests : IDisposable
         var list = BuiltIns();
         list.Add(new Entry(null, "Questions", "#b39ddb"));
         var questions = (await Controller(Reader).PutHighlighters(list)).Value![4].Id;
-        var highlights = new HighlightsController(_store, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
+        var highlights = new HighlightsController(_store.Highlights, _store.Highlighters, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
-        var theirs = new HighlightsController(_store, new FakeAuthorization(OtherReader), new FakeItemAccess(), new FixedTime(Now))
+        var theirs = new HighlightsController(_store.Highlights, _store.Highlighters, new FakeAuthorization(OtherReader), new FakeItemAccess(), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -167,7 +167,7 @@ public sealed class HighlightersControllerTests : IDisposable
     }
 
     private HighlightersController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller))
+        new(_store.Highlighters, new FakeAuthorization(caller))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

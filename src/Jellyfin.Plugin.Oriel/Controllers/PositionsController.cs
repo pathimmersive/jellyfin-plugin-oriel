@@ -20,12 +20,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class PositionsController : ControllerBase
 {
-    /// <summary>
-    /// The longest CFI accepted.
-    /// </summary>
-    public const int MaxCfiLength = 4096;
-
-    private readonly PositionStore _store;
+    private readonly PositionsStore _positions;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly IItemAccess _itemAccess;
     private readonly TimeProvider _time;
@@ -33,13 +28,13 @@ public class PositionsController : ControllerBase
     /// <summary>
     /// Initializes a new instance of the <see cref="PositionsController"/> class.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="positions">The positions store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="itemAccess">Whether the caller can see a book.</param>
     /// <param name="time">The clock positions are stamped with.</param>
-    public PositionsController(PositionStore store, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
+    public PositionsController(PositionsStore positions, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
     {
-        _store = store;
+        _positions = positions;
         _authorizationContext = authorizationContext;
         _itemAccess = itemAccess;
         _time = time;
@@ -68,7 +63,7 @@ public class PositionsController : ControllerBase
             return NotFound();
         }
 
-        var position = _store.Get(userId.Value, itemId);
+        var position = _positions.Get(userId.Value, itemId);
         return position is null
             ? NotFound()
             : new PositionResponse(position.Cfi, position.Fraction, position.SavedAt);
@@ -99,7 +94,7 @@ public class PositionsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= MaxCfiLength } cfi)
+        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
@@ -115,7 +110,7 @@ public class PositionsController : ControllerBase
         }
 
         var position = new StoredPosition(cfi, fraction, _time.GetUtcNow());
-        _store.Save(userId.Value, itemId, position);
+        _positions.Save(userId.Value, itemId, position);
         return new PositionResponse(position.Cfi, position.Fraction, position.SavedAt);
     }
 

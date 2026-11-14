@@ -204,7 +204,8 @@ try {
     await enter.click()
     await page.waitForFunction(() => document.fullscreenElement !== null, null, { timeout: 5_000 }).catch(() => fail('Full screen did not go full screen'))
     const leave = page.locator('#controls footer button[aria-label="Leave full screen"]')
-    if (!await leave.isVisible()) fail('in full screen the button does not read Leave full screen')
+    // fullscreenchange, which relabels the button, fires a frame after fullscreenElement is set.
+    await leave.waitFor({ state: 'visible', timeout: 5_000 }).catch(() => fail('in full screen the button does not read Leave full screen'))
     await leave.click()
     await page.waitForFunction(() => document.fullscreenElement === null, null, { timeout: 5_000 }).catch(() => fail('Leave full screen did not leave full screen'))
     pass('Full screen in the footer goes full screen, and Leave full screen leaves it')

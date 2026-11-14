@@ -11,31 +11,31 @@ using Microsoft.Extensions.Logging;
 namespace Jellyfin.Plugin.Oriel.Data;
 
 /// <summary>
-/// Opens the position store when the server starts and brings its schema up to date.
-/// A store that cannot be opened is logged and left alone, so Jellyfin still starts.
+/// Opens the database when the server starts and brings its schema up to date.
+/// A database that cannot be opened is logged and left alone, so Jellyfin still starts.
 /// </summary>
-public partial class PositionStoreStartup : IHostedService
+public partial class DatabaseStartup : IHostedService
 {
-    private readonly PositionStore _store;
-    private readonly ILogger<PositionStoreStartup> _logger;
+    private readonly OrielDatabase _database;
+    private readonly ILogger<DatabaseStartup> _logger;
     private readonly Func<IReadOnlyCollection<Guid>>? _users;
 
     /// <summary>
-    /// Initializes a new instance of the <see cref="PositionStoreStartup"/> class.
+    /// Initializes a new instance of the <see cref="DatabaseStartup"/> class.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="database">The database.</param>
     /// <param name="logger">The logger.</param>
     /// <param name="userManager">Jellyfin's users, for removing the data of users deleted while Oriel was not loaded.</param>
     [ActivatorUtilitiesConstructor]
-    public PositionStoreStartup(PositionStore store, ILogger<PositionStoreStartup> logger, IUserManager userManager)
-        : this(store, logger, () => userManager.GetUsersIds().ToList())
+    public DatabaseStartup(OrielDatabase database, ILogger<DatabaseStartup> logger, IUserManager userManager)
+        : this(database, logger, () => userManager.GetUsersIds().ToList())
     {
     }
 
     // The users Jellyfin has are a parameter so the tests can set them; without them there is no sweep.
-    internal PositionStoreStartup(PositionStore store, ILogger<PositionStoreStartup> logger, Func<IReadOnlyCollection<Guid>>? users = null)
+    internal DatabaseStartup(OrielDatabase database, ILogger<DatabaseStartup> logger, Func<IReadOnlyCollection<Guid>>? users = null)
     {
-        _store = store;
+        _database = database;
         _logger = logger;
         _users = users;
     }
@@ -45,7 +45,7 @@ public partial class PositionStoreStartup : IHostedService
     {
         try
         {
-            var version = _store.Migrate((from, to) => LogMigrated(_logger, from, to));
+            var version = _database.Migrate((from, to) => LogMigrated(_logger, from, to));
             _logger.LogInformation("Oriel reading position store is at schema version {Version}", version);
             Sweep();
         }
@@ -54,7 +54,7 @@ public partial class PositionStoreStartup : IHostedService
             _logger.LogCritical(
                 exception,
                 "Oriel cannot open its reading data store at {Path}: {Reason}. Oriel's reading data is unavailable until the file is fixed; nothing in its folder was changed",
-                _store.DatabasePath,
+                _database.DatabasePath,
                 exception.Message);
         }
 
@@ -80,9 +80,9 @@ public partial class PositionStoreStartup : IHostedService
             return;
         }
 
-        foreach (var userId in _store.UserIds().Where(userId => !existing.Contains(userId)))
+        foreach (var userId in _database.UserIds().Where(userId => !existing.Contains(userId)))
         {
-            UserDeletion.Delete(_store, _logger, userId, "no longer a Jellyfin user");
+            UserDeletion.Delete(_database, _logger, userId, "no longer a Jellyfin user");
         }
     }
 

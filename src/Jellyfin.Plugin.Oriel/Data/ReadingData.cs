@@ -221,14 +221,10 @@ public class ReadingData
     /// </summary>
     public const int Version = 6;
 
-    /// <summary>
-    /// The longest CFI accepted, as when the reader saves a position.
-    /// </summary>
-    public const int MaxCfiLength = Controllers.PositionsController.MaxCfiLength;
-
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
-    private readonly PositionStore _store;
+    private readonly OrielDatabase _database;
+    private readonly ReadingStores _stores;
     private readonly IBookCatalog _catalog;
     private readonly Func<Configuration.PluginConfiguration?> _configuration;
     private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, bool> _importing = new();
@@ -236,22 +232,25 @@ public class ReadingData
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadingData"/> class.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="database">The database, for the import's one transaction.</param>
+    /// <param name="stores">The stores of each kind of data.</param>
     /// <param name="catalog">The books each user can see.</param>
-    public ReadingData(PositionStore store, IBookCatalog catalog)
-        : this(store, catalog, () => Plugin.Instance?.Configuration)
+    public ReadingData(OrielDatabase database, ReadingStores stores, IBookCatalog catalog)
+        : this(database, stores, catalog, () => Plugin.Instance?.Configuration)
     {
     }
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadingData"/> class with a given configuration.
     /// </summary>
-    /// <param name="store">The position store.</param>
+    /// <param name="database">The database, for the import's one transaction.</param>
+    /// <param name="stores">The stores of each kind of data.</param>
     /// <param name="catalog">The books each user can see.</param>
     /// <param name="configuration">The plugin's settings as they are now.</param>
-    public ReadingData(PositionStore store, IBookCatalog catalog, Func<Configuration.PluginConfiguration?> configuration)
+    public ReadingData(OrielDatabase database, ReadingStores stores, IBookCatalog catalog, Func<Configuration.PluginConfiguration?> configuration)
     {
-        _store = store;
+        _database = database;
+        _stores = stores;
         _catalog = catalog;
         _configuration = configuration;
     }
@@ -266,7 +265,7 @@ public class ReadingData
     public ReadingDataFile Export(Guid userId, DateTimeOffset now)
     {
         var positions = new List<ExportedPosition?>();
-        foreach (var (itemId, position) in _store.ListForUser(userId))
+        foreach (var (itemId, position) in _stores.Positions.ListForUser(userId))
         {
             if (_catalog.Find(userId, itemId) is { } book)
             {
@@ -276,7 +275,7 @@ public class ReadingData
         }
 
         var bookmarks = new List<ExportedBookmark?>();
-        foreach (var (itemId, bookmark) in _store.ListBookmarksForUser(userId))
+        foreach (var (itemId, bookmark) in _stores.Bookmarks.ListForUser(userId))
         {
             if (_catalog.Find(userId, itemId) is { } book)
             {
@@ -286,7 +285,7 @@ public class ReadingData
         }
 
         var highlights = new List<ExportedHighlight?>();
-        foreach (var (itemId, highlight) in _store.ListHighlightsForUser(userId))
+        foreach (var (itemId, highlight) in _stores.Highlights.ListForUser(userId))
         {
             if (_catalog.Find(userId, itemId) is { } book)
             {
@@ -295,20 +294,20 @@ public class ReadingData
             }
         }
 
-        var highlighters = _store.ListHighlighters(userId).Select(highlighter => (ExportedHighlighter?)new ExportedHighlighter(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
-        var themes = _store.ListThemes(userId).Select(theme => (ExportedTheme?)new ExportedTheme(
+        var highlighters = _stores.Highlighters.List(userId).Select(highlighter => (ExportedHighlighter?)new ExportedHighlighter(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
+        var themes = _stores.Themes.List(userId).Select(theme => (ExportedTheme?)new ExportedTheme(
             theme.Id, theme.Name, theme.Colours[0], theme.Colours[1], theme.Colours[2], theme.Colours[3], theme.Colours[4],
             theme.Colours[5], theme.Colours[6], theme.Colours[7], theme.Colours[8], theme.Colours[9])).ToList();
         var fonts = new List<ExportedFont?>();
-        foreach (var stored in _store.ListFonts(userId))
+        foreach (var stored in _stores.Fonts.List(userId))
         {
-            if (_store.GetFontData(userId, stored.Id) is { } file)
+            if (_stores.Fonts.GetData(userId, stored.Id) is { } file)
             {
                 fonts.Add(new ExportedFont(stored.Font.Family, stored.Font.Style, stored.Font.Weight, stored.Font.Italic, file.Format, file.Data));
             }
         }
 
-        var choices = _store.GetChoices(userId) is { } chosen ? new ExportedChoices(chosen.Theme, chosen.Font) : null;
+        var choices = _stores.Choices.Get(userId) is { } chosen ? new ExportedChoices(chosen.Theme, chosen.Font) : null;
         return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights, highlighters, themes, fonts, choices);
     }
 
@@ -398,7 +397,7 @@ public class ReadingData
 
         try
         {
-            return _store.RunInTransaction(() => ImportAll(userId, file));
+            return _database.RunInTransaction(() => ImportAll(userId, file));
         }
         finally
         {
@@ -432,14 +431,14 @@ public class ReadingData
             }
 
             var position = new StoredPosition(entry!.Cfi!, entry.Fraction!.Value, entry.SavedAt!.Value);
-            var stored = _store.Get(userId, itemId.Value);
+            var stored = _stores.Positions.Get(userId, itemId.Value);
             if (stored is not null && stored.SavedAt >= position.SavedAt)
             {
                 kept++;
                 continue;
             }
 
-            _store.Save(userId, itemId.Value, position);
+            _stores.Positions.Save(userId, itemId.Value, position);
             imported++;
         }
 
@@ -454,7 +453,7 @@ public class ReadingData
 
             try
             {
-                if (_store.AddBookmark(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
+                if (_stores.Bookmarks.Add(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
                 {
                     bookmarks++;
                 }
@@ -467,13 +466,12 @@ public class ReadingData
         }
 
         // The file's own highlighters the user does not have join the user's, while there is room.
-        var own = _store.ListHighlighters(userId).Select(highlighter => new HighlighterEntry(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
+        var own = _stores.Highlighters.List(userId).Select(highlighter => new HighlighterEntry(highlighter.Id, highlighter.Name, highlighter.Colour)).ToList();
         var ids = own.Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
-        var builtIns = PositionStore.BuiltInHighlighters.Select(builtIn => builtIn.Id).ToHashSet(StringComparer.Ordinal);
         var highlighters = 0;
         foreach (var entry in file.Highlighters ?? [])
         {
-            if (own.Count >= Controllers.HighlightersController.MaxHighlighters || builtIns.Contains(entry!.Id!) || !ids.Add(entry.Id!))
+            if (own.Count >= ReadingRules.MaxHighlighters || ReadingRules.IsBuiltInHighlighter(entry!.Id!) || !ids.Add(entry.Id!))
             {
                 continue;
             }
@@ -484,7 +482,7 @@ public class ReadingData
 
         if (highlighters > 0)
         {
-            _store.ReplaceHighlighters(userId, own);
+            _stores.Highlighters.Replace(userId, own);
         }
 
         foreach (var entry in file.Highlights ?? [])
@@ -498,7 +496,7 @@ public class ReadingData
 
             try
             {
-                if (_store.AddHighlight(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : PositionStore.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
+                if (_stores.Highlights.Add(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : ReadingRules.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
                 {
                     highlights++;
                 }
@@ -518,12 +516,12 @@ public class ReadingData
     // chosen theme and font are taken only when the user has chosen none here.
     private (int Themes, int Fonts, bool Choices) ImportSetup(Guid userId, ReadingDataFile file)
     {
-        var ownThemes = _store.ListThemes(userId).ToList();
+        var ownThemes = _stores.Themes.List(userId).ToList();
         var themeIds = ownThemes.Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
         var themes = 0;
         foreach (var entry in file.Themes ?? [])
         {
-            if (ownThemes.Count >= PositionStore.MaxThemes || !themeIds.Add(entry!.Id!))
+            if (ownThemes.Count >= ReadingRules.MaxThemes || !themeIds.Add(entry!.Id!))
             {
                 continue;
             }
@@ -534,10 +532,10 @@ public class ReadingData
 
         if (themes > 0)
         {
-            _store.ReplaceThemes(userId, ownThemes);
+            _stores.Themes.Replace(userId, ownThemes);
         }
 
-        var faces = _store.ListFonts(userId).Select(font => (font.Font.Family, font.Font.Weight, font.Font.Italic)).ToHashSet();
+        var faces = _stores.Fonts.List(userId).Select(font => (font.Font.Family, font.Font.Weight, font.Font.Italic)).ToHashSet();
         var families = new HashSet<string>(StringComparer.Ordinal);
         // Fonts are added only while an admin allows it; the rest of the file imports either way.
         var uploads = _configuration()?.EnableFontUploads == true;
@@ -549,7 +547,7 @@ public class ReadingData
                 continue;
             }
 
-            var added = _store.AddFont(userId, font, entry.Data!, DateTimeOffset.UtcNow).Result;
+            var added = _stores.Fonts.Add(userId, font, entry.Data!, DateTimeOffset.UtcNow).Result;
             if (added == FontAdded.TooMany)
             {
                 break;
@@ -565,13 +563,12 @@ public class ReadingData
         }
 
         var choices = false;
-        if (file.Choices is { } chosen && _store.GetChoices(userId) is null)
+        if (file.Choices is { } chosen && _stores.Choices.Get(userId) is null)
         {
-            var familiesHere = _store.ListFonts(userId).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
-            var request = new Controllers.ChoicesController.ChoicesRequest(chosen.Theme, chosen.Font);
-            if (Controllers.ChoicesController.Check(request, themeIds, familiesHere) is { } kept)
+            var familiesHere = _stores.Fonts.List(userId).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
+            if (ReadingRules.CheckChoices(chosen.Theme, chosen.Font, themeIds, familiesHere) is { } kept)
             {
-                _store.SaveChoices(userId, kept);
+                _stores.Choices.Save(userId, kept);
                 choices = true;
             }
         }
@@ -580,36 +577,36 @@ public class ReadingData
     }
 
     private static bool Valid(ExportedPosition? entry) =>
-        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, SavedAt: not null }
-        && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
+        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, SavedAt: not null }
+        && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedBookmark? entry) =>
-        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Text.Length: <= Controllers.BookmarksController.MaxTextLength, CreatedAt: not null }
-        && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
+        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, Text.Length: <= ReadingRules.MaxBookmarkTextLength, CreatedAt: not null }
+        && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedHighlight? entry) =>
-        entry is { Cfi.Length: > 0 and <= MaxCfiLength, Fraction: { } fraction, Colour.Length: > 0 and <= Controllers.HighlightersController.MaxIdLength, Text.Length: <= Controllers.HighlightsController.MaxTextLength, CreatedAt: not null }
-        && entry.Note is not { Length: > Controllers.HighlightsController.MaxNoteLength }
-        && !double.IsNaN(fraction) && fraction is >= 0 and <= 1
+        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, Colour.Length: > 0 and <= ReadingRules.MaxIdLength, Text.Length: <= ReadingRules.MaxHighlightTextLength, CreatedAt: not null }
+        && entry.Note is not { Length: > ReadingRules.MaxNoteLength }
+        && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedHighlighter? entry) =>
-        entry is { Id.Length: > 0 and <= Controllers.HighlightersController.MaxIdLength, Name: { } name }
-        && name.Trim().Length is > 0 and <= Controllers.HighlightersController.MaxNameLength
-        && Controllers.HighlightersController.IsColour(entry.Colour);
+        entry is { Id.Length: > 0 and <= ReadingRules.MaxIdLength, Name: { } name }
+        && name.Trim().Length is > 0 and <= ReadingRules.MaxHighlighterNameLength
+        && ReadingRules.IsColour(entry.Colour);
 
     private static bool Valid(ExportedTheme? entry) =>
-        entry is { Id.Length: > 0 and <= 64, Name: { } name }
-        && name.Trim().Length is > 0 and <= Controllers.ThemesController.MaxNameLength
-        && entry.Colours().All(Controllers.HighlightersController.IsColour);
+        entry is { Id.Length: > 0 and <= ReadingRules.MaxIdLength, Name: { } name }
+        && name.Trim().Length is > 0 and <= ReadingRules.MaxThemeNameLength
+        && entry.Colours().All(ReadingRules.IsColour);
 
     private static bool Valid(ExportedFont? entry) =>
-        entry is { Data: { Length: > 0 and <= Controllers.FontsController.MaxBytes } data } && FontFile.Read(data) is not null;
+        entry is { Data: { Length: > 0 and <= ReadingRules.MaxFontFileBytes } data } && FontFile.Read(data) is not null;
 
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 

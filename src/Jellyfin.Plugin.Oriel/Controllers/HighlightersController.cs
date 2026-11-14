@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Mime;
 using System.Text.Json.Serialization;
-using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
@@ -23,77 +22,18 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public partial class HighlightersController : ControllerBase
 {
-    /// <summary>
-    /// The most highlighters a user keeps, built-ins included.
-    /// </summary>
-    public const int MaxHighlighters = 8;
-
-    /// <summary>
-    /// The longest name a highlighter keeps.
-    /// </summary>
-    public const int MaxNameLength = 40;
-
-    /// <summary>
-    /// The longest id a highlighter has.
-    /// </summary>
-    public const int MaxIdLength = 64;
-
-    private readonly PositionStore _store;
+    private readonly HighlightersStore _highlighters;
     private readonly IAuthorizationContext _authorizationContext;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HighlightersController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="highlighters">The highlighters store.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
-    public HighlightersController(PositionStore store, IAuthorizationContext authorizationContext)
+    public HighlightersController(HighlightersStore highlighters, IAuthorizationContext authorizationContext)
     {
-        _store = store;
+        _highlighters = highlighters;
         _authorizationContext = authorizationContext;
-    }
-
-    /// <summary>
-    /// Whether a colour is written as #rrggbb.
-    /// </summary>
-    /// <param name="colour">The colour.</param>
-    /// <returns>True for #rrggbb.</returns>
-    public static bool IsColour(string? colour) => colour is not null && HexColour().IsMatch(colour);
-
-    /// <summary>
-    /// Checks a whole list of highlighters for a user whose own highlighters have the ids in <paramref name="own"/>:
-    /// 4 to 8 of them, each built-in once, any other id one of the user's own, a name of 1 to 40 characters and a
-    /// colour written as #rrggbb. Entries without an id are new and are given one.
-    /// </summary>
-    /// <param name="list">The list as sent.</param>
-    /// <param name="own">The ids of the user's own highlighters.</param>
-    /// <returns>The list to keep, or null when it is malformed.</returns>
-    public static IReadOnlyList<HighlighterEntry>? Check(IReadOnlyList<HighlighterRequest?>? list, IReadOnlySet<string> own)
-    {
-        if (list is not { Count: >= 4 and <= MaxHighlighters })
-        {
-            return null;
-        }
-
-        var builtIns = PositionStore.BuiltInHighlighters.Select(builtIn => builtIn.Id).ToHashSet(StringComparer.Ordinal);
-        var seen = new HashSet<string>(StringComparer.Ordinal);
-        var kept = new List<HighlighterEntry>();
-        foreach (var entry in list)
-        {
-            if (entry?.Name?.Trim() is not { Length: > 0 and <= MaxNameLength } name || !IsColour(entry.Colour))
-            {
-                return null;
-            }
-
-            var id = entry.Id ?? Guid.NewGuid().ToString("N");
-            if (!seen.Add(id) || (entry.Id is not null && !builtIns.Contains(id) && !own.Contains(id)))
-            {
-                return null;
-            }
-
-            kept.Add(new HighlighterEntry(id, name, entry.Colour!.ToLowerInvariant()));
-        }
-
-        return builtIns.IsSubsetOf(seen) ? kept : null;
     }
 
     /// <summary>
@@ -112,7 +52,7 @@ public partial class HighlightersController : ControllerBase
             return Unauthorized();
         }
 
-        return _store.ListHighlighters(userId.Value).Select(Reply).ToList();
+        return _highlighters.List(userId.Value).Select(Reply).ToList();
     }
 
     /// <summary>
@@ -136,17 +76,14 @@ public partial class HighlightersController : ControllerBase
             return Unauthorized();
         }
 
-        var own = _store.ListHighlighters(userId.Value).Where(highlighter => !highlighter.BuiltIn).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
-        if (Check(request, own) is not { } list)
+        var own = _highlighters.List(userId.Value).Where(highlighter => !highlighter.BuiltIn).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
+        if (ReadingRules.CheckHighlighters(request?.Select(entry => entry is null ? ((string?, string?, string?)?)null : (entry.Id, entry.Name, entry.Colour)).ToList(), own) is not { } list)
         {
             return BadRequest(new RequestRefusal("invalidHighlighters"));
         }
 
-        return _store.ReplaceHighlighters(userId.Value, list).Select(Reply).ToList();
+        return _highlighters.Replace(userId.Value, list).Select(Reply).ToList();
     }
-
-    [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
-    private static partial Regex HexColour();
 
     private static HighlighterResponse Reply(StoredHighlighter highlighter) =>
         new(highlighter.Id, highlighter.Name, highlighter.Colour, highlighter.BuiltIn, highlighter.Uses);

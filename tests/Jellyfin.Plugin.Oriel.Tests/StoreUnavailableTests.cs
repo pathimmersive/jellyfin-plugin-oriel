@@ -45,14 +45,14 @@ public sealed class StoreUnavailableTests : IDisposable
     {
         var corrupt = Enumerable.Range(0, 4096).Select(i => (byte)(i * 7)).ToArray();
         File.WriteAllBytes(DatabasePath, corrupt);
-        var store = new PositionStore(DatabasePath);
+        var store = new StoreSet(DatabasePath);
 
         var logged = await Start(store);
 
         Assert.Contains(logged, entry => entry.Level == LogLevel.Critical && entry.Message.Contains(DatabasePath, StringComparison.Ordinal));
         Assert.Equal(corrupt, File.ReadAllBytes(DatabasePath));
         Assert.Equal([DatabasePath], Directory.GetFiles(_folder));
-        Assert.Throws<StoreUnavailableException>(() => store.Get(Reader, Book));
+        Assert.Throws<StoreUnavailableException>(() => store.Positions.Get(Reader, Book));
         Assert.Equal(corrupt, File.ReadAllBytes(DatabasePath));
     }
 
@@ -61,28 +61,28 @@ public sealed class StoreUnavailableTests : IDisposable
     {
         var blocker = Path.Combine(_folder, "plugin");
         File.WriteAllText(blocker, "a file where the plugin's folder should be");
-        var store = new PositionStore(Path.Combine(blocker, "oriel.db"));
+        var store = new StoreSet(Path.Combine(blocker, "oriel.db"));
 
         var logged = await Start(store);
 
         Assert.Contains(logged, entry => entry.Level == LogLevel.Critical);
-        Assert.Throws<StoreUnavailableException>(() => store.ListFonts(Reader));
+        Assert.Throws<StoreUnavailableException>(() => store.Fonts.List(Reader));
         Assert.Equal("a file where the plugin's folder should be", File.ReadAllText(blocker));
     }
 
     [Fact]
     public async Task StartsPastADatabaseFromANewerOrielLeavingItUnchangedByteForByte()
     {
-        string[] newer = [.. PositionStore.Schema, "CREATE TABLE future (x INTEGER)"];
-        new PositionStore(DatabasePath, newer).Migrate();
+        string[] newer = [.. OrielDatabase.Schema, "CREATE TABLE future (x INTEGER)"];
+        new StoreSet(DatabasePath, newer).Database.Migrate();
         SqliteConnection.ClearAllPools();
         var before = File.ReadAllBytes(DatabasePath);
-        var store = new PositionStore(DatabasePath);
+        var store = new StoreSet(DatabasePath);
 
         var logged = await Start(store);
 
         Assert.Contains(logged, entry => entry.Level == LogLevel.Critical && entry.Message.Contains("newer than this plugin", StringComparison.Ordinal));
-        Assert.Throws<StoreUnavailableException>(() => store.Save(Reader, Book, new StoredPosition("epubcfi(/6/2!/4/2/1:0)", 0.1, DateTimeOffset.UtcNow)));
+        Assert.Throws<StoreUnavailableException>(() => store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/2!/4/2/1:0)", 0.1, DateTimeOffset.UtcNow)));
         SqliteConnection.ClearAllPools();
         Assert.Equal(before, File.ReadAllBytes(DatabasePath));
         Assert.Equal([DatabasePath], Directory.GetFiles(_folder));
@@ -92,23 +92,23 @@ public sealed class StoreUnavailableTests : IDisposable
     public async Task OpensOnceTheFileIsFixedWithoutARestart()
     {
         File.WriteAllText(DatabasePath, "not a database, but long enough to look like a header for SQLite to read");
-        var store = new PositionStore(DatabasePath);
+        var store = new StoreSet(DatabasePath);
         await Start(store);
-        Assert.Throws<StoreUnavailableException>(() => store.Get(Reader, Book));
+        Assert.Throws<StoreUnavailableException>(() => store.Positions.Get(Reader, Book));
 
         SqliteConnection.ClearAllPools();
         File.Delete(DatabasePath);
 
-        Assert.Null(store.Get(Reader, Book));
+        Assert.Null(store.Positions.Get(Reader, Book));
     }
 
     [Fact]
     public async Task LogsTheSchemaVersionWhenTheStoreOpens()
     {
-        var logged = await Start(new PositionStore(DatabasePath));
+        var logged = await Start(new StoreSet(DatabasePath));
 
         Assert.DoesNotContain(logged, entry => entry.Level >= LogLevel.Error);
-        Assert.Contains(logged, entry => entry.Level == LogLevel.Information && entry.Message.Contains($"schema version {PositionStore.Schema.Count}", StringComparison.Ordinal));
+        Assert.Contains(logged, entry => entry.Level == LogLevel.Information && entry.Message.Contains($"schema version {OrielDatabase.Schema.Count}", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -141,7 +141,7 @@ public sealed class StoreUnavailableTests : IDisposable
         var usesStore = typeof(Plugin).Assembly.GetTypes()
             .Where(type => typeof(ControllerBase).IsAssignableFrom(type) && !type.IsAbstract)
             .Where(type => type.GetConstructors().Any(constructor => constructor.GetParameters()
-                .Any(parameter => parameter.ParameterType == typeof(PositionStore) || parameter.ParameterType == typeof(ReadingData))))
+                .Any(parameter => typeof(ReadingStores).GetProperties().Any(store => store.PropertyType == parameter.ParameterType) || parameter.ParameterType == typeof(ReadingData))))
             .ToList();
 
         Assert.Equal(8, usesStore.Count);
@@ -154,16 +154,16 @@ public sealed class StoreUnavailableTests : IDisposable
             Exception = exception,
         };
 
-    private static async Task<List<(LogLevel Level, string Message)>> Start(PositionStore store)
+    private static async Task<List<(LogLevel Level, string Message)>> Start(StoreSet store)
     {
         var logger = new RecordingLogger();
-        var start = new PositionStoreStartup(store, logger).StartAsync(CancellationToken.None);
+        var start = new DatabaseStartup(store.Database, logger).StartAsync(CancellationToken.None);
         await start;
         Assert.True(start.IsCompletedSuccessfully);
         return logger.Entries;
     }
 
-    private sealed class RecordingLogger : ILogger<PositionStoreStartup>
+    private sealed class RecordingLogger : ILogger<DatabaseStartup>
     {
         public List<(LogLevel Level, string Message)> Entries { get; } = [];
 

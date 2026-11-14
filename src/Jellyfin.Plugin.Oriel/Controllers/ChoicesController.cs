@@ -22,54 +22,24 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [StoreUnavailable]
 public class ChoicesController : ControllerBase
 {
-    /// <summary>
-    /// The themes Oriel has built in.
-    /// </summary>
-    public static readonly IReadOnlySet<string> Themes = new HashSet<string>(StringComparer.Ordinal) { "light", "sepia", "dark" };
-
-    /// <summary>
-    /// The fonts the reader bundles, by name.
-    /// </summary>
-    public static readonly IReadOnlySet<string> Fonts = new HashSet<string>(StringComparer.Ordinal)
-    {
-        "Default", "Literata", "Noto Serif", "Noto Sans", "Atkinson Hyperlegible",
-    };
-
-    private const string Own = "own:";
-
-    private readonly PositionStore _store;
+    private readonly ChoicesStore _choices;
+    private readonly ThemesStore _themes;
+    private readonly FontsStore _fonts;
     private readonly IAuthorizationContext _authorizationContext;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ChoicesController"/> class.
     /// </summary>
-    /// <param name="store">The plugin's database.</param>
+    /// <param name="choices">The choices store.</param>
+    /// <param name="themes">The themes store, for the user's own themes a choice may name.</param>
+    /// <param name="fonts">The fonts store, for the user's own families a choice may name.</param>
     /// <param name="authorizationContext">The host authorization context.</param>
-    public ChoicesController(PositionStore store, IAuthorizationContext authorizationContext)
+    public ChoicesController(ChoicesStore choices, ThemesStore themes, FontsStore fonts, IAuthorizationContext authorizationContext)
     {
-        _store = store;
+        _choices = choices;
+        _themes = themes;
+        _fonts = fonts;
         _authorizationContext = authorizationContext;
-    }
-
-    /// <summary>
-    /// Checks a choice for a user with the theme ids in <paramref name="themes"/> and the font families in
-    /// <paramref name="families"/>: a built-in theme or <c>own:</c> one of theirs, a bundled font or
-    /// <c>own:</c> one of their families.
-    /// </summary>
-    /// <param name="request">The choice as sent.</param>
-    /// <param name="themes">The ids of the user's own themes.</param>
-    /// <param name="families">The user's own font families.</param>
-    /// <returns>The choice to keep, or null when it is not one the user can make.</returns>
-    public static StoredChoices? Check(ChoicesRequest? request, IReadOnlySet<string> themes, IReadOnlySet<string> families)
-    {
-        if (request?.Theme is not { } theme || request.Font is not { } font)
-        {
-            return null;
-        }
-
-        var themeKnown = Themes.Contains(theme) || (theme.StartsWith(Own, StringComparison.Ordinal) && themes.Contains(theme[Own.Length..]));
-        var fontKnown = Fonts.Contains(font) || (font.StartsWith(Own, StringComparison.Ordinal) && families.Contains(font[Own.Length..]));
-        return themeKnown && fontKnown ? new StoredChoices(theme, font) : null;
     }
 
     /// <summary>
@@ -88,7 +58,7 @@ public class ChoicesController : ControllerBase
             return Unauthorized();
         }
 
-        var kept = _store.GetChoices(userId.Value);
+        var kept = _choices.Get(userId.Value);
         return new ChoicesResponse(kept?.Theme, kept?.Font);
     }
 
@@ -112,14 +82,14 @@ public class ChoicesController : ControllerBase
             return Unauthorized();
         }
 
-        var themes = _store.ListThemes(userId.Value).Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
-        var families = _store.ListFonts(userId.Value).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
-        if (Check(request, themes, families) is not { } choices)
+        var themes = _themes.List(userId.Value).Select(theme => theme.Id).ToHashSet(StringComparer.Ordinal);
+        var families = _fonts.List(userId.Value).Select(font => font.Font.Family).ToHashSet(StringComparer.Ordinal);
+        if (ReadingRules.CheckChoices(request?.Theme, request?.Font, themes, families) is not { } choices)
         {
             return BadRequest(new RequestRefusal("invalidChoices"));
         }
 
-        _store.SaveChoices(userId.Value, choices);
+        _choices.Save(userId.Value, choices);
         return new ChoicesResponse(choices.Theme, choices.Font);
     }
 

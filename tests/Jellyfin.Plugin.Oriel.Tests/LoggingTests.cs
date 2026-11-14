@@ -114,7 +114,7 @@ public sealed class LoggingTests : IDisposable
     [Fact]
     public async Task LogsAnImportAndAnExportWithCountsAndNoReadersWords()
     {
-        var store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        var store = new StoreSet(Path.Combine(_folder, "oriel.db"));
         var file = new ReadingDataFile(
             ReadingData.Format,
             ReadingData.Version,
@@ -137,7 +137,7 @@ public sealed class LoggingTests : IDisposable
     [Fact]
     public async Task LogsAnImportThatFailsPartWayAtWarning()
     {
-        var store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        var store = new StoreSet(Path.Combine(_folder, "oriel.db"));
         var file = new ReadingDataFile(ReadingData.Format, ReadingData.Version, Now, [new ExportedPosition(Book.ItemId.ToString("N"), MarkerTitle, ["Nobody"], MarkerFileName, MarkerCfi, 0.4, Now)]);
 
         await Assert.ThrowsAsync<IOException>(() => Data(store, file, failing: true).Import());
@@ -163,15 +163,15 @@ public sealed class LoggingTests : IDisposable
     public async Task LogsEachMigrationStepOnceAndNothingWhenTheStoreIsCurrent()
     {
         var path = Path.Combine(_folder, "oriel.db");
-        await new PositionStoreStartup(new PositionStore(path), _log.For<PositionStoreStartup>()).StartAsync(CancellationToken.None);
+        await new DatabaseStartup(new OrielDatabase(path), _log.For<DatabaseStartup>()).StartAsync(CancellationToken.None);
 
         var steps = _log.Lines.Where(line => line.Text.Contains("moved from schema version", StringComparison.Ordinal)).ToList();
-        Assert.Equal(PositionStore.Schema.Count, steps.Count);
+        Assert.Equal(OrielDatabase.Schema.Count, steps.Count);
         Assert.All(steps, line => Assert.Equal(LogLevel.Information, line.Level));
         Assert.Contains(steps, line => line.Text.EndsWith($"from schema version 0 to 1", StringComparison.Ordinal));
 
         _log.Lines.Clear();
-        await new PositionStoreStartup(new PositionStore(path), _log.For<PositionStoreStartup>()).StartAsync(CancellationToken.None);
+        await new DatabaseStartup(new OrielDatabase(path), _log.For<DatabaseStartup>()).StartAsync(CancellationToken.None);
         Assert.DoesNotContain(_log.Lines, line => line.Text.Contains("moved from schema version", StringComparison.Ordinal));
     }
 
@@ -224,11 +224,11 @@ public sealed class LoggingTests : IDisposable
         return new ResultExecutingContext(new ActionContext(http, new RouteData(), action), new List<IFilterMetadata>(), result, controller: new object());
     }
 
-    private ReadingDataController Data(PositionStore store, ReadingDataFile? body = null, bool failing = false)
+    private ReadingDataController Data(StoreSet store, ReadingDataFile? body = null, bool failing = false)
     {
         var context = new DefaultHttpContext();
         context.Request.Body = new MemoryStream(body is null ? [] : ReadingData.Serialize(body));
-        var data = new ReadingData(store, new Catalog(failing), () => new Configuration.PluginConfiguration { EnableFontUploads = true });
+        var data = new ReadingData(store.Database, store.All, new Catalog(failing), () => new Configuration.PluginConfiguration { EnableFontUploads = true });
         return new ReadingDataController(data, new Authorization(), new FixedTime(), _log.For<ReadingDataController>())
         {
             ControllerContext = new ControllerContext { HttpContext = context },

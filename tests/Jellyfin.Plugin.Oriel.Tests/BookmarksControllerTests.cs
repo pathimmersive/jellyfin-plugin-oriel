@@ -25,11 +25,11 @@ public sealed class BookmarksControllerTests : IDisposable
     private static readonly DateTimeOffset Now = new(2026, 11, 2, 12, 0, 0, TimeSpan.Zero);
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-bookmarks-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public BookmarksControllerTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -79,14 +79,14 @@ public sealed class BookmarksControllerTests : IDisposable
     [Fact]
     public async Task ReturnsNotFoundForABookTheCallerCannotSeeOrABookmarkTheyDoNotHave()
     {
-        _store.AddBookmark(Reader, HiddenBook, Cfi, 0.6, "Hidden", Now);
+        _store.Bookmarks.Add(Reader, HiddenBook, Cfi, 0.6, "Hidden", Now);
         var controller = Controller(Reader);
 
         Assert.IsType<NotFoundResult>((await controller.GetBookmarks(HiddenBook)).Result);
         Assert.IsType<NotFoundResult>((await controller.PostBookmark(HiddenBook, new(Cfi, 0.2, "Page"))).Result);
-        Assert.IsType<NotFoundResult>(await controller.DeleteBookmark(HiddenBook, _store.ListBookmarks(Reader, HiddenBook).Single().Id));
+        Assert.IsType<NotFoundResult>(await controller.DeleteBookmark(HiddenBook, _store.Bookmarks.List(Reader, HiddenBook).Single().Id));
         Assert.IsType<NotFoundResult>(await controller.DeleteBookmark(Book, Guid.NewGuid()));
-        Assert.Single(_store.ListBookmarks(Reader, HiddenBook));
+        Assert.Single(_store.Bookmarks.List(Reader, HiddenBook));
     }
 
     [Fact]
@@ -103,28 +103,28 @@ public sealed class BookmarksControllerTests : IDisposable
     {
         { null, 0.5, "Page" },
         { string.Empty, 0.5, "Page" },
-        { new string('a', PositionsController.MaxCfiLength + 1), 0.5, "Page" },
+        { new string('a', ReadingRules.MaxCfiLength + 1), 0.5, "Page" },
         { Cfi, null, "Page" },
         { Cfi, -0.01, "Page" },
         { Cfi, 1.01, "Page" },
         { Cfi, double.NaN, "Page" },
         { Cfi, 0.5, null },
-        { Cfi, 0.5, new string('a', BookmarksController.MaxTextLength + 1) },
+        { Cfi, 0.5, new string('a', ReadingRules.MaxBookmarkTextLength + 1) },
     };
 
     [Theory]
     [MemberData(nameof(MalformedBookmarks))]
     public async Task RejectsAMalformedBookmarkAndStoresNothing(string? cfi, double? fraction, string? text)
     {
-        var expected = cfi is not { Length: > 0 and <= PositionsController.MaxCfiLength } ? "invalidCfi"
+        var expected = cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } ? "invalidCfi"
             : fraction is not (>= 0 and <= 1) ? "invalidFraction"
             : "invalidText";
         Assert.Equal(expected, Refused.Reason((await Controller(Reader).PostBookmark(Book, new(cfi, fraction, text))).Result));
-        Assert.Empty(_store.ListBookmarks(Reader, Book));
+        Assert.Empty(_store.Bookmarks.List(Reader, Book));
     }
 
     private BookmarksController Controller(Guid caller) =>
-        new(_store, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
+        new(_store.Bookmarks, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };

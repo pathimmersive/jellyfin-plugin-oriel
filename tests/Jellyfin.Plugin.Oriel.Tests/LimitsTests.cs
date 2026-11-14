@@ -25,11 +25,11 @@ public sealed class LimitsTests : IDisposable
     private static readonly BookInfo Emma = new(Guid.NewGuid(), "Emma", ["Jane Austen"], "emma.epub");
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-limits-" + Guid.NewGuid().ToString("N"));
-    private readonly PositionStore _store;
+    private readonly StoreSet _store;
 
     public LimitsTests()
     {
-        _store = new PositionStore(Path.Combine(_folder, "oriel.db"));
+        _store = new StoreSet(Path.Combine(_folder, "oriel.db"));
     }
 
     public void Dispose()
@@ -44,8 +44,8 @@ public sealed class LimitsTests : IDisposable
     [Fact]
     public async Task RefusesABookmarkPastTheLimitWith409AndStillReturnsOneAlreadyThere()
     {
-        Fill(Reader, bookmarks: PositionStore.MaxBookmarks, highlights: 0);
-        var controller = new BookmarksController(_store, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
+        Fill(Reader, bookmarks: ReadingRules.MaxBookmarks, highlights: 0);
+        var controller = new BookmarksController(_store.Bookmarks, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -53,9 +53,9 @@ public sealed class LimitsTests : IDisposable
         var refused = Assert.IsType<ConflictObjectResult>((await controller.PostBookmark(Emma.ItemId, new(Cfi(0), 0.5, "One more"))).Result);
         Assert.Equal("limitReached", Assert.IsType<ConflictReason>(refused.Value).Reason);
         Assert.Equal(Cfi(0), (await controller.PostBookmark(Dune.ItemId, new(Cfi(0), 0.5, "Already here"))).Value!.Cfi);
-        Assert.Equal(PositionStore.MaxBookmarks, _store.ListBookmarksForUser(Reader).Count);
+        Assert.Equal(ReadingRules.MaxBookmarks, _store.Bookmarks.ListForUser(Reader).Count);
 
-        var other = new BookmarksController(_store, new FakeAuthorization(OtherReader), new FakeItemAccess(), new FixedTime(Now))
+        var other = new BookmarksController(_store.Bookmarks, new FakeAuthorization(OtherReader), new FakeItemAccess(), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
@@ -65,15 +65,15 @@ public sealed class LimitsTests : IDisposable
     [Fact]
     public async Task RefusesAHighlightPastTheLimitWith409()
     {
-        Fill(Reader, bookmarks: 0, highlights: PositionStore.MaxHighlights);
-        var controller = new HighlightsController(_store, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
+        Fill(Reader, bookmarks: 0, highlights: ReadingRules.MaxHighlights);
+        var controller = new HighlightsController(_store.Highlights, _store.Highlighters, new FakeAuthorization(Reader), new FakeItemAccess(), new FixedTime(Now))
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
 
         var refused = Assert.IsType<ConflictObjectResult>((await controller.PostHighlight(Emma.ItemId, new(Cfi(0), 0.5, "yellow", "One more"))).Result);
         Assert.Equal("limitReached", Assert.IsType<ConflictReason>(refused.Value).Reason);
-        Assert.Equal(PositionStore.MaxHighlights, _store.ListHighlightsForUser(Reader).Count);
+        Assert.Equal(ReadingRules.MaxHighlights, _store.Highlights.ListForUser(Reader).Count);
     }
 
     [Fact]
@@ -82,36 +82,36 @@ public sealed class LimitsTests : IDisposable
         var file = FileOf(Dune, positions: true, bookmarks: 3, highlights: 3);
         var catalog = new FakeCatalog(Dune) { FailAfter = 3 };
 
-        Assert.Throws<IOException>(() => new ReadingData(_store, catalog).Import(Reader, file));
+        Assert.Throws<IOException>(() => new ReadingData(_store.Database, _store.All, catalog).Import(Reader, file));
 
         Assert.True(catalog.Calls > 3);
-        Assert.Null(_store.Get(Reader, Dune.ItemId));
-        Assert.Empty(_store.ListBookmarksForUser(Reader));
-        Assert.Empty(_store.ListHighlightsForUser(Reader));
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
+        Assert.Empty(_store.Bookmarks.ListForUser(Reader));
+        Assert.Empty(_store.Highlights.ListForUser(Reader));
 
-        var imported = new ReadingData(_store, new FakeCatalog(Dune)).Import(Reader, file);
+        var imported = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune)).Import(Reader, file);
         Assert.Equal((1, 3, 3), (imported.Imported, imported.Bookmarks, imported.Highlights));
     }
 
     [Fact]
     public void ImportsTheRestAndNamesTheLimitWhenAFileGoesPastIt()
     {
-        Fill(Reader, bookmarks: PositionStore.MaxBookmarks - 1, highlights: 0);
+        Fill(Reader, bookmarks: ReadingRules.MaxBookmarks - 1, highlights: 0);
         var file = FileOf(Emma, positions: true, bookmarks: 3, highlights: 2);
 
-        var result = new ReadingData(_store, new FakeCatalog(Dune, Emma)).Import(Reader, file);
+        var result = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune, Emma)).Import(Reader, file);
 
         Assert.Equal((1, 1, 2), (result.Imported, result.Bookmarks, result.Highlights));
         Assert.Equal(["bookmarks"], result.Limited!);
-        Assert.Equal(PositionStore.MaxBookmarks, _store.ListBookmarksForUser(Reader).Count);
-        Assert.NotNull(_store.Get(Reader, Emma.ItemId));
+        Assert.Equal(ReadingRules.MaxBookmarks, _store.Bookmarks.ListForUser(Reader).Count);
+        Assert.NotNull(_store.Positions.Get(Reader, Emma.ItemId));
     }
 
     [Fact]
     public async Task RefusesASecondImportWhileTheFirstRuns()
     {
         var catalog = new FakeCatalog(Dune) { Hold = new ManualResetEventSlim(false) };
-        var data = new ReadingData(_store, catalog);
+        var data = new ReadingData(_store.Database, _store.All, catalog);
         var file = FileOf(Dune, positions: true, bookmarks: 1, highlights: 0);
         var first = Task.Run(() => data.Import(Reader, file));
         Assert.True(catalog.Entered.Wait(TimeSpan.FromSeconds(10)));
@@ -133,7 +133,7 @@ public sealed class LimitsTests : IDisposable
     public void ExportsAndImports5000HighlightsAnd1000BookmarksWithinTenSecondsEach()
     {
         Fill(Reader, bookmarks: 1000, highlights: 5000);
-        var data = new ReadingData(_store, new FakeCatalog(Dune));
+        var data = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune));
 
         var clock = Stopwatch.StartNew();
         var bytes = ReadingData.Serialize(data.Export(Reader, Now));
@@ -164,16 +164,16 @@ public sealed class LimitsTests : IDisposable
 
     // Bookmarks and highlights for a user in Dune, written in one transaction so the test stays quick.
     private void Fill(Guid userId, int bookmarks, int highlights) =>
-        _store.RunInTransaction(() =>
+        _store.Database.RunInTransaction(() =>
         {
             for (var i = 0; i < bookmarks; i++)
             {
-                _store.AddBookmark(userId, Dune.ItemId, Cfi(i), 0.5, "Kept", Now);
+                _store.Bookmarks.Add(userId, Dune.ItemId, Cfi(i), 0.5, "Kept", Now);
             }
 
             for (var i = 0; i < highlights; i++)
             {
-                _store.AddHighlight(userId, Dune.ItemId, Cfi(i), 0.5, "yellow", "Kept", Now);
+                _store.Highlights.Add(userId, Dune.ItemId, Cfi(i), 0.5, "yellow", "Kept", Now);
             }
 
             return 0;
