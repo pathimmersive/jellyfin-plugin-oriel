@@ -865,6 +865,46 @@ grep -q "Oriel's reading data store moved from schema version 0 to 1" "$work/ser
 grep -q -E "Oriel imported reading data for user [0-9a-f-]+: [0-9]+ positions imported" "$work/server.log"     || fail "the server log does not show the imports"
 pass "the server log shows Oriel's schema steps and its imports, with ids and counts"
 
+# A deleted Jellyfin user's reading data goes with them: a user with a place, a
+# bookmark, a highlight, a theme, a font and choices is deleted through
+# Jellyfin's API, and oriel.db then holds none of their rows, while this run's
+# own user keeps theirs. oriel.db is copied out and read with node:sqlite.
+count_rows() {
+    MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db" "$(hostpath "$work/rows.db")" >/dev/null || fail "copy oriel.db out of the server"
+    node --no-warnings -e '
+        const { DatabaseSync } = require("node:sqlite")
+        const db = new DatabaseSync(process.argv[1], { readOnly: true })
+        const tables = ["positions", "bookmarks", "highlights", "themes", "fonts", "choices"]
+        console.log(tables.map(t => db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(process.argv[2]).n).join(" "))
+    ' "$(hostpath "$work/rows.db")" "$1"
+}
+gone="$(make_user oriel-deleted deleted-password)"
+gone_id="${gone%% *}"
+gone_header="${gone#* }"
+gone_json() { get_status -X "$1" -H 'Content-Type: application/json' -H "Authorization: $gone_header" -d "$3" "$base/Oriel/$2"; }
+[ "$(put_position "$gone_header" '{"cfi":"epubcfi(/6/6!/4/2/1:0)","fraction":0.3}')" = "200" ] || fail "the user to delete could not save a place"
+[ "$(gone_json POST "Bookmarks/$item_id" '{"cfi":"epubcfi(/6/6!/4/2/1:0)","fraction":0.3,"text":"A page"}')" = "200" ] || fail "the user to delete could not add a bookmark"
+[ "$(gone_json POST "Highlights/$item_id" '{"cfi":"epubcfi(/6/6!/4/2,/1:0,/1:4)","fraction":0.3,"colour":"yellow","text":"Some"}')" = "200" ] || fail "the user to delete could not add a highlight"
+[ "$(gone_json PUT Themes '[{"name":"Gone","background":"#101010","text":"#eeeeee","secondary":"#aaaaaa","accent":"#7cc4ff","selection":"#2e5a85","separator":"#2b4466","controls":"#14243a","controlsText":"#e6edf5","buttons":"#23395a","grayed":"#6c7f96"}]')" = "200" ] \
+    || fail "the user to delete could not add a theme"
+code="$(get_status -X POST -H "Authorization: $gone_header" --data-binary "@$reader/node_modules/@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2" "$base/Oriel/Fonts")"
+[ "$code" = "200" ] || fail "the user to delete could not add a font ($code: $(cat "$work/body"))"
+[ "$(gone_json PUT Choices '{"theme":"light","font":"Default"}')" = "200" ] || fail "the user to delete could not save choices"
+before="$(count_rows "$gone_id")"
+[[ "$before" =~ ^[1-9][0-9]*\ [1-9][0-9]*\ [1-9][0-9]*\ [1-9][0-9]*\ [1-9][0-9]*\ [1-9][0-9]*$ ]] \
+    || fail "the user to delete does not have a row of each kind in oriel.db: $before"
+code="$(get_status -X DELETE -H "Authorization: $token_header" "$base/Users/$gone_id")"
+[ "$code" = "204" ] || fail "deleting the user returned $code"
+for _ in $(seq 1 20); do
+    after="$(count_rows "$gone_id")"
+    [ "$after" = "0 0 0 0 0 0" ] && break
+    sleep 0.5
+done
+[ "$after" = "0 0 0 0 0 0" ] || fail "after the user was deleted oriel.db still holds their rows: $after"
+kept="$(count_rows "$user_id")"
+[ "${kept%% *}" -gt 0 ] || fail "deleting another user removed this run's own position: $kept"
+pass "deleting a Jellyfin user removes their place, bookmark, highlight, theme, font and choices from oriel.db ($before rows by kind before, $after after) and leaves this run's user's ($kept)"
+
 # The Your reading data page: download, import and its summary, the bad-file
 # alert, Back to the book, and the sign-in redirect, at phone and desktop widths.
 ORIEL_BASE="$base" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
