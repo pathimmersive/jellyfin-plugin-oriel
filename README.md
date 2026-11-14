@@ -50,6 +50,14 @@ Once the first release is published, Oriel installs from its own plugin reposito
 
 Updates appear in the same catalog. Each release's zip is also attached to its [GitHub release](https://github.com/pathimmersive/jellyfin-plugin-oriel/releases) for manual installs: unzip it into a folder named `Oriel_<version>` in the server's `plugins` folder and restart.
 
+## Your data
+
+Oriel keeps each user's reading data (places, bookmarks, highlights and notes, highlighters, themes, fonts and the theme and font they chose) in one SQLite file, `oriel.db`, in the plugin's data folder: `plugins/Jellyfin.Plugin.Oriel` under Jellyfin's configuration folder (`/config/plugins/Jellyfin.Plugin.Oriel/oriel.db` in the official Docker image). Jellyfin's own backup does not include it; each user can export their data from Oriel's Your reading data page.
+
+When Jellyfin deletes a user, Oriel deletes everything it keeps for them. A user deleted while Oriel was not loaded is caught the next time the server starts.
+
+Uninstalling Oriel leaves `oriel.db` in place, so reinstalling keeps everyone's data. To remove it, stop Jellyfin and delete the `plugins/Jellyfin.Plugin.Oriel` folder.
+
 ## Building and testing
 
 You need the .NET 10 SDK, Node.js 24 with npm, bash and, for the smoke test, Docker.

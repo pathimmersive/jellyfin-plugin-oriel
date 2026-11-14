@@ -1,9 +1,11 @@
 using System;
 using System.IO;
+using Jellyfin.Data.Events.Users;
 using Jellyfin.Plugin.Oriel.Data;
 using Jellyfin.Plugin.Oriel.Integration;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Events;
 using MediaBrowser.Controller.Plugins;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IItemAccess, LibraryItemAccess>();
         serviceCollection.AddSingleton(services => new PositionStore(Path.Combine(DataFolder(services), DatabaseFileName)));
         serviceCollection.AddHostedService<PositionStoreStartup>();
+        serviceCollection.AddScoped<IEventConsumer<UserDeletedEventArgs>, UserDeletion>();
         serviceCollection.AddSingleton<IBookCatalog, LibraryBookCatalog>();
         serviceCollection.AddSingleton<ReadingData>();
         serviceCollection.AddSingleton<EnglishDictionary>();

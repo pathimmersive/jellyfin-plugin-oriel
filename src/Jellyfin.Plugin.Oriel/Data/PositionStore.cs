@@ -1046,6 +1046,57 @@ public class PositionStore
     }
 
     /// <summary>
+    /// The tables that hold a user's data, each with a user_id column.
+    /// </summary>
+    public static readonly IReadOnlyList<string> UserTables = ["positions", "bookmarks", "highlights", "highlighters", "fonts", "themes", "choices"];
+
+    /// <summary>
+    /// Deletes every row the store keeps for a user, in one transaction.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <returns>How many rows went from each table, by table name.</returns>
+    public IReadOnlyDictionary<string, int> DeleteUser(Guid userId)
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var transaction = connection.BeginTransaction();
+        var removed = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var table in UserTables)
+        {
+            using var delete = connection.CreateCommand();
+            delete.CommandText = $"DELETE FROM {table} WHERE user_id = $user";
+            delete.Parameters.AddWithValue("$user", Key(userId));
+            removed[table] = delete.ExecuteNonQuery();
+        }
+
+        transaction.Commit();
+        return removed;
+    }
+
+    /// <summary>
+    /// Gets every user the store keeps any data for.
+    /// </summary>
+    /// <returns>The users.</returns>
+    public IReadOnlyList<Guid> UserIds()
+    {
+        EnsureMigrated();
+        using var connection = Open();
+        using var read = connection.CreateCommand();
+        read.CommandText = string.Join(" UNION ", UserTables.Select(table => $"SELECT user_id FROM {table}"));
+        using var reader = read.ExecuteReader();
+        var users = new List<Guid>();
+        while (reader.Read())
+        {
+            if (Guid.TryParse(reader.GetString(0), out var userId))
+            {
+                users.Add(userId);
+            }
+        }
+
+        return users;
+    }
+
+    /// <summary>
     /// Runs work against the store in one transaction on one connection: every store method it calls
     /// uses them, and nothing it wrote is kept unless all of it succeeds.
     /// </summary>
