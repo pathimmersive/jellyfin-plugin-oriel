@@ -80,4 +80,35 @@ fi
 [ ! -e "$work/again/manifest.json" ] || fail "a refused repeat still wrote a manifest"
 pass "a version already in the manifest is refused and writes nothing"
 
+# The release's section of CHANGELOG.md is the manifest's changelog text, and a
+# version with no section is refused before anything is written.
+cat > "$work/CHANGELOG.md" <<'EOF'
+# Changelog
+
+## [Unreleased]
+
+- Something not yet released.
+
+## [0.9.2] - 2026-11-14
+
+### Added
+
+- A test feature.
+
+## [0.9.1] - 2026-11-01
+
+- An older note.
+EOF
+package --version 0.9.2 --out "$work/notes" --url-base "$url" --changelog-file "$work/CHANGELOG.md"     || fail "packaging 0.9.2 with its changelog section"
+"$py" - "$work/notes/manifest.json" <<'EOF' || fail "the manifest's changelog is not the 0.9.2 section"
+import json, sys
+version = json.load(open(sys.argv[1], encoding="utf-8"))[0]["versions"][0]
+assert version["changelog"] == "### Added\n\n- A test feature.", repr(version["changelog"])
+EOF
+if package --version 0.9.3 --out "$work/nonotes" --url-base "$url" --changelog-file "$work/CHANGELOG.md" >/dev/null 2>&1; then
+    fail "packaging accepted 0.9.3, which has no section in the changelog"
+fi
+[ ! -e "$work/nonotes" ] || fail "a version without a changelog section still wrote output"
+pass "a version's CHANGELOG.md section is the manifest's changelog text, and a version with no section is refused before anything is written"
+
 echo "test-package: all checks passed"

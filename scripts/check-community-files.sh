@@ -37,6 +37,17 @@ if [ -f README.md ]; then
     fi
 fi
 
+if [ -f CHANGELOG.md ] && grep -q -E '^## \[Unreleased\]' CHANGELOG.md; then
+    pass "CHANGELOG.md has an [Unreleased] section"
+else
+    fail "CHANGELOG.md is missing or has no '## [Unreleased]' section"
+fi
+if [ -f README.md ] && grep -q -E '^## FAQ and troubleshooting' README.md; then
+    pass "README.md has an FAQ and troubleshooting section"
+else
+    fail "README.md has no '## FAQ and troubleshooting' section"
+fi
+
 notices="THIRD_PARTY_NOTICES.md"
 has_entry() { [ -f "$notices" ] && grep -q -i -E "^## .*\\b$1\\b" "$notices"; }
 
