@@ -46,9 +46,14 @@ const position = page => page.evaluate(() => {
     return `${renderer.getContents()[0]?.index}:${renderer.page}`
 })
 
-// Turns the view itself, to learn where one page in a direction leads.
-const turnView = (page, direction) => page.evaluate(direction =>
-    document.querySelector('foliate-view')[direction](), direction)
+// Turns the view itself, to learn where one page in a direction leads, and
+// waits for the page shown to move: a turn into another section can resolve
+// before that section's page is shown.
+const turnView = async (page, direction) => {
+    const from = await position(page)
+    await page.evaluate(direction => document.querySelector('foliate-view')[direction](), direction)
+    await until(async () => await position(page) !== from, `turning the view ${direction} from ${from} did not move the page`, 5_000)
+}
 
 const opposite = { next: 'prev', prev: 'next' }
 
@@ -75,7 +80,10 @@ const expectTurn = async (page, label, direction, act) => {
             : `${label} moved the page from ${before} to ${after}`)
     }
     pass(direction ? `${label} turns one page ${direction}, ${before} to ${after}` : `${label} leaves the page at ${before}`)
-    if (direction) await turnView(page, opposite[direction])
+    if (direction) {
+        await turnView(page, opposite[direction])
+        await until(async () => await position(page) === before, async () => `could not return to ${before} after checking ${label}: at ${await position(page)}`, 5_000)
+    }
 }
 
 // The reader's area on the page, for clicks and the wheel.

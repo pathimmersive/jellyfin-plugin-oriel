@@ -185,6 +185,9 @@ const select = async (page, paragraph, words) => {
         await until(async () => await selectedText(page) === words, async () => `dragging across '${words}' selected '${await selectedText(page)}'`)
         await page.mouse.up()
         await until(() => page.evaluate(() => window.orielMouseUp), 'the section never had the mouse up that ends the drag')
+        // The reader reads a selection 250 ms after the press ends; until then the toolbar can be
+        // one shown for part of the drag, if the drag paused, so let that read happen.
+        await pause(400)
     }
     await until(async () => await selectedText(page) === words, async () => `selecting '${words}' selected '${await selectedText(page)}'`)
     await until(() => toolbar(page).isVisible(), 'selecting text shows no Selected text toolbar')
