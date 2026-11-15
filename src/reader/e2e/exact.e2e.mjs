@@ -6,6 +6,7 @@
 // ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID and ORIEL_LATER_TEXT, the first line
 // of the chapter at 0.25 of the book. Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -45,7 +46,6 @@ const open = async page => {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await page.waitForTimeout(1000)
 }
 
 const shown = page => page.evaluate(() => {
@@ -71,17 +71,19 @@ try {
     })
     await open(page)
     for (let i = 0; i < 2; i++) {
+        const turned = await watchMove(page, `page turn ${i + 1} of 2 did not move`)
         await page.evaluate(() => document.querySelector('foliate-view').next())
-        await page.waitForTimeout(400)
+        await turned()
     }
     const savedPage = await shown(page)
-    await page.waitForTimeout(SAVE_WAIT_MS)
     // The position must be one the reader saved during this check, not one
-    // stored earlier.
-    const stored = await api(`/Oriel/Positions/${itemId}`)
-    if (stored.status !== 200 || !stored.body?.cfi?.startsWith('epubcfi(') || !(Date.parse(stored.body.savedAt) >= started - 2000)) {
-        fail(`turning pages did not store a new exact position (GET /Oriel/Positions returned ${stored.status} ${JSON.stringify(stored.body)})`)
-    }
+    // stored earlier; the reader saves once its delay after the last turn has passed.
+    const newlyStored = got => got.status === 200 && got.body?.cfi?.startsWith('epubcfi(') && Date.parse(got.body.savedAt) >= started - 2000
+    const stored = await until(async () => { const got = await api(`/Oriel/Positions/${itemId}`); return newlyStored(got) && got },
+        async () => {
+            const got = await api(`/Oriel/Positions/${itemId}`)
+            return `turning pages did not store a new exact position (GET /Oriel/Positions returned ${got.status} ${JSON.stringify(got.body)})`
+        }, SAVE_WAIT_MS + 8000)
     pass(`turning pages at ${base} stores the exact position ${stored.body.cfi}`)
 
     // Jellyfin holds an older position elsewhere in the book, so a reader that
@@ -91,8 +93,8 @@ try {
         body: JSON.stringify({ PlaybackPositionTicks: 9_000_000, LastPlayedDate: new Date(Date.parse(stored.body.savedAt) - 3_600_000).toISOString() }),
     })
     await open(page)
-    const reopened = await shown(page)
-    if (reopened !== savedPage) fail(`reopening showed ${reopened}, not the page the position was saved on (${savedPage})`)
+    await until(async () => await shown(page) === savedPage,
+        async () => `reopening showed ${await shown(page)}, not the page the position was saved on (${savedPage})`)
     pass(`reopening the book shows the same page it was saved on (${savedPage})`)
 
     // A later Jellyfin position, as from reading in another app, wins.
@@ -101,12 +103,8 @@ try {
         method: 'POST', body: JSON.stringify({ PlaybackPositionTicks: 2_500_000, LastPlayedDate: later }),
     })
     await open(page)
-    let text = ''
-    for (let i = 0; i < 20 && !text.includes(laterText); i++) {
-        await page.waitForTimeout(500)
-        text = await frameText(page)
-    }
-    if (!text.includes(laterText)) fail(`a Jellyfin position saved after the stored one did not win: '${laterText}' is not shown`)
+    await until(async () => (await frameText(page)).includes(laterText),
+        `a Jellyfin position saved after the stored one did not win: '${laterText}' is not shown`)
     pass(`a Jellyfin position saved after the stored one wins, showing '${laterText}'`)
 } catch (error) {
     console.error(`FAIL: ${error.message}`)

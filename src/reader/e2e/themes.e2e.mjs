@@ -16,6 +16,7 @@
 import { chromium, devices, webkit } from 'playwright'
 import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -52,7 +53,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 const use = locator => setup.touch ? locator.tap() : locator.click()
 
 // Night Blue, as the canvas draws it, and the colours the browser reports for it.
@@ -82,29 +82,35 @@ const clear = () => fetch(`${base}/Oriel/Themes`, {
     body: '[]',
 })
 
+// Waits for the reader to render the book and show where it is.
+const rendered = async (page, what = 'the reader did not render the test EPUB') => {
+    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail(what))
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `${what}: its footer shows no progress`)
+}
+
 const open = async context => {
     const page = await context.newPage()
     await page.goto(`${base}/Oriel/?id=${itemId}`)
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-        .catch(() => fail('the reader did not render the test EPUB'))
-    await pause(1500)
+    await rendered(page)
     return page
 }
 
 const openPrefs = async page => {
     if (!await page.locator('#controls header').isVisible()) {
         if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-        await pause(600)
+        await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
     }
     await use(page.getByRole('button', { name: 'Preferences' }))
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
 const themeRow = panel => panel.getByRole('group', { name: 'Theme' })
 const title = async panel => (await panel.locator('.panel-header h2').innerText()).trim()
+const chosen = async (panel, name) => await themeRow(panel).getByRole('button', { name, exact: true }).getAttribute('aria-pressed') === 'true'
+// Waits for the panel to show the sheet titled `want`.
+const titled = (panel, want, what) => until(async () => await title(panel) === want, async () => `${what} '${await title(panel)}', not ${want}`)
 
 // The colours of the colour pickers, by name.
 const pickers = panel => panel.locator('.theme-sheet input[type="color"]').evaluateAll(inputs =>
@@ -149,6 +155,23 @@ const expectColours = (shown, theme, what) => {
     if (wrong.length) fail(`${what}: ${wrong.map(([key, value]) => `${key} is ${shown[key]}, not ${value}`).join('; ')}`)
 }
 
+// Waits for the reader to show `theme`'s colours, failing with the colours that differ.
+const showsColours = (page, theme, what) => until(async () => {
+    try {
+        expectColours(await colours(page), theme, what)
+        return true
+    } catch {
+        return false
+    }
+}, async () => {
+    try {
+        expectColours(await colours(page), theme, what)
+    } catch (error) {
+        return error.message
+    }
+    return `${what}: the colours came right only after the wait`
+})
+
 const browser = await setup.engine.launch()
 let failed = false
 try {
@@ -164,12 +187,11 @@ try {
     // Add follows the themes and opens New theme, starting from the theme in use.
     let panel = await openPrefs(page)
     await use(themeRow(panel).getByRole('button', { name: 'Dark', exact: true }))
-    await pause(400)
+    await until(() => chosen(panel, 'Dark'), 'Dark is not chosen after a press')
     const add = themeRow(panel).getByRole('button', { name: 'Add a theme' })
     if (!await add.isVisible()) fail('the theme row has no Add card')
     await use(add)
-    await pause(400)
-    if (await title(panel) !== 'New theme') fail(`Add opened '${await title(panel)}', not New theme`)
+    await titled(panel, 'New theme', 'Add opened')
     if (setup.touch) {
         const top = Math.round((await panel.boundingBox()).y)
         if (top !== 47) fail(`New theme opens ${top} px from the top, not 47 px`)
@@ -187,32 +209,29 @@ try {
     const preview = await panel.locator('.preview-header').evaluate(header => getComputedStyle(header).backgroundColor)
     if (preview !== rgb(NIGHT_BLUE.Controls)) fail(`the preview's header is ${preview}, not the Controls colour`)
     await use(panel.getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    if (await title(panel) !== 'Preferences') fail(`after Save the panel shows '${await title(panel)}', not Preferences`)
-    const card = themeRow(panel).getByRole('button', { name: CARD })
-    if (await card.getAttribute('aria-pressed') !== 'true') fail(`after Save '${NAME}' is not the chosen theme`)
+    await titled(panel, 'Preferences', 'after Save the panel shows')
+    await until(() => chosen(panel, CARD), `after Save '${NAME}' is not the chosen theme`)
     const names = (await themeRow(panel).locator('.name').allInnerTexts()).map(text => text.trim())
     if (names.join(',') !== `Light,Sepia,Dark,${NAME},Add`) fail(`the theme row reads ${names.join(', ')}`)
-    const kept = await stored()
+    const kept = await until(async () => { const all = await stored(); return all.length ? all : null }, 'the server keeps no theme after Save')
     if (kept.length !== 1 || kept[0].name !== NAME || kept[0].controls !== NIGHT_BLUE.Controls || kept[0].grayed !== NIGHT_BLUE.Grayed) fail(`the server keeps ${JSON.stringify(kept)}`)
-    expectColours(await colours(page), NIGHT_BLUE, `with ${NAME} chosen`)
+    await showsColours(page, NIGHT_BLUE, `with ${NAME} chosen`)
     pass(`Save adds '${NAME}' after the built-ins, chooses it and keeps it on the server; the page, text, reading footer, controls and accent take its colours`)
 
     // An unavailable item takes Grayed: the font buttons under the book's own layout.
     const bookLayout = panel.getByRole('checkbox', { name: "Use the book's layout and fonts" })
-    await use(bookLayout)
-    await pause(400)
-    const grayed = await panel.getByRole('group', { name: 'Font' }).getByRole('button').first().evaluate(button =>
+    const fontButton = () => panel.getByRole('group', { name: 'Font' }).getByRole('button').first().evaluate(button =>
         ({ disabled: button.disabled, color: getComputedStyle(button).color, opacity: getComputedStyle(button).opacity }))
-    if (!grayed.disabled || grayed.color !== rgb(NIGHT_BLUE.Grayed) || grayed.opacity !== '1') fail(`an unavailable font button is ${JSON.stringify(grayed)}, not Grayed`)
     await use(bookLayout)
-    await pause(400)
+    await until(async () => { const grayed = await fontButton(); return grayed.disabled && grayed.color === rgb(NIGHT_BLUE.Grayed) && grayed.opacity === '1' },
+        async () => `an unavailable font button is ${JSON.stringify(await fontButton())}, not Grayed`)
+    await use(bookLayout)
+    await until(async () => !(await fontButton()).disabled, "the font buttons stay unavailable after the book's layout is turned off")
     pass('an unavailable font button shows in Grayed')
 
     // After a reload the theme is still chosen and still colours the reader.
     await page.reload()
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render after a reload'))
-    await pause(1500)
+    await rendered(page, 'the reader did not render after a reload')
     panel = await openPrefs(page)
     if (await themeRow(panel).getByRole('button', { name: CARD }).getAttribute('aria-pressed') !== 'true') fail(`after a reload '${NAME}' is not chosen`)
     expectColours(await colours(page), NIGHT_BLUE, 'after a reload')
@@ -220,34 +239,31 @@ try {
 
     // Its card, chosen, opens Edit theme; a new Accent saved recolours the reader.
     await use(themeRow(panel).getByRole('button', { name: CARD }))
-    await pause(400)
-    if (await title(panel) !== 'Edit theme') fail(`choosing the chosen custom theme opened '${await title(panel)}', not Edit theme`)
+    await titled(panel, 'Edit theme', 'choosing the chosen custom theme opened')
     if (await panel.getByRole('textbox', { name: 'Name' }).inputValue() !== NAME) fail('Edit theme does not show the theme\'s name')
     if (JSON.stringify(await pickers(panel)) !== JSON.stringify(NIGHT_BLUE)) fail(`Edit theme shows ${JSON.stringify(await pickers(panel))}`)
     const orange = { ...NIGHT_BLUE, Accent: '#ff9800' }
     await pick(panel, { Accent: orange.Accent })
     await use(panel.getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    expectColours(await colours(page), orange, 'after Edit theme saved a new Accent')
-    if ((await stored())[0]?.accent !== orange.Accent) fail('the server did not keep the new Accent')
+    await showsColours(page, orange, 'after Edit theme saved a new Accent')
+    await until(async () => (await stored())[0]?.accent === orange.Accent, 'the server did not keep the new Accent')
     pass('choosing the chosen custom theme opens Edit theme with its colours, and a new Accent saved recolours the reader')
 
     // Delete theme asks first, then switches to Light and Jellyfin's colours.
     await use(themeRow(panel).getByRole('button', { name: CARD }))
-    await pause(400)
+    await titled(panel, 'Edit theme', 'choosing the chosen custom theme again opened')
     await use(panel.getByRole('button', { name: 'Delete theme' }))
-    await pause(400)
     const dialog = page.getByRole('alertdialog')
+    await dialog.waitFor({ timeout: 5_000 }).catch(() => fail('Delete theme opened no dialog'))
     const words = [await dialog.locator('h2').innerText(), await dialog.locator('p').innerText()].map(text => text.trim())
     if (words[0] !== `Delete ${NAME}?` || words[1] !== 'You are reading with this theme now, so Oriel will switch to Light.') fail(`the dialog reads ${JSON.stringify(words)}`)
     await use(dialog.getByRole('button', { name: 'Delete' }))
-    await pause(1000)
-    if (await dialog.isVisible()) fail('the dialog stays open after Delete')
-    if ((await stored()).length) fail('the server still keeps the deleted theme')
-    if (await themeRow(panel).getByRole('button', { name: CARD }).count()) fail('the deleted theme is still in the row')
-    if (await themeRow(panel).getByRole('button', { name: 'Light', exact: true }).getAttribute('aria-pressed') !== 'true') fail('after deleting the theme in use, Light is not chosen')
-    const light = await colours(page)
-    if (light.page !== 'rgb(255, 255, 255)' || light.text !== 'rgb(27, 27, 27)' || light.prefs !== 'rgb(32, 32, 32)' || light.accent !== 'rgb(0, 164, 220)') fail(`after Delete the reader shows ${JSON.stringify(light)}`)
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('the dialog stays open after Delete'))
+    await until(async () => !(await stored()).length, 'the server still keeps the deleted theme')
+    await until(async () => !await themeRow(panel).getByRole('button', { name: CARD }).count(), 'the deleted theme is still in the row')
+    await until(() => chosen(panel, 'Light'), 'after deleting the theme in use, Light is not chosen')
+    const isLight = shown => shown.page === 'rgb(255, 255, 255)' && shown.text === 'rgb(27, 27, 27)' && shown.prefs === 'rgb(32, 32, 32)' && shown.accent === 'rgb(0, 164, 220)'
+    await until(async () => isLight(await colours(page)), async () => `after Delete the reader shows ${JSON.stringify(await colours(page))}`)
     pass(`Delete theme asks 'Delete ${NAME}?' saying Oriel will switch to Light, and Delete removes it and brings back Light and Jellyfin's colours`)
     await page.close()
 } catch (error) {
@@ -256,6 +272,7 @@ try {
 } finally {
     await forgetChoices(base, token).catch(() => {})
     await clear().catch(() => {})
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

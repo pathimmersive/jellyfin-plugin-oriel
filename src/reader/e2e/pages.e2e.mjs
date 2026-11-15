@@ -15,6 +15,7 @@
 // the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press as pressAt } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -52,14 +53,13 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const open = async (context, id) => {
     const page = await context.newPage()
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail(`the reader did not render ${id}`))
-    await pause(1000)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `the reader rendered ${id} but its footer shows no progress`)
     return page
 }
 
@@ -100,53 +100,63 @@ const progress = page => page.locator('#reading-footer .progress').innerText().t
 
 const leftName = n => n === 1 ? '1 page left in this chapter' : `${n} pages left in this chapter`
 
-const checkLeft = async (page, end, what) => {
+// The pages-left mark against the layout shown, with what is wrong with it, if anything.
+const leftWrong = async (page, end, what) => {
     const shown = await laidOut(page)
     const want = Math.max(0, end(shown) - shown.last)
     const mark = await left(page)
-    if (!mark) fail('the reading footer shows no pages left in the chapter')
-    if (mark.text !== String(want) || mark.name !== leftName(want)) fail(`${what}: the footer shows '${mark.text}' (${mark.name}), expected ${want} (${leftName(want)})`)
+    if (!mark) return { shown, want, wrong: 'the reading footer shows no pages left in the chapter' }
+    if (mark.text !== String(want) || mark.name !== leftName(want)) return { shown, want, wrong: `${what}: the footer shows '${mark.text}' (${mark.name}), expected ${want} (${leftName(want)})` }
+    return { shown, want, wrong: null }
+}
+
+const checkLeft = async (page, end, what) => {
+    const { shown, want } = await until(async () => { const now = await leftWrong(page, end, what); return !now.wrong && now },
+        async () => (await leftWrong(page, end, what)).wrong ?? `${what}: the footer did not settle`)
     return { shown, want }
 }
 
 const turn = async page => {
+    const before = await laidOut(page)
+    const turned = await watchMove(page, 'ArrowRight did not turn the page')
     await page.keyboard.press('ArrowRight')
-    await pause(900)
+    await turned()
+    await until(async () => { const now = await laidOut(page); return now.index !== before.index || now.first !== before.first }, 'ArrowRight did not turn the page')
 }
 
-const goTo = async (page, script) => {
-    await page.evaluate(script)
-    await pause(1200)
+const goTo = async (page, script, arg) => {
+    const moved = await watchMove(page, 'the book did not move where it was sent')
+    await page.evaluate(script, arg)
+    await moved()
 }
 
+const controlsShown = page => page.locator('#controls header').isVisible()
+
+// A tap in the middle, which shows the controls or hides them.
 const press = async (page, share) => {
+    const was = await controlsShown(page)
     if (!await pressAt(page, share, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+    await until(async () => await controlsShown(page) !== was, was ? 'a tap in the middle did not hide the controls' : 'a tap in the middle did not show the controls')
 }
 
 const openPrefs = async page => {
-    if (!await page.locator('#controls header').isVisible()) await press(page, 0.5)
+    if (!await controlsShown(page)) await press(page, 0.5)
     await page.getByRole('button', { name: 'Preferences' }).click()
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
 const closePrefs = async page => {
     await page.keyboard.press('Escape')
-    await pause(300)
+    await until(async () => !await page.locator('#prefs').isVisible(), 'Escape did not close Preferences')
 }
 
 // Waits for the footer to show page / total; gives the two numbers and the time taken since `started`.
 const counted = async (page, timeout = 60_000, started = Date.now()) => {
-    for (;;) {
-        const text = await progress(page)
-        const match = /^(\d+)\s*\/\s*(\d+)$/.exec(text)
-        if (match) return { page: Number(match[1]), total: Number(match[2]), ms: Date.now() - started }
-        if (Date.now() - started > timeout) fail(`the footer still shows '${text}' after ${timeout / 1000} s, not page / total`)
-        await pause(250)
-    }
+    const match = await until(async () => /^(\d+)\s*\/\s*(\d+)$/.exec(await progress(page)),
+        async () => `the footer still shows '${await progress(page)}' after ${timeout / 1000} s, not page / total`, timeout - (Date.now() - started))
+    return { page: Number(match[1]), total: Number(match[2]), ms: Date.now() - started }
 }
 
 // Every section's columns as the reader lays them out on screen, shown one at
@@ -156,8 +166,7 @@ const layOutAll = async page => {
     let sum = 0
     const starts = []
     for (let index = 0; index < sections; index++) {
-        await page.evaluate(i => document.querySelector('foliate-view').goTo(i), index)
-        await pause(1000)
+        await goTo(page, i => document.querySelector('foliate-view').goTo(i), index)
         const section = await laidOut(page)
         if (section.index !== index) fail(`could not show section ${index}`)
         starts.push(sum + 1)
@@ -212,8 +221,7 @@ try {
     if (await panel.getByRole('radio', { name: 'Percentage', exact: true }).getAttribute('aria-checked') !== 'true') fail('Percentage is not chosen at first')
     const chosen = Date.now()
     await pagesRadio.click()
-    await pause(300)
-    if (await pagesRadio.getAttribute('aria-checked') !== 'true') fail('Pages is not marked as chosen')
+    await until(async () => await pagesRadio.getAttribute('aria-checked') === 'true', 'Pages is not marked as chosen')
     await closePrefs(page)
     const first = await counted(page, 60_000, chosen)
     console.log(`INFO: ${browserName}: the test book was counted within ${first.ms} ms of choosing Pages`)
@@ -227,23 +235,25 @@ try {
     pass(`Pages shows page / total, ${sum} pages in all; the last screen reaches page ${sum}`)
 
     // Contents shows each entry's start page.
-    if (!await page.locator('#controls header').isVisible()) await press(page, 0.5)
+    if (!await controlsShown(page)) await press(page, 0.5)
     await page.getByRole('button', { name: 'Contents' }).click()
-    await pause(500)
+    await until(async () => await page.locator('#contents').isVisible() && await page.locator('#contents .where').count(), 'Contents did not open with its entries')
     const where = await page.locator('#contents .where').allInnerTexts()
     const numbers = where.map(text => Number(text.trim()))
     if (numbers.some(Number.isNaN) || numbers[0] !== 1 || numbers.some((n, i) => i && n < numbers[i - 1])) fail(`Contents shows ${where.join(', ')}, expected rising page numbers from 1`)
     const chapterStarts = [numbers[0], numbers[1], numbers[3], numbers[4]]
     if (chapterStarts.join() !== starts.join()) fail(`Contents puts the chapters at pages ${chapterStarts.join(', ')}, the sections start at ${starts.join(', ')}`)
     await page.keyboard.press('Escape')
-    await pause(300)
+    await until(async () => !await page.locator('#contents').isVisible(), 'Escape did not close Contents')
     pass(`Contents shows start pages ${numbers.join(', ')}`)
 
     // A larger size counts again, to more pages.
     panel = await openPrefs(page)
+    const size = () => page.evaluate(() => JSON.parse(localStorage.getItem('oriel-settings') ?? '{}').size ?? null)
     for (let i = 0; i < 4; i++) {
+        const was = await size()
         await panel.getByRole('button', { name: 'More size', exact: true }).click()
-        await pause(300)
+        await until(async () => await size() !== was, `More size press ${i + 1} did not change the size`)
     }
     await closePrefs(page)
     const larger = await counted(page)

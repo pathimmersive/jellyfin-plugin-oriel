@@ -36,6 +36,7 @@ export const pressPoint = async (page, x, y, touch) => {
             target.dispatchEvent(event)
         }
         fire('touchstart', true)
+        // A finger rests on the glass for a moment between touchstart and touchend, as in a real tap.
         await new Promise(resolve => setTimeout(resolve, 60))
         fire('touchend', false)
         return true

@@ -8,6 +8,7 @@
 // including any BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN and
 // ORIEL_ITEM_ID. Exits non-zero on the first failed check.
 import { chromium, webkit } from 'playwright'
+import { pause, until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -38,7 +39,6 @@ if (!engines[browserName]) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // The page shown, as "<section index>:<page>".
 const position = page => page.evaluate(() => {
@@ -75,10 +75,7 @@ const expectTurn = async (page, label, direction, act) => {
             : `${label} moved the page from ${before} to ${after}`)
     }
     pass(direction ? `${label} turns one page ${direction}, ${before} to ${after}` : `${label} leaves the page at ${before}`)
-    if (direction) {
-        await turnView(page, opposite[direction])
-        await pause(200)
-    }
+    if (direction) await turnView(page, opposite[direction])
 }
 
 // The reader's area on the page, for clicks and the wheel.
@@ -104,7 +101,7 @@ try {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await pause(1000)
+    await until(async () => !(await position(page)).includes('undefined'), 'the reader rendered but shows no page')
     const rect = await box(page)
     const middle = { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
 
@@ -118,7 +115,6 @@ try {
 
     // Start a page in, so a previous page exists.
     await turnView(page, 'next')
-    await pause(200)
 
     await expectTurn(page, 'ArrowLeft on the reader page', 'prev', () => page.keyboard.press('ArrowLeft'))
     await expectTurn(page, 'Space', 'next', () => page.keyboard.press('Space'))
@@ -146,19 +142,18 @@ try {
     // dragged on into the margin, a selection runs on into the next page's
     // columns, and foliate-js pages over to follow it, which is not a click either.
     await turnView(page, 'prev')
-    await pause(200)
     await expectTurn(page, 'a drag that selects text and ends on the right edge', null, async () => {
         await page.mouse.move(rect.x + rect.width * 0.3, middle.y)
         await page.mouse.down()
         for (let step = 1; step <= 10; step++) {
             await page.mouse.move(rect.x + rect.width * (0.3 + 0.055 * step), middle.y)
+            // A hand drags at a pace, not in one jump.
             await pause(20)
         }
         await page.mouse.up()
     })
     await page.mouse.click(middle.x, middle.y)
     await turnView(page, 'next')
-    await pause(200)
 
     await page.mouse.move(middle.x, middle.y)
     await expectTurn(page, 'one mouse wheel notch down', 'next', () => page.mouse.wheel(0, 100))
@@ -167,6 +162,7 @@ try {
         // A trackpad swipe: a run of small deltas, then its momentum fading out.
         for (const delta of [4, 8, 14, 20, 24, 24, 20, 16, 12, 9, 6, 4, 3, 2, 1, 1]) {
             await page.mouse.wheel(Math.sign(dx) * delta, 0)
+            // A trackpad sends its deltas a frame apart.
             await pause(16)
         }
     }

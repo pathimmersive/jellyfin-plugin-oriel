@@ -17,6 +17,7 @@
 // ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press } from './press.mjs'
+import { pause, until, watchMove } from './wait.mjs'
 import { zip } from './zip.mjs'
 
 const env = name => {
@@ -50,7 +51,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 const use = locator => setup.touch ? locator.tap() : locator.click()
 
 const header = (deviceId, accessToken) => `MediaBrowser Client="oriel-e2e", Device="e2e", DeviceId="${deviceId}", Version="1.0.0"${accessToken ? `, Token="${accessToken}"` : ''}`
@@ -102,14 +102,13 @@ const noticeWith = (page, text) => page.evaluate(text => {
     const notice = [...document.querySelectorAll('.notice')].find(each => each.querySelector('span')?.textContent === text)
     return notice ? { button: notice.querySelector('button')?.textContent ?? null } : null
 }, text)
-const waitFor = async (check, ms, what) => {
-    const until = Date.now() + ms
-    for (;;) {
-        const value = await check()
-        if (value) return value
-        if (Date.now() > until) fail(`${what} within ${ms / 1000} s`)
-        await pause(250)
-    }
+const waitFor = (check, ms, what) => until(check, `${what} within ${ms / 1000} s`, ms)
+// Once the book shows where it is, a turn of the page by a tap near its right edge, and the move finished.
+const turnPage = async (page, what) => {
+    await waitFor(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), 10_000, `the reader showed no progress before ${what}`)
+    const moved = await watchMove(page, `${what} did not turn the page`)
+    if (!await press(page, 0.9, setup.touch)) fail(`no frame shows the page to tap for ${what}`)
+    await moved()
 }
 
 const OFFLINE_TITLE = 'Oriel can’t reach your Jellyfin server.'
@@ -142,6 +141,7 @@ try {
     if (shown.title !== OFFLINE_TITLE || shown.body !== OFFLINE_BODY || shown.state !== 'error') fail(`the offline page shows ${JSON.stringify(shown)}`)
     if (shown.buttons.join('|') !== 'Try again|Back to Jellyfin' || !shown.back.endsWith('/web/#/home')) fail(`the offline page offers ${shown.buttons.join(', ')}, back to ${shown.back}`)
     pass(`a server that cannot be reached shows '${OFFLINE_TITLE}' with Try again and Back to Jellyfin`)
+    // Longer than the reader's 5 seconds between asks: the page must stay while the server still cannot be reached.
     await pause(6000)
     if (!await page.locator('#failure').isVisible()) fail('the offline page went away while the server still could not be reached')
     for (const pattern of UNREACHABLE) await context.unroute(pattern)
@@ -157,7 +157,6 @@ try {
     for (const pattern of UNREACHABLE) await context.route(pattern, route => route.abort('internetdisconnected'))
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await waitForFailure(page, 'offline')
-    await pause(1000)
     for (const pattern of UNREACHABLE) await context.unroute(pattern)
     const pressed = Date.now()
     await use(page.getByRole('button', { name: 'Try again' }))
@@ -192,13 +191,12 @@ try {
     ;({ context, page } = await newPage(browser))
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book'))
-    await pause(1500)
     await context.route(`**/Oriel/Positions/${itemId}`, route => route.request().method() === 'PUT'
         ? route.fulfill({ status: 500, body: '' }) : route.continue())
-    await press(page, 0.9, setup.touch)
+    await turnPage(page, 'the turn whose save is refused')
     await waitFor(() => noticeWith(page, NOT_SAVED), 10_000, 'the not-saved notice did not show')
     await context.unroute(`**/Oriel/Positions/${itemId}`)
-    await press(page, 0.9, setup.touch)
+    await turnPage(page, 'the turn whose save goes through')
     await waitFor(async () => !await noticeWith(page, NOT_SAVED), 10_000, 'the not-saved notice did not go once a save went through')
     pass(`a save answered with 500 shows '${NOT_SAVED}', and it goes once the next page turn is saved`)
     await context.close()
@@ -215,9 +213,9 @@ try {
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book while the store is unavailable'))
     await waitFor(() => noticeWith(page, UNAVAILABLE), 10_000, 'the unavailable notice did not show')
     if (!(await sectionText(page)).includes(savedText)) fail(`with the store unavailable the book did not open at Jellyfin's place ('${savedText}')`)
-    await pause(1500)
-    await press(page, 0.9, setup.touch)
-    await pause(3000)
+    await turnPage(page, 'a turn with the store unavailable')
+    // Longer than the reader waits before saving a move: nothing must be saved.
+    await pause(6000)
     if (saves.length) fail(`with the store unavailable the reader saved: ${saves.join(', ')}`)
     if (!await noticeWith(page, UNAVAILABLE)) fail('the unavailable notice went away after a page turn')
     pass(`with the store answering 503 the book opens at Jellyfin's place, a page turn saves nothing, and it says '${UNAVAILABLE}'`)
@@ -229,13 +227,16 @@ try {
     ;({ context, page } = await newPage(browser, ownToken))
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book'))
-    await pause(1500)
     await call('/Sessions/Logout', { method: 'POST' }, header('oriel-e2e-failures-signed-out', ownToken))
-    await press(page, 0.9, setup.touch)
+    await turnPage(page, 'the first turn signed out')
     const notice = await waitFor(() => noticeWith(page, SIGNED_OUT), 10_000, 'the signed-out notice did not show')
     if (notice.button !== 'Sign in') fail(`the signed-out notice offers ${notice.button}`)
-    await press(page, 0.9, setup.touch)
-    await pause(6500)
+    // The next save is refused too; the notice must still be there once it has been answered.
+    const refusedAgain = page.waitForResponse(response => response.request().method() === 'PUT' && response.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 })
+        .catch(() => fail('the turn after the signed-out notice was not saved, so the notice was never tested against a second refusal'))
+    await turnPage(page, 'the second turn signed out')
+    const answer = await refusedAgain
+    if (answer.status() !== 401) fail(`signed out, a save was answered with ${answer.status()}`)
     if (!await noticeWith(page, SIGNED_OUT)) fail('the signed-out notice went away while still signed out')
     await use(page.locator('.notice').getByRole('button', { name: 'Sign in' }))
     await page.waitForURL(/\/web\/(index\.html)?#\/login/, { timeout: 10_000 }).catch(() => fail(`Sign in went to ${page.url()}`))
@@ -247,6 +248,7 @@ try {
     console.error(`FAIL: ${browserName}: ${error.message}`)
     failed = true
 } finally {
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

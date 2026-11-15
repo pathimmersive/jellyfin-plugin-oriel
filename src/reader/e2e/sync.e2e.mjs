@@ -15,6 +15,7 @@ import { chromium, devices, webkit } from 'playwright'
 import { forgetChoices } from './choices.mjs'
 import { makeFont } from './make-font.mjs'
 import { press as pressAt } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -51,14 +52,7 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 const use = locator => setup.touch ? locator.tap() : locator.click()
-const until = async (check, ms, message) => {
-    for (const end = Date.now() + ms; Date.now() < end; await pause(250)) {
-        if (await check()) return
-    }
-    fail(message())
-}
 
 // Night Blue, as the canvas draws it, and a font made from Atkinson Hyperlegible (SIL Open Font License) and renamed.
 const NIGHT_BLUE = {
@@ -106,19 +100,18 @@ const open = async context => {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the test EPUB'))
-    await pause(1500)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), 'the reader rendered the test EPUB but its footer shows no progress')
     return page
 }
 
 const openPrefs = async page => {
     if (!await page.locator('#controls header').isVisible()) {
         if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-        await pause(600)
+        await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
     }
     await use(page.getByRole('button', { name: 'Preferences' }))
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
@@ -150,19 +143,19 @@ try {
     const reset = panel.getByRole('button', { name: 'Reset to defaults', exact: true })
     await reset.scrollIntoViewIfNeeded()
     await use(reset)
-    await pause(400)
     const dialog = page.getByRole('alertdialog')
+    await dialog.waitFor({ timeout: 5_000 }).catch(() => fail('Reset to defaults opened no dialog'))
     const words = (await dialog.locator('p').innerText()).trim()
     if (words !== `Size, spacing, margins and page turn on this ${phone} go back to the defaults. Your themes, fonts and highlighters stay as they are.`) fail(`the Reset dialog says '${words}'`)
     await use(dialog.getByRole('button', { name: 'Cancel', exact: true }))
-    await pause(300)
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('Cancel did not close the Reset dialog'))
     pass(`Preferences' note and the Reset dialog say size, spacing, margins and page turn stay on this ${phone} and themes, fonts and highlighters follow you`)
 
     await use(panel.getByRole('group', { name: 'Theme' }).getByRole('button', { name: CARD }))
-    await pause(300)
+    await until(() => pressed(panel, 'Theme', CARD), 'Night Blue is not chosen after a press')
     await use(panel.getByRole('group', { name: 'Font' }).getByRole('button', { name: FAMILY, exact: true }))
     const want = { theme: `own:${theme.id}`, font: `own:${FAMILY}` }
-    await until(async () => JSON.stringify(await choices()) === JSON.stringify(want), 5000, () => `after choosing Night Blue and ${FAMILY} the server keeps another choice`)
+    await until(async () => JSON.stringify(await choices()) === JSON.stringify(want), () => `after choosing Night Blue and ${FAMILY} the server keeps another choice`, 5000)
     pass(`choosing Night Blue and ${FAMILY} on one device keeps them on the server`)
 
     // The second device, with its own size and margins.
@@ -179,17 +172,15 @@ try {
     // A choice made while the server cannot be reached shows at once and is sent once it answers.
     await other.route('**/Oriel/Choices', route => route.abort())
     await use(panel.getByRole('group', { name: 'Theme' }).getByRole('button', { name: 'Sepia', exact: true }))
-    await pause(800)
-    if ((await shown(other)).page !== 'rgb(244, 236, 216)') fail('with the server out of reach Sepia did not show at once')
+    await until(async () => (await shown(other)).page === 'rgb(244, 236, 216)', 'with the server out of reach Sepia did not show at once', 800)
     if ((await choices()).theme !== want.theme) fail('the server took the choice while it could not be reached')
     await other.unroute('**/Oriel/Choices')
-    await until(async () => (await choices()).theme === 'sepia', 15_000, () => 'Sepia was not sent once the server could be reached')
+    await until(async () => (await choices()).theme === 'sepia', 'Sepia was not sent once the server could be reached', 15_000)
     pass('a choice made while the server cannot be reached shows at once and is sent once it answers')
 
     // The first device takes it on its next open.
     await page.reload()
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-    await pause(1500)
     if ((await shown(page)).page !== 'rgb(244, 236, 216)') fail('the first device did not open in Sepia, chosen on the second')
     pass('the first device opens in Sepia, chosen on the second')
     await page.close()
@@ -199,6 +190,7 @@ try {
     failed = true
 } finally {
     await clear().catch(() => {})
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

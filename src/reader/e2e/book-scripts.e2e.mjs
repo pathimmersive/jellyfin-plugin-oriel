@@ -11,6 +11,7 @@
 // ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_SCRIPTS_ID (the scripted EPUB) and
 // ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
+import { pause } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -46,7 +47,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // What each rendered section still holds: script elements and on* attributes.
 const leftovers = page => page.evaluate(() => {
@@ -88,12 +88,14 @@ try {
         await page.evaluate(i => { void document.querySelector('foliate-view').goTo(i) }, index)
         await page.waitForFunction(i => document.querySelector('foliate-view').renderer.getContents?.().some(contents => contents.index === i), index, { timeout: 10_000 })
             .catch(() => fail(`section ${index + 1} of the scripted EPUB did not open`))
+        // A window in which nothing must happen: a book script on a timer or an onload handler gets its chance to run.
         await pause(800)
         if (index === 3) {
             const frame = page.frames().find(f => f.url().startsWith('blob:') && f !== page.mainFrame())
             const link = frame && await frame.$('#run')
             if (!link) fail('the handlers section has no link to press')
             await link.evaluate(element => element.click())
+            // A window in which nothing must happen: the javascript: link gets its chance to run.
             await pause(500)
         }
         const left = (await leftovers(page)).filter(section => section.scripts || section.handlers.length || section.javascriptLinks)
@@ -110,6 +112,7 @@ try {
     console.error(`FAIL: ${browserName}: ${error.message}`)
     failed = true
 } finally {
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

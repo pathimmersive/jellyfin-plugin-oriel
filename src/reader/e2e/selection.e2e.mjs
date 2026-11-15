@@ -5,6 +5,7 @@
 // BaseUrl), ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN and ORIEL_ITEM_ID.
 // Exits non-zero on the first failed check.
 import { devices, webkit } from 'playwright'
+import { pause, until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -31,8 +32,9 @@ const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${message}`)
 
 // Drags one finger from right to left across the section document, the way a
-// swipe or a selection-handle drag arrives, and reports the position before and
-// after, and whether anything cancelled the moves. Touch events are built by
+// swipe or a selection-handle drag arrives, and reports the position before it
+// and whether anything cancelled the moves; the selection made stays until
+// clearSelection. Touch events are built by
 // hand because desktop WebKit has no Touch constructor; the paginator only reads
 // the fields set here.
 const drag = (page, select) => page.evaluate(async select => {
@@ -59,15 +61,20 @@ const drag = (page, select) => page.evaluate(async select => {
     const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
     fire('touchstart', 320)
     for (let x = 300; x >= 40; x -= 20) {
+        // A finger's pace: the moves arrive spread out, as a real drag's do.
         await pause(10)
         fire('touchmove', x)
     }
     fire('touchend', 40)
-    await pause(1500)
-    const after = position()
-    selection.removeAllRanges()
-    return { before, after, cancelled, index }
+    return { before, cancelled, index }
 }, select)
+
+// Where the page is: the section shown and the paginator's page in it.
+const positionOf = page => page.evaluate(() => {
+    const renderer = document.querySelector('foliate-view').renderer
+    return `${renderer.getContents()[0]?.index}:${renderer.page}`
+})
+const clearSelection = page => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0].doc.getSelection().removeAllRanges())
 
 // Waits until the page has come to rest: off the paginator's blank lead-in
 // (page 0) and unchanged for half a second. On a slow machine the view can
@@ -101,6 +108,10 @@ try {
     await settledPage(page)
 
     const selected = await drag(page, true)
+    // The page must stay put: a turn would have landed well inside this window.
+    await pause(1500)
+    selected.after = await positionOf(page)
+    await clearSelection(page)
     if (selected.after !== selected.before) {
         fail(`with text selected, a one-finger drag moved the page from ${selected.before} to ${selected.after}`)
     }
@@ -109,9 +120,8 @@ try {
 
     await settledPage(page)
     const swiped = await drag(page, false)
-    if (swiped.after === swiped.before) {
-        fail(`with nothing selected, a one-finger swipe left the page at ${swiped.before}`)
-    }
+    swiped.after = await until(async () => { const at = await positionOf(page); return at !== swiped.before && at },
+        `with nothing selected, a one-finger swipe left the page at ${swiped.before}`)
     pass(`with nothing selected, the same swipe at ${base} turns the page from ${swiped.before} to ${swiped.after}`)
 } catch (error) {
     console.error(`FAIL: ${error.message}`)

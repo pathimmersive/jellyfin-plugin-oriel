@@ -20,6 +20,7 @@ import { chromium, devices, webkit } from 'playwright'
 import { makeFont } from './make-font.mjs'
 import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -56,7 +57,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 const use = locator => setup.touch ? locator.tap() : locator.click()
 
 // The test family, made from Atkinson Hyperlegible (SIL Open Font License) and renamed.
@@ -109,24 +109,27 @@ const newContext = async () => {
     return context
 }
 
+// Waits for the reader to render the book and show where it is.
+const rendered = async (page, what = 'the reader did not render the test EPUB') => {
+    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail(what))
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `${what}: its footer shows no progress`)
+}
+
 const open = async context => {
     const page = await context.newPage()
     await page.goto(`${base}/Oriel/?id=${itemId}`)
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-        .catch(() => fail('the reader did not render the test EPUB'))
-    await pause(1500)
+    await rendered(page)
     return page
 }
 
 const openPrefs = async page => {
     if (!await page.locator('#controls header').isVisible()) {
         if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-        await pause(600)
+        await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
     }
     await use(page.getByRole('button', { name: 'Preferences' }))
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
@@ -137,15 +140,7 @@ const ownRows = panel => panel.locator('.own-fonts li').evaluateAll(items => ite
     styles: item.querySelector('.styles')?.textContent ?? '',
 })))
 const message = async panel => (await panel.locator('.your-fonts .message').innerText()).trim()
-
-// Waits for `check` to hold, up to `ms`.
-const until = async (check, ms, what) => {
-    const started = Date.now()
-    while (!await check()) {
-        if (Date.now() - started > ms) fail(what)
-        await pause(250)
-    }
-}
+const heading = async panel => (await panel.locator('h2').innerText()).trim()
 
 // The computed font of the book's first paragraph, and the faces of the own family loaded in its frame.
 const bookFont = page => page.evaluate(async family => {
@@ -157,6 +152,12 @@ const bookFont = page => page.evaluate(async family => {
         faces: [...doc.fonts].filter(face => face.family.replace(/["']/g, '') === `Oriel own: ${family}`).map(face => `${face.style}:${face.status}`).sort(),
     }
 }, FAMILY)
+// Waits for the text to be set in the family with its regular and italic files loaded; `what` names the moment.
+const setInFamily = async (page, what) => {
+    const inFamily = shown => shown.family.includes(`Oriel own: ${FAMILY}`) && shown.faces.join() === 'italic:loaded,normal:loaded'
+    return until(async () => { const shown = await bookFont(page); return inFamily(shown) && shown },
+        async () => { const shown = await bookFont(page); return `${what} the text is set in ${shown.family}, faces ${shown.faces.join(', ')}` })
+}
 
 const elsewhere = []
 const browser = await setup.engine.launch()
@@ -191,8 +192,7 @@ try {
     const before = await fontNames(panel)
     if (before.join('|') !== 'Default|Literata|Noto Serif|Noto Sans|Atkinson Hyperlegible|Add font') fail(`the font buttons are ${before.join(', ')}`)
     await use(fontRow(panel).getByRole('button', { name: 'Add font' }))
-    await pause(400)
-    if ((await panel.locator('h2').innerText()).trim() !== 'Your fonts') fail('Add font did not open Your fonts')
+    await until(async () => await heading(panel) === 'Your fonts', 'Add font did not open Your fonts')
     if (!await panel.getByRole('button', { name: 'Back' }).isVisible()) fail('Your fonts has no Back button')
     const note = (await panel.locator('.your-fonts .about').innerText()).trim()
     if (note !== 'Fonts you add are yours and appear on all your devices. TTF, OTF or WOFF2, up to 5 MB each. Only add fonts you are allowed to use.') fail(`Your fonts says '${note}'`)
@@ -201,10 +201,10 @@ try {
     // A regular TTF and an italic WOFF2 of one family make one row naming both styles.
     const input = panel.locator('.your-fonts input[type="file"]')
     await input.setInputFiles(regular)
-    await until(async () => (await ownRows(panel)).length === 1, 10_000, 'the regular file was not listed')
+    await until(async () => (await ownRows(panel)).length === 1, 'the regular file was not listed')
     await input.setInputFiles(italic)
-    await until(async () => (await ownRows(panel))[0]?.styles === 'Regular, Italic', 10_000, `after the italic file Your fonts lists ${JSON.stringify(await ownRows(panel))}`)
-    const kept = await stored()
+    await until(async () => (await ownRows(panel))[0]?.styles === 'Regular, Italic', async () => `after the italic file Your fonts lists ${JSON.stringify(await ownRows(panel))}`)
+    const kept = await until(async () => { const all = await stored(); return all.length === 2 && all }, async () => `the server keeps ${JSON.stringify(await stored())}`)
     if (kept.map(font => `${font.family}/${font.style}/${font.format}`).join('|') !== `${FAMILY}/Regular/ttf|${FAMILY}/Italic/woff2`) fail(`the server keeps ${JSON.stringify(kept)}`)
     const rowFont = await panel.locator('.own-fonts .family').evaluate(node => getComputedStyle(node).fontFamily)
     if (!rowFont.includes(`Oriel own: ${FAMILY}`)) fail(`the row's name is set in ${rowFont}`)
@@ -212,8 +212,7 @@ try {
 
     // Back, then the family's own font button, with the upload icon.
     await use(panel.getByRole('button', { name: 'Back' }))
-    await pause(300)
-    if ((await panel.locator('h2').innerText()).trim() !== 'Preferences') fail('Back did not return to Preferences')
+    await until(async () => await heading(panel) === 'Preferences', 'Back did not return to Preferences')
     const buttons = await fontNames(panel)
     if (buttons.join('|') !== `Default|Literata|Noto Serif|Noto Sans|Atkinson Hyperlegible|${FAMILY}|Add font`) fail(`the font buttons are ${buttons.join(', ')}`)
     const own = fontRow(panel).getByRole('button', { name: FAMILY })
@@ -221,20 +220,16 @@ try {
     const served = []
     page.on('response', response => { if (/\/Oriel\/Fonts\/[0-9a-f]{32}$/.test(response.url())) served.push(response.status()) })
     await use(own)
-    await pause(1500)
-    if (await own.getAttribute('aria-pressed') !== 'true') fail('the family is not marked as chosen')
-    let shown = await bookFont(page)
-    if (!shown.family.includes(`Oriel own: ${FAMILY}`) || shown.faces.join() !== 'italic:loaded,normal:loaded') fail(`after choosing it the text is set in ${shown.family}, faces ${shown.faces.join(', ')}`)
+    await until(async () => await own.getAttribute('aria-pressed') === 'true', 'the family is not marked as chosen')
+    let shown = await setInFamily(page, 'after choosing it')
     pass(`choosing '${FAMILY}' sets the text in it, its regular and italic files loaded (${shown.faces.join(', ')})`)
     await page.keyboard.press('Escape')
-    await pause(300)
+    await until(async () => !await panel.isVisible(), 'Escape did not close Preferences')
 
     // Kept on this device, the files served by the plugin.
     await page.reload()
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-    await pause(1500)
-    shown = await bookFont(page)
-    if (!shown.family.includes(`Oriel own: ${FAMILY}`) || shown.faces.join() !== 'italic:loaded,normal:loaded') fail(`after a reload the text is set in ${shown.family}, faces ${shown.faces.join(', ')}`)
+    await rendered(page, 'the reader did not render after a reload')
+    shown = await setInFamily(page, 'after a reload')
     if (served.length < 2 || served.some(status => status !== 200)) fail(`the plugin served the font files with ${served.join(', ') || 'nothing'}`)
     pass(`after a reload the text is still in '${FAMILY}', its files served by the plugin`)
 
@@ -249,11 +244,11 @@ try {
     // Refusals: over 5 MB, not a font; the server refuses over 5 MB too.
     panel = await openPrefs(page)
     await use(fontRow(panel).getByRole('button', { name: 'Add font' }))
-    await pause(300)
+    await until(async () => await heading(panel) === 'Your fonts', 'Add font did not open Your fonts')
     await panel.locator('.your-fonts input[type="file"]').setInputFiles(big)
-    await until(async () => await message(panel) === 'big.ttf is larger than 5 MB.', 5000, `for a file over 5 MB Your fonts says '${await message(panel)}'`)
+    await until(async () => await message(panel) === 'big.ttf is larger than 5 MB.', async () => `for a file over 5 MB Your fonts says '${await message(panel)}'`, 5000)
     await panel.locator('.your-fonts input[type="file"]').setInputFiles(notes)
-    await until(async () => await message(panel) === 'notes.txt is not a TTF, OTF or WOFF2 font.', 10_000, `for a text file Your fonts says '${await message(panel)}'`)
+    await until(async () => await message(panel) === 'notes.txt is not a TTF, OTF or WOFF2 font.', async () => `for a text file Your fonts says '${await message(panel)}'`)
     if ((await stored()).length !== 2) fail('a refused file was kept')
     const tooLarge = await fetch(`${base}/Oriel/Fonts`, { method: 'POST', headers: { Authorization: authorization }, body: big.buffer })
     if (tooLarge.status !== 413) fail(`the server answered ${tooLarge.status} to a file over 5 MB`)
@@ -261,24 +256,22 @@ try {
 
     // A WOFF2 from Fontsource names its own family and style.
     await panel.locator('.your-fonts input[type="file"]').setInputFiles(stock)
-    await until(async () => (await ownRows(panel)).some(row => row.family === 'Atkinson Hyperlegible'), 10_000, `after a Fontsource WOFF2 Your fonts lists ${JSON.stringify(await ownRows(panel))}`)
+    await until(async () => (await ownRows(panel)).some(row => row.family === 'Atkinson Hyperlegible'), async () => `after a Fontsource WOFF2 Your fonts lists ${JSON.stringify(await ownRows(panel))}`)
     const atkinson = (await ownRows(panel)).find(row => row.family === 'Atkinson Hyperlegible')
     if (atkinson.styles !== 'Bold') fail(`the Fontsource WOFF2 is listed as ${JSON.stringify(atkinson)}`)
     await use(panel.getByRole('button', { name: 'Remove Atkinson Hyperlegible' }))
-    await until(async () => (await ownRows(panel)).length === 1, 5000, 'Remove did not take the Fontsource family off the list')
+    await until(async () => (await ownRows(panel)).length === 1, 'Remove did not take the Fontsource family off the list', 5000)
     pass("a WOFF2 from Fontsource is listed as 'Atkinson Hyperlegible', 'Bold', and Remove takes it off")
 
     // Removing the family chosen takes it off everywhere, and the text goes back to Default.
     await use(panel.getByRole('button', { name: `Remove ${FAMILY}` }))
-    await until(async () => (await ownRows(panel)).length === 0, 5000, `Remove did not take '${FAMILY}' off the list`)
-    if ((await stored()).length) fail('the server still keeps the removed family')
+    await until(async () => (await ownRows(panel)).length === 0, `Remove did not take '${FAMILY}' off the list`, 5000)
+    await until(async () => !(await stored()).length, 'the server still keeps the removed family')
     await use(panel.getByRole('button', { name: 'Back' }))
-    await pause(1000)
-    const after = await fontNames(panel)
-    if (after.includes(FAMILY)) fail(`after Remove the font buttons are ${after.join(', ')}`)
-    if (await fontRow(panel).getByRole('button', { name: 'Default' }).getAttribute('aria-pressed') !== 'true') fail('after removing the family chosen, Default is not chosen')
-    shown = await bookFont(page)
-    if (shown.family.includes('Oriel own')) fail(`after Remove the text is still set in ${shown.family}`)
+    await until(async () => await heading(panel) === 'Preferences', 'Back did not return to Preferences')
+    await until(async () => !(await fontNames(panel)).includes(FAMILY), async () => `after Remove the font buttons are ${(await fontNames(panel)).join(', ')}`)
+    await until(async () => await fontRow(panel).getByRole('button', { name: 'Default' }).getAttribute('aria-pressed') === 'true', 'after removing the family chosen, Default is not chosen')
+    await until(async () => !(await bookFont(page)).family.includes('Oriel own'), async () => `after Remove the text is still set in ${(await bookFont(page)).family}`)
     pass(`Remove takes '${FAMILY}' off the server, the list and the font buttons, and the text goes back to Default`)
     await page.close()
 
@@ -290,6 +283,7 @@ try {
 } finally {
     await forgetChoices(base, token).catch(() => {})
     await clear().catch(() => {})
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

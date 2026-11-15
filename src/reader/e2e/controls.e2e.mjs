@@ -12,6 +12,7 @@
 // on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press as pressAt } from './press.mjs'
+import { pause, until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -46,7 +47,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const CHAPTERS = ['Chapter One', 'Chapter Two', 'Chapter Two, Second Half', 'Chapter Three', 'Chapter Four']
 const detailsUrl = `${base}/web/#/details?id=${itemId}`
@@ -59,7 +59,6 @@ const position = page => page.evaluate(() => {
 
 const press = async (page, share) => {
     if (!await pressAt(page, share, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
 }
 
 const shown = page => page.locator('#controls header').isVisible()
@@ -77,13 +76,15 @@ try {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await pause(1000)
 
     // While reading: the chapter and the percent, and no controls.
     const reading = page.locator('#reading-footer')
     if (!await reading.isVisible()) fail('no reading footer shows while reading')
+    const percent = await until(async () => {
+        const text = (await reading.locator('.progress').innerText()).trim()
+        return /^\d{1,3}%$/.test(text) && text
+    }, async () => `the reading footer's progress is '${(await reading.locator('.progress').innerText()).trim()}'`)
     const chapter = (await reading.locator('.chapter').innerText()).trim()
-    const percent = (await reading.locator('.progress').innerText()).trim()
     if (!CHAPTERS.includes(chapter)) fail(`the reading footer's chapter is '${chapter}'`)
     if (!/^\d{1,3}%$/.test(percent)) fail(`the reading footer's progress is '${percent}'`)
     if (await shown(page)) fail('the controls show before the middle is tapped')
@@ -92,7 +93,7 @@ try {
     // A tap in the middle shows the header and footer.
     const before = await position(page)
     await press(page, 0.5)
-    if (!await shown(page)) fail('a tap in the middle did not show the controls')
+    await until(() => shown(page), 'a tap in the middle did not show the controls')
     if (await position(page) !== before) fail('a tap in the middle turned the page')
     const title = (await page.locator('#controls header .title').innerText()).trim()
     if (title !== 'Oriel Smoke Book') fail(`the header's title is '${title}'`)
@@ -120,8 +121,7 @@ try {
     if (await data.evaluate(a => a.href) !== dataUrl) fail(`Your reading data goes to ${await data.evaluate(a => a.href)}, expected ${dataUrl}`)
     if (await details.evaluate(a => a.href) !== detailsUrl) fail(`Book details goes to ${await details.evaluate(a => a.href)}`)
     await page.locator('#more-backdrop').click({ position: { x: 20, y: 300 } })
-    await pause(400)
-    if (await data.isVisible()) fail('a tap outside More did not close it')
+    await until(async () => !await data.isVisible(), 'a tap outside More did not close it')
     if (!await shown(page)) fail('a tap outside More hid the controls')
     if (await position(page) !== before) fail('a tap outside More turned the page')
     pass('More links to Your reading data and the book\'s details, and a tap outside closes it without turning')
@@ -134,9 +134,8 @@ try {
     const mirrored = page.waitForRequest(request => request.method() === 'POST' && request.url().includes(`/UserItems/${itemId}/UserData`), { timeout: 15_000 }).catch(() => null)
     await slider.fill(target)
     await slider.dispatchEvent('change')
-    await pause(1500)
-    const moved = (await footer.locator('.chapter').innerText()).trim()
-    if (moved !== targetChapter) fail(`the slider at ${target}% shows '${moved}', expected ${targetChapter}`)
+    const chapterShown = async () => (await footer.locator('.chapter').innerText()).trim()
+    await until(async () => await chapterShown() === targetChapter, async () => `the slider at ${target}% shows '${await chapterShown()}', expected ${targetChapter}`)
     if (!await shown(page)) fail('moving the slider hid the controls')
     if (!await stored) fail('the slider\'s move was not saved to /Oriel/Positions')
     if (!await mirrored) fail('the slider\'s move was not mirrored to Jellyfin')
@@ -144,21 +143,31 @@ try {
 
     // A second tap in the middle hides them; a page turn hides them too.
     await press(page, 0.5)
-    if (await shown(page)) fail('a second tap in the middle did not hide the controls')
+    await until(async () => !await shown(page), 'a second tap in the middle did not hide the controls')
     await press(page, 0.5)
-    if (!await shown(page)) fail('a third tap in the middle did not show the controls again')
+    await until(() => shown(page), 'a third tap in the middle did not show the controls again')
     const shownAt = await position(page)
+    const turnedOver = await watchMove(page, 'a tap on the right edge did not turn the page')
     await press(page, 0.9)
-    if (await shown(page)) fail('turning a page did not hide the controls')
-    if (await position(page) === shownAt) fail('a tap on the right edge did not turn the page')
+    await turnedOver()
+    await until(async () => await position(page) !== shownAt, 'a tap on the right edge did not turn the page')
+    await until(async () => !await shown(page), 'turning a page did not hide the controls')
+    // The paginator ignores a turn that comes within 100 ms of the last one ending.
+    await pause(150)
     pass('a second tap in the middle hides the controls, and a tap on the edge turns the page and hides them')
 
     // The edge zones: 30% for touch, 22% for the mouse.
     const edgeAt = await position(page)
-    await press(page, 0.25)
-    const turned = await position(page) !== edgeAt
-    if (setup.touch && !turned) fail('a tap at 25% did not turn the page')
-    if (!setup.touch && (turned || !await shown(page))) fail('a click at 25% did not show the controls without turning')
+    if (setup.touch) {
+        const edgeTurn = await watchMove(page, 'a tap at 25% did not turn the page')
+        await press(page, 0.25)
+        await edgeTurn()
+        await until(async () => await position(page) !== edgeAt, 'a tap at 25% did not turn the page')
+    } else {
+        await press(page, 0.25)
+        await until(() => shown(page), 'a click at 25% did not show the controls without turning')
+        if (await position(page) !== edgeAt) fail('a click at 25% did not show the controls without turning')
+    }
     pass(setup.touch ? 'a tap at 25% of the width turns the page (touch edges are 30%)' : 'a click at 25% of the width shows the controls (mouse edges are 22%)')
 } catch (error) {
     console.error(`FAIL: ${browserName}: ${error.message}`)

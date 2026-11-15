@@ -13,6 +13,7 @@
 // EPUB). Exits non-zero on the first failed check.
 import { chromium, devices } from 'playwright'
 import { press } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -37,7 +38,6 @@ const itemId = env('ORIEL_ITEM_ID')
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: android: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const SCREEN = { width: 412, height: 915 }
 // How far below a line Android draws its selection handles, and the space the toolbar keeps from the text on a touch screen.
@@ -82,10 +82,9 @@ try {
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book'))
     if (!await page.evaluate(() => /Android/.test(navigator.userAgent) && matchMedia('(pointer: coarse)').matches)) fail('the browser is not an Android phone with touch')
     await page.evaluate(() => document.querySelector('foliate-view').goToFraction(0))
-    await pause(1500)
 
     // One column inside the phone's 24 px margins, the reading footer on screen.
-    const reading = await shown(page)
+    const reading = await until(async () => { const now = await shown(page); return Number.isFinite(now.left) && now }, 'no text shows at the start of the book')
     if (reading.perScreen !== 1) fail(`the book shows ${reading.perScreen} columns, not one`)
     if (reading.left < 23 || SCREEN.width - reading.right < 23) fail(`the text runs from ${Math.round(reading.left)} to ${Math.round(reading.right)} px, inside the phone's 24 px margins`)
     const footer = await box(page, '#reading-footer')
@@ -94,12 +93,16 @@ try {
 
     // The controls: the header at the top, the footer at the bottom, no arrows.
     await press(page, 0.5, true)
-    await pause(600)
-    if (!await controlsShown(page)) fail('a tap in the middle did not show the controls')
-    const header = await box(page, '#controls header')
-    const bar = await box(page, '#controls footer')
-    if (!header || Math.round(header.top) !== 0 || Math.round(header.height) !== 56) fail(`the header is not 56 px at the top: ${JSON.stringify(header)}`)
-    if (!bar || Math.round(bar.bottom) !== SCREEN.height) fail(`the footer is not at the bottom: ${JSON.stringify(bar)}`)
+    await until(() => controlsShown(page), 'a tap in the middle did not show the controls')
+    // The header and footer slide in; they are measured once they are in place.
+    await until(async () => {
+        const header = await box(page, '#controls header')
+        return header && Math.round(header.top) === 0 && Math.round(header.height) === 56
+    }, async () => `the header is not 56 px at the top: ${JSON.stringify(await box(page, '#controls header'))}`)
+    await until(async () => {
+        const bar = await box(page, '#controls footer')
+        return bar && Math.round(bar.bottom) === SCREEN.height
+    }, async () => `the footer is not at the bottom: ${JSON.stringify(await box(page, '#controls footer'))}`)
     const small = await page.evaluate(() => [...document.querySelectorAll('#controls header button, #controls header a')]
         .filter(button => button.checkVisibility())
         .map(button => button.getBoundingClientRect())
@@ -112,14 +115,16 @@ try {
     // Preferences: a sheet from 120 px down over the dimmed page.
     await page.locator('#controls header button[aria-label="Preferences"]').tap()
     await page.waitForSelector('#prefs:not([hidden])', { timeout: 5_000 }).catch(() => fail('Preferences did not open'))
-    await pause(400)
-    const prefs = await box(page, '#prefs')
-    if (!prefs || Math.round(prefs.top) !== 120 || Math.round(prefs.left) !== 0 || Math.round(prefs.right) !== SCREEN.width || Math.round(prefs.bottom) !== SCREEN.height) fail(`Preferences is not a sheet from 120 px down across the screen: ${JSON.stringify(prefs)}`)
+    // The sheet slides up; it is measured once it is in place.
+    await until(async () => {
+        const prefs = await box(page, '#prefs')
+        return prefs && Math.round(prefs.top) === 120 && Math.round(prefs.left) === 0 && Math.round(prefs.right) === SCREEN.width && Math.round(prefs.bottom) === SCREEN.height
+    }, async () => `Preferences is not a sheet from 120 px down across the screen: ${JSON.stringify(await box(page, '#prefs'))}`)
     if (!await box(page, '#prefs-backdrop')) fail('Preferences opens without dimming the page')
     await page.locator('#prefs button[aria-label="Close"]').tap()
     await page.waitForSelector('#prefs', { state: 'hidden', timeout: 5_000 }).catch(() => fail('Preferences did not close'))
     if (await controlsShown(page)) await press(page, 0.5, true)
-    await pause(600)
+    await until(async () => !await controlsShown(page), 'a tap in the middle did not hide the controls after Preferences closed')
     pass('Preferences opens as a sheet from 120 px down over the dimmed page, and closes')
 
     // Selected text: the toolbar 16 px from the sides, clear of the handles.
@@ -144,19 +149,27 @@ try {
         return { text: range.toString(), top: rect.top + frame.top, bottom: rect.bottom + frame.top }
     })
     if (!selected) fail('no paragraph on the page to select')
-    await pause(800)
-    const toolbar = await box(page, '#selection-toolbar')
-    if (!toolbar) fail(`selecting '${selected.text}' did not show the Selected text toolbar`)
-    if (Math.round(toolbar.left) !== 16 || Math.round(SCREEN.width - toolbar.right) !== 16) fail(`the toolbar is not 16 px from the sides: ${JSON.stringify(toolbar)}`)
+    await until(() => box(page, '#selection-toolbar'), `selecting '${selected.text}' did not show the Selected text toolbar`)
+    // What is wrong with where the toolbar is, or null once it is where it belongs.
+    const misplaced = toolbar => {
+        if (Math.round(toolbar.left) !== 16 || Math.round(SCREEN.width - toolbar.right) !== 16) return `the toolbar is not 16 px from the sides: ${JSON.stringify(toolbar)}`
+        const below = toolbar.top >= selected.bottom
+        const space = below ? toolbar.top - selected.bottom : selected.top - toolbar.bottom
+        if (below && space < HANDLES) return `the toolbar is ${Math.round(space)} px below '${selected.text}', over the ${HANDLES} px where Android draws its selection handles`
+        if (Math.round(space) !== TOUCH_GAP) return `the toolbar is ${Math.round(space)} px ${below ? 'below' : 'above'} '${selected.text}', not ${TOUCH_GAP} px`
+        return null
+    }
+    // The toolbar is placed after the selection settles; it is measured once it is in place.
+    const toolbar = await until(async () => { const now = await box(page, '#selection-toolbar'); return now && !misplaced(now) && now },
+        async () => { const now = await box(page, '#selection-toolbar'); return now ? misplaced(now) : `the Selected text toolbar went away after selecting '${selected.text}'` })
     const below = toolbar.top >= selected.bottom
     const space = below ? toolbar.top - selected.bottom : selected.top - toolbar.bottom
-    if (below && space < HANDLES) fail(`the toolbar is ${Math.round(space)} px below '${selected.text}', over the ${HANDLES} px where Android draws its selection handles`)
-    if (Math.round(space) !== TOUCH_GAP) fail(`the toolbar is ${Math.round(space)} px ${below ? 'below' : 'above'} '${selected.text}', not ${TOUCH_GAP} px`)
     pass(`selecting '${selected.text}' shows the toolbar 16 px from the sides and ${Math.round(space)} px ${below ? 'below' : 'above'} the text, clear of the handles`)
 } catch (error) {
     console.error(`FAIL: android: ${error.message}`)
     failed = true
 } finally {
+    // A browser can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

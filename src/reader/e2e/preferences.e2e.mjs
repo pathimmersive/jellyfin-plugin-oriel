@@ -21,6 +21,7 @@
 import { chromium, devices, webkit } from 'playwright'
 import { forgetChoices } from './choices.mjs'
 import { press as pressAt } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -58,7 +59,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // The themes' colours as the browser reports them: text, page, reading footer.
 const THEMES = {
@@ -67,9 +67,10 @@ const THEMES = {
     Dark: { text: 'rgb(214, 214, 214)', page: 'rgb(16, 16, 16)', footer: 'rgb(154, 154, 154)' },
 }
 
-const press = async (page, share) => {
-    if (!await pressAt(page, share, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+// A tap in the middle of the page, which shows the controls.
+const showControls = async page => {
+    if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
 }
 
 // The page shown, as "<section index>:<page>".
@@ -132,18 +133,23 @@ const MARGINS = setup.touch ? { left: 24, right: 24, top: 16, bottom: 8 } : { le
 
 const value = (panel, setting) => panel.locator(`[data-setting="${setting}"] .value`).innerText().then(text => text.trim())
 
+// Presses a stepper and waits for the book to lay itself out again where it was.
 const step = async (panel, label) => {
     const button = panel.getByRole('button', { name: label, exact: true })
     if (!await button.isVisible()) fail(`Preferences has no ${label} button`)
+    const laidOut = await watchMove(panel.page(), `the book was not laid out again after ${label}`)
     await button.click()
-    await pause(900)
+    await laidOut()
 }
 
+// Sets a checkbox and, when that changes it, waits for the book to lay itself out again.
 const check = async (panel, name, on) => {
     const box = panel.getByRole('checkbox', { name, exact: true })
     if (!await box.isVisible()) fail(`Preferences has no ${name} checkbox`)
-    if (await box.isChecked() !== on) await box.click()
-    await pause(900)
+    if (await box.isChecked() === on) return
+    const laidOut = await watchMove(panel.page(), `the book was not laid out again after ${name} was turned ${on ? 'on' : 'off'}`)
+    await box.click()
+    await laidOut()
 }
 
 // The chapter in the reading footer, read with the controls shown or not.
@@ -157,32 +163,28 @@ const open = async (context, id) => {
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail(`the reader did not render ${id}`))
-    await pause(1000)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `the reader rendered ${id} but its footer shows no progress`)
     return page
 }
 
 // Shows the controls and opens Preferences.
 const openPrefs = async page => {
-    if (!await page.locator('#controls header').isVisible()) await press(page, 0.5)
+    if (!await page.locator('#controls header').isVisible()) await showControls(page)
     const button = page.getByRole('button', { name: 'Preferences' })
     if (!await button.isVisible()) fail('the controls have no Preferences button')
     await button.click()
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
-const closePrefs = async page => {
-    await page.keyboard.press('Escape')
-    await pause(300)
-}
+// Waits for Preferences to close after `how` (Escape, Close, a tap on the dimmed page).
+const closed = (panel, how) => until(async () => !await panel.isVisible(), `${how} did not close Preferences`)
 
 const choose = async (panel, name) => {
     const button = panel.getByRole('button', { name, exact: true })
     await button.click()
-    await pause(800)
-    if (await button.getAttribute('aria-pressed') !== 'true') fail(`${name} is not marked as chosen`)
+    await until(async () => await button.getAttribute('aria-pressed') === 'true', `${name} is not marked as chosen`)
 }
 
 const checkTheme = async (page, name) => {
@@ -193,6 +195,23 @@ const checkTheme = async (page, name) => {
     const footer = await footerColour(page)
     if (footer !== want.footer) fail(`with ${name} the reading footer is ${footer}, expected ${want.footer}`)
 }
+
+// Waits for the book and the reading footer to take a theme's colours, failing as checkTheme does.
+const themed = (page, name) => until(async () => {
+    try {
+        await checkTheme(page, name)
+        return true
+    } catch {
+        return false
+    }
+}, async () => {
+    try {
+        await checkTheme(page, name)
+    } catch (error) {
+        return error.message
+    }
+    return `the colours of ${name} came only after the wait`
+})
 
 const browser = await setup.engine.launch()
 let failed = false
@@ -215,7 +234,7 @@ try {
     const page = await open(context, itemId)
 
     // The button sits in the header, between Contents and More.
-    await press(page, 0.5)
+    await showControls(page)
     const order = await page.locator('#controls header button').evaluateAll(buttons => buttons.map(b => b.getAttribute('aria-label')))
     if (order.join(', ') !== 'Contents, Preferences, More') fail(`the header's buttons are ${order.join(', ')}`)
     const size = await page.getByRole('button', { name: 'Preferences' }).boundingBox()
@@ -227,18 +246,16 @@ try {
     let panel = await openPrefs(page)
     const title = (await panel.locator('h2').innerText()).trim()
     if (title !== 'Preferences') fail(`the panel is titled '${title}'`)
-    await checkTheme(page, 'Light')
-    await closePrefs(page)
-    if (await panel.isVisible()) fail('Escape did not close Preferences')
+    await themed(page, 'Light')
+    await page.keyboard.press('Escape')
+    await closed(panel, 'Escape')
     panel = await openPrefs(page)
     await panel.getByRole('button', { name: 'Close' }).click()
-    await pause(300)
-    if (await panel.isVisible()) fail('Close did not close Preferences')
+    await closed(panel, 'Close')
     if (setup.touch) {
         panel = await openPrefs(page)
         await page.locator('#prefs-backdrop').click({ position: { x: 20, y: 60 } })
-        await pause(300)
-        if (await panel.isVisible()) fail('a tap on the dimmed page did not close Preferences')
+        await closed(panel, 'a tap on the dimmed page')
     }
     if (await position(page) !== before) fail('closing Preferences moved the book')
     pass(`Preferences opens in Light; Escape, Close${setup.touch ? ' and the dimmed page' : ''} close it and leave the book at ${before}`)
@@ -246,32 +263,33 @@ try {
     // Themes apply at once.
     panel = await openPrefs(page)
     await choose(panel, 'Sepia')
-    await checkTheme(page, 'Sepia')
+    await themed(page, 'Sepia')
     await choose(panel, 'Dark')
-    await checkTheme(page, 'Dark')
+    await themed(page, 'Dark')
     if (await pageColour(page) !== THEMES.Dark.page) fail(`with Dark the page around the book is ${await pageColour(page)}`)
     pass('Sepia and then Dark colour the text, the page and the reading footer at once')
 
     // A bundled font, served by the plugin.
     await choose(panel, 'Literata')
-    await pause(700)
-    let text = await bookText(page)
-    if (!text.font.startsWith('Literata')) fail(`with Literata the text's font is ${text.font}`)
-    if (!text.literata) fail('Literata did not load in the book frame')
+    let text = await until(async () => { const shown = await bookText(page); return shown?.font.startsWith('Literata') && shown },
+        async () => `with Literata the text's font is ${(await bookText(page))?.font}`)
+    text = await until(async () => { const shown = await bookText(page); return shown?.literata && shown }, 'Literata did not load in the book frame')
     if (!fonts.some(url => url.startsWith(origin) && /literata-latin-400-normal/.test(url))) fail(`Literata's file was not loaded from the plugin: ${fonts.join(', ') || 'no font requests'}`)
     pass(`Literata becomes the text's font, loaded from ${origin}`)
 
     // The size steps by 1 and keeps the chapter, from the middle of the book,
     // where a lost place would show.
+    const middle = await watchMove(page, 'the book did not move to the middle')
     await page.evaluate(() => document.querySelector('foliate-view').goToFraction(0.6))
-    await pause(1200)
+    await middle()
     const chapter = (await page.locator('#reading-footer .chapter').innerText()).trim()
     const sizeBefore = text.size
     if (sizeBefore !== 18) fail(`the text starts at ${sizeBefore} px, expected 18`)
+    const resized = await watchMove(page, 'the book was not laid out again after More size')
     await panel.getByRole('button', { name: 'More size' }).click()
-    await pause(1200)
-    text = await bookText(page)
-    if (text.size !== 19) fail(`More size made the text ${text.size} px, expected 19`)
+    await resized()
+    text = await until(async () => { const shown = await bookText(page); return shown?.size === 19 && shown },
+        async () => `More size made the text ${(await bookText(page))?.size} px, expected 19`)
     if ((await panel.locator('.value').first().innerText()).trim() !== '19') fail('the size shown is not 19')
     const chapterAfter = (await page.locator('#reading-footer .chapter').innerText()).trim()
     if (!chapter || chapter === 'Chapter One') fail(`the book did not move to the middle: it shows '${chapter}'`)
@@ -345,9 +363,8 @@ try {
 
     // Kept on this device.
     await page.reload()
-    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-    await pause(1500)
-    await checkTheme(page, 'Dark')
+    await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render after a reload'))
+    await themed(page, 'Dark')
     text = await bookText(page)
     if (!text.font.startsWith('Literata') || text.size !== 19) fail(`after a reload the text is ${text.font} at ${text.size} px`)
     layout = await bookLayout(page)
@@ -367,8 +384,7 @@ try {
             await button.scrollIntoViewIfNeeded().catch(() => fail('Preferences has no Reset to defaults button'))
         }
         await button.click()
-        await pause(300)
-        if (!await dialog.isVisible()) fail('Reset to defaults did not ask first')
+        await dialog.waitFor({ timeout: 5_000 }).catch(() => fail('Reset to defaults did not ask first'))
     }
     await openReset()
     const heading = (await dialog.locator('h2').innerText()).trim()
@@ -377,26 +393,25 @@ try {
     const device = setup.touch ? 'phone' : 'computer'
     if (body !== `Size, spacing, margins and page turn on this ${device} go back to the defaults. Your themes, fonts and highlighters stay as they are.`) fail(`the reset dialog says '${body}'`)
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click()
-    await pause(300)
-    if (await dialog.isVisible()) fail('Cancel did not close the reset dialog')
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('Cancel did not close the reset dialog'))
     await openReset()
     await page.keyboard.press('Escape')
-    await pause(300)
-    if (await dialog.isVisible()) fail('Escape did not close the reset dialog')
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('Escape did not close the reset dialog'))
     if (!await panel.isVisible()) fail('Escape in the reset dialog also closed Preferences')
     layout = await bookLayout(page)
     if (layout.line !== chosen.line || !close(layout.left, chosen.left)) fail('Cancel or Escape changed the layout')
     await openReset()
+    const reset = await watchMove(page, 'the book was not laid out again after Reset')
     await dialog.getByRole('button', { name: 'Reset', exact: true }).click()
-    await pause(1500)
-    if (await dialog.isVisible()) fail('Reset did not close the dialog')
+    await dialog.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('Reset did not close the dialog'))
+    await reset()
     layout = await bookLayout(page)
     if (layout.size !== 18 || !near(layout.line, SPACING.line * 18) || layout.gap !== 0 || !near(layout.indent, SPACING.indent * 18) || layout.align !== 'justify' || layout.hyphens !== 'auto') {
         fail(`after Reset a paragraph is ${JSON.stringify(layout)}`)
     }
     if (!close(layout.left, chosen.left - 4) || !close(layout.top, chosen.top - 4)) fail(`after Reset the reading area starts at ${layout.left}, ${layout.top}, expected ${chosen.left - 4}, ${chosen.top - 4}`)
     if (await panel.getByRole('checkbox', { name: "Use the book's layout and fonts", exact: true }).isChecked()) fail("after Reset the book's layout is on")
-    await checkTheme(page, 'Dark')
+    await themed(page, 'Dark')
     if (!layout.font.startsWith('Literata')) fail(`after Reset the font is ${layout.font}, expected Literata`)
     if (await chapterShown(page) !== resetChapter) fail(`Reset moved the book from ${resetChapter} to ${await chapterShown(page)}`)
     pass(`Reset asks first, Cancel and Escape change nothing, and Reset restores size, spacing, margins and checkboxes, keeping Dark, Literata and ${resetChapter}`)

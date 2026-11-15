@@ -10,6 +10,7 @@
 // ORIEL_EXPECT=oriel, ORIEL_EXPECT_TEXT, a line of the book's first chapter.
 // Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -60,6 +61,7 @@ try {
                 .find(element => !element.classList.contains('hide') && element.offsetParent !== null)
             button?.click()
         })
+        // Pressed again every half second until the form stays: the page re-renders its buttons while it loads.
         await page.waitForTimeout(500)
     }
     const firstLine = error => error.message.split('\n')[0]
@@ -92,12 +94,7 @@ try {
         await page.waitForURL(url => url.pathname.toLowerCase().endsWith('/oriel/') && url.searchParams.get('id') === itemId,
             { timeout: 30_000 })
             .catch(() => fail(`signing in did not return to the book in Oriel (at ${page.url()})`))
-        let text = ''
-        for (let i = 0; i < 30 && !text.includes(expectText); i++) {
-            await page.waitForTimeout(1000)
-            text = await frameText(page)
-        }
-        if (!text.includes(expectText)) fail(`Oriel opened after signing in but the book did not render`)
+        await until(async () => (await frameText(page)).includes(expectText), 'Oriel opened after signing in but the book did not render', 30_000)
         pass(`signing in from the signed-out reader at ${base} returns to the book in Oriel`)
     }
 } catch (error) {

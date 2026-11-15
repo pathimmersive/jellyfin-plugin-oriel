@@ -213,6 +213,7 @@ try {
     console.error(`FAIL: chromium: ${error.message}`)
     failed = true
 } finally {
+    // A browser can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

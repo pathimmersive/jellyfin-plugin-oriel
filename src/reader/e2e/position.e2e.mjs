@@ -6,6 +6,7 @@
 // ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID, ORIEL_SAVED_TICKS
 // and ORIEL_EXPECT_TEXT. Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { pause, until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -63,29 +64,27 @@ try {
         await page.goto(`${base}/Oriel/?id=${itemId}`)
         await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
             .catch(() => fail('the reader did not render the book'))
-        let text = ''
-        for (let i = 0; i < 20 && !text.includes(expectText); i++) {
-            await page.waitForTimeout(500)
-            text = await frameText(page)
-        }
+        await until(async () => (await frameText(page)).includes(expectText),
+            `open ${open} of ${OPENS} did not show the saved position: '${expectText}' is not shown`)
         const shown = await page.evaluate(() => document.querySelector('foliate-view').renderer.page)
         if (shown === 0) fail(`open ${open} of ${OPENS} showed the blank lead page instead of the saved position`)
-        if (!text.includes(expectText)) fail(`open ${open} of ${OPENS} did not show the saved position: '${expectText}' is not shown`)
     }
     pass(`a direct link at ${base} opens the book at its saved position, showing '${expectText}', ${OPENS} times out of ${OPENS}`)
 
-    await page.waitForTimeout(WRITE_WAIT_MS)
+    // Nothing must be written: the window outlasts the reader's delay before a write.
+    await pause(WRITE_WAIT_MS)
     const afterOpen = await savedPosition()
     if (afterOpen !== savedTicks) fail(`opening the book changed the saved position from ${savedTicks} to ${afterOpen}`)
     pass('opening the book leaves the saved position as it was')
 
     for (let i = 0; i < 3; i++) {
+        const turned = await watchMove(page, `page turn ${i + 1} of 3 did not move`)
         await page.evaluate(() => document.querySelector('foliate-view').next())
-        await page.waitForTimeout(400)
+        await turned()
     }
-    await page.waitForTimeout(WRITE_WAIT_MS)
-    const afterTurns = await savedPosition()
-    if (!(afterTurns > savedTicks)) fail(`after three page turns the saved position is ${afterTurns}, not past ${savedTicks}`)
+    // The reader writes once its delay after the last turn has passed.
+    const afterTurns = await until(async () => { const ticks = await savedPosition(); return ticks > savedTicks && ticks },
+        async () => `after three page turns the saved position is ${await savedPosition()}, not past ${savedTicks}`, WRITE_WAIT_MS + 8000)
     pass(`after three page turns the reader saved a later position (${savedTicks} to ${afterTurns} ticks)`)
 } catch (error) {
     console.error(`FAIL: ${error.message}`)

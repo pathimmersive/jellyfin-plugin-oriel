@@ -10,6 +10,7 @@
 // test EPUB) and ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, webkit } from 'playwright'
 import { press } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -122,10 +123,9 @@ try {
     const reader = await context.newPage()
     await reader.goto(`${base}/Oriel/?id=${itemId}`)
     await reader.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the test EPUB'))
-    await reader.waitForTimeout(1500)
     if (!await reader.locator('#controls header').isVisible()) {
         if (!await press(reader, 0.5, false)) fail('no frame shows the page to click')
-        await reader.waitForTimeout(600)
+        await until(() => reader.locator('#controls header').isVisible(), 'a click in the middle of the page did not show the controls')
     }
     await reader.getByRole('button', { name: 'Preferences' }).click()
     await reader.getByRole('group', { name: 'Font' }).getByRole('button', { name: 'Add font' }).waitFor({ timeout: 5000 })
@@ -137,6 +137,7 @@ try {
     failed = true
 } finally {
     await configure({ EnableWebIntegration: original.EnableWebIntegration, EnableFontUploads: original.EnableFontUploads, TranslateUrl: original.TranslateUrl }).catch(() => {})
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

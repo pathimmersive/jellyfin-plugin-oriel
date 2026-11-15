@@ -3,6 +3,7 @@
 // ORIEL_SERVER_ID, ORIEL_USER_ID, ORIEL_TOKEN, ORIEL_ITEM_ID, ORIEL_EXPECT_TEXT,
 // ORIEL_MISSING_ID. Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -77,11 +78,7 @@ try {
     }
     pass('reader fetched the book through /Items/{id}/Download with the MediaBrowser header')
 
-    const deadline = Date.now() + 15_000
-    while (!(await frameText(page)).includes(expectText)) {
-        if (Date.now() > deadline) fail(`first-chapter text '${expectText}' was not rendered`)
-        await page.waitForTimeout(250)
-    }
+    await until(async () => (await frameText(page)).includes(expectText), `first-chapter text '${expectText}' was not rendered`, 15_000)
     pass(`book rendered with first-chapter text at ${base}/Oriel/`)
 
     if (await page.locator('#debug').count() !== 0) fail('debug overlay shown without ?debug=1')

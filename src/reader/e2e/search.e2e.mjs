@@ -13,6 +13,7 @@
 // Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press as pressAt } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -50,7 +51,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // Presses a button or link as this screen's reader would: a tap on a touch screen, else a click.
 const use = locator => setup.touch ? locator.tap() : locator.click()
@@ -62,7 +62,7 @@ const open = async (context, id) => {
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail(`the reader did not render ${id}`))
-    await pause(1000)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `the reader rendered ${id} but its footer shows no progress`)
     return page
 }
 
@@ -70,10 +70,10 @@ const open = async (context, id) => {
 const openMore = async page => {
     if (!await page.locator('#controls header').isVisible()) {
         if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-        await pause(600)
+        await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle did not show the controls')
     }
     await use(page.getByRole('button', { name: 'More' }))
-    await pause(300)
+    await until(() => page.locator('#more').isVisible(), 'More did not open')
     return (await page.locator('#more a, #more button').allInnerTexts()).map(text => text.trim())
 }
 
@@ -88,7 +88,7 @@ const search = async (page, query) => {
         const searching = document.querySelector('#search .searching')
         return !searching || searching.hidden
     }, null, { timeout: 30_000 }).catch(() => fail(`the search for '${query}' did not end`))
-    await pause(300)
+    await until(async () => (await groups(page)).length || await sheet(page).locator('.no-matches').count(), `the search for '${query}' ended with neither results nor a message`)
     return groups(page)
 }
 
@@ -125,12 +125,11 @@ try {
     const items = await openMore(page)
     if (items[0] !== 'Search in this book') fail(`More lists ${items.join(', ')}`)
     await use(page.locator('#more').getByText('Search in this book', { exact: true }))
-    await pause(500)
-    if (await page.locator('#more').isVisible()) fail('Search in this book left More open')
-    if (!await sheet(page).isVisible()) fail('Search in this book opened no sheet titled Search in this book')
+    await until(() => sheet(page).isVisible(), 'Search in this book opened no sheet titled Search in this book')
+    await until(async () => !await page.locator('#more').isVisible(), 'Search in this book left More open')
     const heading = (await sheet(page).locator('h2').innerText()).trim()
     if (heading !== 'Search in this book') fail(`the sheet is titled '${heading}'`)
-    if (!await field(page).evaluate(input => input === document.activeElement)) fail('the search field does not have focus')
+    await until(() => field(page).evaluate(input => input === document.activeElement), 'the search field does not have focus')
     pass(`More lists ${items.join(', ')}, and Search in this book opens its sheet with the field focused`)
 
     // Case and accents are ignored: every chapter's 'smoke'.
@@ -154,20 +153,20 @@ try {
 
     // Choosing a match goes there, closes the sheet, marks it, and saves the place.
     const stored = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
+    const moved = await watchMove(page, `choosing the match did not move to ${chapter}`)
     await use(sheet(page).locator('.results li a').nth(target))
-    await pause(1500)
-    if (await sheet(page).isVisible()) fail('choosing a match left the sheet open')
-    const after = await shown(page)
-    if (after.index !== index) fail(`choosing the match shows section ${after.index}, not ${chapter}`)
-    if (after.marks < 1) fail('no match is marked on the page')
-    if ((await page.locator('#reading-footer .chapter').innerText()).trim() !== chapter) fail(`the reading footer does not show ${chapter}`)
+    await moved()
+    await until(async () => !await sheet(page).isVisible(), 'choosing a match left the sheet open')
+    await until(async () => (await shown(page)).index === index, async () => `choosing the match shows section ${(await shown(page)).index}, not ${chapter}`)
+    const after = await until(async () => { const now = await shown(page); return now.marks >= 1 && now }, 'no match is marked on the page')
+    await until(async () => (await page.locator('#reading-footer .chapter').innerText()).trim() === chapter, `the reading footer does not show ${chapter}`)
     if (!await stored) fail('the move to the match was not saved to /Oriel/Positions')
     pass(`choosing a match goes to ${chapter}, closes the sheet, marks ${after.marks} match${after.marks === 1 ? '' : 'es'} on the page and saves the place`)
 
     // Reopening keeps the search.
     await openMore(page)
     await use(page.locator('#more').getByText('Search in this book', { exact: true }))
-    await pause(500)
+    await until(() => sheet(page).isVisible(), 'Search in this book did not reopen the sheet')
     if (await field(page).inputValue() !== query) fail(`the reopened sheet's field holds '${await field(page).inputValue()}'`)
     if ((await groups(page)).length !== 1) fail('the reopened sheet lost its results')
     pass('reopening the sheet keeps the last search and its results')
@@ -182,13 +181,10 @@ try {
     // Clearing the field clears the results and the marks.
     await search(page, query)
     await field(page).fill('')
-    await pause(500)
-    if ((await groups(page)).length || await sheet(page).locator('.no-matches').count()) fail('clearing the field left results')
-    const cleared = await shown(page)
-    if (cleared.marks !== 0) fail(`clearing the field left ${cleared.marks} marks on the page`)
+    await until(async () => !(await groups(page)).length && !await sheet(page).locator('.no-matches').count(), 'clearing the field left results')
+    await until(async () => (await shown(page)).marks === 0, async () => `clearing the field left ${(await shown(page)).marks} marks on the page`)
     await page.keyboard.press('Escape')
-    await pause(300)
-    if (await sheet(page).isVisible()) fail('Escape did not close the sheet')
+    await until(async () => !await sheet(page).isVisible(), 'Escape did not close the sheet')
     pass('clearing the field clears the results and the marks, and Escape closes the sheet')
     await page.close()
 
