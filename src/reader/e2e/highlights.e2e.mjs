@@ -125,12 +125,12 @@ const preferences = async (page, change) => {
 }
 
 // Goes to a chapter from Contents, once the move there has finished.
-const goToChapter = async (page, name) => {
+const goToChapter = async (page, name, index) => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
     await until(() => page.locator('#contents').isVisible(), 'Contents did not open')
     await use(page.locator('#contents').getByRole('tab', { name: 'Contents' }))
-    const moved = await watchMove(page, `Contents did not move to ${name}`)
+    const moved = await watchMove(page, `Contents did not move to ${name}`, async () => await section(page) === index)
     await use(page.locator('#contents').getByRole('link', { name: new RegExp(`^${name}`) }))
     await moved()
     await until(async () => !await page.locator('#contents').isVisible(), `going to ${name} left Contents open`)
@@ -156,8 +156,8 @@ const place = (page, paragraph, words) => page.evaluate(({ paragraph, words }) =
 // drag across them; on a touch screen, as a long press and handle drag leave
 // it, set in the frame (Playwright cannot long-press).
 const select = async (page, paragraph, words) => {
-    const where = await place(page, paragraph, words)
-    if (!where) fail(`'${words}' is not on the page`)
+    const where = await until(async () => { const found = await place(page, paragraph, words); return found?.lines.length && found },
+        `'${words}' is not on the page`)
     if (setup.touch) {
         await page.evaluate(({ paragraph, at, length }) => {
             const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
@@ -197,8 +197,8 @@ const selectedText = page => page.evaluate(() =>
 // Taps or clicks the middle of the first line of `words`, a highlight, and waits
 // for its toolbar; gives the time of the tap.
 const tapWords = async (page, paragraph, words) => {
-    const where = await place(page, paragraph, words)
-    if (!where) fail(`'${words}' is not on the page`)
+    const where = await until(async () => { const found = await place(page, paragraph, words); return found?.lines.length && found },
+        `'${words}' is not on the page`)
     const [line] = where.lines
     const tapped = Date.now()
     if (!await pressPoint(page, (line.left + line.right) / 2, (line.top + line.bottom) / 2, setup.touch)) fail('no frame shows the page to tap')
@@ -283,7 +283,7 @@ try {
 
     // Start in Chapter One, whose filler paragraphs are on its first page.
     const page = await open(context, itemId)
-    await goToChapter(page, 'Chapter One')
+    await goToChapter(page, 'Chapter One', 0)
     if (await section(page) !== 0) fail('Contents did not go to Chapter One')
 
     // Selecting text shows the toolbar beside it with the four highlighters.
@@ -385,12 +385,12 @@ try {
     const chapterOne = `${(await stored(itemId))[0].cfi.split('!')[0]}!`
     const awayFirst = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`)
         && !String(request.postDataJSON()?.cfi).startsWith(chapterOne), { timeout: 15_000 }).catch(() => null)
-    await goToChapter(page, 'Chapter Three')
+    await goToChapter(page, 'Chapter Three', 2)
     if (await section(page) !== 2) fail('Contents did not go to Chapter Three')
     if (!await awayFirst) fail('going to Chapter Three was not saved')
     const saved = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
     panel = await openHighlights(page)
-    const backToIt = await watchMove(page, 'choosing the highlight did not move the page')
+    const backToIt = await watchMove(page, 'choosing the highlight did not go back to Chapter One', async () => await section(page) === 0)
     await use(panel.locator('.highlights li a').first())
     await backToIt()
     await until(async () => !await panel.isVisible(), 'choosing a highlight left the panel open')

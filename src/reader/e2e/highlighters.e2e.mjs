@@ -176,7 +176,8 @@ try {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
     await until(() => page.locator('#contents').isVisible(), 'Contents did not open')
-    const moved = await watchMove(page, 'Contents did not move to Chapter One')
+    const moved = await watchMove(page, 'Contents did not move to Chapter One',
+        () => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0))
     await use(page.locator('#contents').getByRole('link', { name: /^Chapter One/ }))
     await moved()
     await until(() => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0), 'Contents did not go to Chapter One')

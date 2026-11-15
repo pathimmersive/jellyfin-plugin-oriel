@@ -17,14 +17,20 @@ export const until = async (check, message, timeout = 10_000) => {
 
 // Starts watching for the reader's next move: foliate fires 'relocate' once a
 // page turn, a jump or a scroll has finished, its animation included. Returns
-// a function that waits for it, failing with `message`. Watch before the
-// press that moves, so a quick move is not missed.
-export const watchMove = async (page, message) => {
-    await page.evaluate(() => {
-        window.orielMoved = false
-        document.querySelector('foliate-view').addEventListener('relocate', () => { window.orielMoved = true }, { once: true })
+// a function that waits for a move since, failing with `message`. Watch before
+// the press that moves, so a quick move is not missed. A book still settling
+// where it opened can move on its own, so with `arrived` the wait also holds
+// until that says the book is where the press was to take it.
+export const watchMove = async (page, message, arrived = null) => {
+    const since = await page.evaluate(() => {
+        if (window.orielMoves === undefined) {
+            window.orielMoves = 0
+            document.querySelector('foliate-view').addEventListener('relocate', () => { window.orielMoves++ })
+        }
+        return window.orielMoves
     })
-    return (timeout = 10_000) => until(() => page.evaluate(() => window.orielMoved), message, timeout)
+    return (timeout = 10_000) => until(async () => await page.evaluate(() => window.orielMoves) > since && (!arrived || await arrived()),
+        message, timeout)
 }
 
 // Holds for `ms`, for the few checks where time itself is the point: a press
