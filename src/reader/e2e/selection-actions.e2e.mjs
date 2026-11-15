@@ -16,6 +16,7 @@
 // and ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press, pressPoint } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -52,7 +53,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // Presses a button or link as this screen's reader would: a tap on a touch screen, else a click.
 const use = locator => setup.touch ? locator.tap() : locator.click()
@@ -114,18 +114,32 @@ const newReader = async (browser, options) => {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await pause(1500)
     if (!await page.locator('#controls header').isVisible()) await press(page, 0.5, setup.touch)
-    await pause(600)
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
     await use(page.getByRole('button', { name: 'Contents' }))
-    await pause(400)
-    await use(page.locator('#contents').getByRole('link', { name: /^Chapter One/ }))
-    await pause(1500)
+    const contents = page.locator('#contents')
+    await until(() => contents.isVisible(), 'Contents did not open')
+    const moved = await watchMove(page, 'Contents did not move to Chapter One')
+    await use(contents.getByRole('link', { name: /^Chapter One/ }))
+    await moved()
+    await until(() => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0), 'Contents did not go to Chapter One')
     return { context, page }
 }
 
-// Selects `words` in the paragraph starting `paragraph` of the section shown, as a long press leaves it.
+// Escape closes Contents and the controls, leaving the page alone.
+const closeAll = async page => {
+    await page.keyboard.press('Escape')
+    await until(async () => !await page.locator('#contents').isVisible() && !await page.locator('#controls header').isVisible(),
+        'Escape did not close Contents and the controls')
+}
+
+// Selects `words` in the paragraph starting `paragraph` of the section shown, as a long press leaves it,
+// once the toolbar of any selection before it has closed, so the toolbar that opens is this selection's.
 const select = async (page, paragraph, words) => {
+    if (await toolbar(page).isVisible()) {
+        await page.keyboard.press('Escape')
+        await until(async () => !await toolbar(page).isVisible(), 'Escape did not close the Selected text toolbar')
+    }
     const found = await page.evaluate(({ paragraph, words }) => {
         const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
         const text = [...doc.querySelectorAll('p')].find(each => each.textContent.startsWith(paragraph))?.firstChild
@@ -139,7 +153,7 @@ const select = async (page, paragraph, words) => {
         return true
     }, { paragraph, words })
     if (!found) fail(`'${words}' is not on the page`)
-    await pause(800)
+    await until(() => toolbar(page).isVisible(), `selecting '${words}' did not show the Selected text toolbar`)
 }
 
 const selectedText = page => page.evaluate(() =>
@@ -154,8 +168,8 @@ const FIRST = ['Paragraph 1 holds', 'plain filler text']
 
 // After an action: the toolbar closed, nothing selected, the controls not shown, still in Chapter One.
 const afterAction = async (page, what) => {
-    if (await toolbar(page).isVisible()) fail(`${what} left the toolbar open`)
-    if (await selectedText(page)) fail(`${what} left the text selected`)
+    await until(async () => !await toolbar(page).isVisible(), `${what} left the toolbar open`)
+    await until(async () => !await selectedText(page), `${what} left the text selected`)
     if (await page.locator('#controls header').isVisible()) fail(`${what} showed the controls`)
     const section = await page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index)
     if (section !== 0) fail(`${what} turned the page`)
@@ -167,8 +181,7 @@ try {
     await clearHighlights()
     await setTranslateUrl(GOOGLE)
     let { context, page } = await newReader(browser, { share: true, secure: true })
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await closeAll(page)
 
     // The second row, in the canvas's order.
     await select(page, ...FIRST)
@@ -181,10 +194,9 @@ try {
 
     // Copy.
     await use(toolbar(page).getByRole('button', { name: 'Copy' }))
-    await pause(500)
-    let copied = await page.evaluate(() => window.copiedText)
+    let copied = await until(() => page.evaluate(() => window.copiedText.length ? window.copiedText : null), 'Copy put nothing on the clipboard')
     if (copied.join() !== FIRST[1]) fail(`Copy put ${JSON.stringify(copied)} on the clipboard`)
-    if ((await page.getByRole('status').filter({ hasText: 'Copied' }).count()) !== 1) fail('Copy did not say Copied')
+    await until(async () => (await page.getByRole('status').filter({ hasText: 'Copied' }).count()) === 1, 'Copy did not say Copied')
     await afterAction(page, 'Copy')
     pass(`Copy puts '${FIRST[1]}' on the clipboard, says Copied, and closes the toolbar`)
 
@@ -204,8 +216,7 @@ try {
     // Share.
     await select(page, ...FIRST)
     await use(toolbar(page).getByRole('button', { name: 'Share' }))
-    await pause(500)
-    const shared = await page.evaluate(() => window.sharedData)
+    const shared = await until(() => page.evaluate(() => window.sharedData.length ? window.sharedData : null), 'Share sent nothing to the share sheet')
     if (JSON.stringify(shared) !== JSON.stringify([{ title: 'Oriel Smoke Book', text: FIRST[1] }])) fail(`Share sent ${JSON.stringify(shared)}`)
     await afterAction(page, 'Share')
     pass('Share hands the text and the book\'s title to the share sheet')
@@ -213,22 +224,25 @@ try {
     // Search.
     await select(page, ...FIRST)
     await use(toolbar(page).getByRole('button', { name: 'Search' }))
-    await pause(2500)
     const panel = page.locator('#search')
-    if (!await panel.isVisible()) fail('Search did not open Search in this book')
-    const query = await panel.getByRole('searchbox').inputValue()
-    const found = await panel.locator('.results li').count()
-    if (query !== FIRST[1] || found < 1) fail(`Search opened with '${query}' and ${found} matches`)
+    await until(() => panel.isVisible(), 'Search did not open Search in this book')
+    const queried = () => panel.getByRole('searchbox').inputValue()
+    const matches = () => panel.locator('.results li').count()
+    await until(async () => await queried() === FIRST[1] && await matches() >= 1,
+        async () => `Search opened with '${await queried()}' and ${await matches()} matches`)
+    const query = await queried()
+    const found = await matches()
     if (await toolbar(page).isVisible() || await selectedText(page)) fail('Search left the toolbar open or the text selected')
     await page.keyboard.press('Escape')
-    await pause(400)
+    await until(async () => !await panel.isVisible(), 'Escape did not close Search in this book')
     if (await page.locator('#controls header').isVisible()) fail('closing Search left the controls showing')
     pass(`Search opens Search in this book with '${query}' and its ${found} matches, and closing it leaves the controls hidden`)
 
     // A tapped highlight: the same actions, then Remove; Copy copies its text.
     await select(page, ...FIRST)
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Quotes' }))
-    await pause(1000)
+    await until(async () => (await call(`/Oriel/Highlights/${itemId}`)).length === 1, "'Highlight: Quotes' kept no highlight on the server")
+    await until(async () => !await toolbar(page).isVisible(), "'Highlight: Quotes' left the Selected text toolbar open")
     const line = await page.evaluate(([paragraph, words]) => {
         const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
         const frame = doc.defaultView.frameElement.getBoundingClientRect()
@@ -241,12 +255,12 @@ try {
         return { x: frame.left + (box.left + box.right) / 2, y: frame.top + (box.top + box.bottom) / 2 }
     }, FIRST)
     await pressPoint(page, line.x, line.y, setup.touch)
-    await pause(600)
+    await until(() => toolbar(page).isVisible(), 'a tap on the highlight did not show the Selected text toolbar')
     names = await row(page)
     if (names.join('|') !== 'Copy|Define|Translate|Search|Share|Remove') fail(`for a highlight the second row is ${names.join(', ')}`)
+    const copiedBefore = copied.length
     await use(toolbar(page).getByRole('button', { name: 'Copy' }))
-    await pause(500)
-    copied = await page.evaluate(() => window.copiedText)
+    copied = await until(() => page.evaluate(before => window.copiedText.length > before ? window.copiedText : null, copiedBefore), 'Copy on a highlight put nothing on the clipboard')
     if (copied.at(-1) !== FIRST[1]) fail(`Copy on a highlight put ${JSON.stringify(copied.at(-1))} on the clipboard`)
     await afterAction(page, 'Copy on a highlight')
     pass(`a tapped highlight shows ${names.join(', ')}, and Copy copies its text`)
@@ -255,14 +269,12 @@ try {
     // No share sheet, Translate off, and a page that is not secure: Copy the old way.
     await setTranslateUrl('')
     ;({ context, page } = await newReader(browser, { share: false, secure: false }))
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await closeAll(page)
     await select(page, ...FIRST)
     names = await row(page)
     if (names.join('|') !== 'Copy|Define|Search') fail(`without a share sheet or a translation address the second row is ${names.join(', ')}`)
     await use(toolbar(page).getByRole('button', { name: 'Copy' }))
-    await pause(500)
-    copied = await page.evaluate(() => window.copiedText)
+    copied = await until(() => page.evaluate(() => window.copiedText.length ? window.copiedText : null), 'Copy on a page that is not secure put nothing on the clipboard')
     if (copied.join() !== FIRST[1]) fail(`Copy on a page that is not secure put ${JSON.stringify(copied)} on the clipboard`)
     await afterAction(page, 'Copy the old way')
     pass('without a share sheet Share is gone, with the translation address empty Translate is gone, and Copy works where the clipboard API is not offered')

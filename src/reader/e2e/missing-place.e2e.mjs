@@ -8,6 +8,7 @@
 // first chapter) and ORIEL_JELLYFIN_TEXT (the first line of chapter three, at
 // 0.6 of the book). Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { pause, until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -39,7 +40,6 @@ const MISSING_CFI = 'epubcfi(/6/20!/4/2/1:0)'
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const api = async (path, init = {}) => {
     const response = await fetch(`${base}${path}`, {
@@ -101,12 +101,7 @@ try {
         const said = (await notice.innerText()).trim()
         if (said !== `Your saved place is not in this copy of the book, ${c.notice}`) fail(`the notice says "${said}"`)
         if (c.text) {
-            let text = ''
-            for (let i = 0; i < 20 && !text.includes(c.text); i++) {
-                await pause(500)
-                text = await frameText(page)
-            }
-            if (!text.includes(c.text)) fail(`with ${c.label} to fall back to, the book does not show "${c.text}"`)
+            await until(async () => (await frameText(page)).includes(c.text), `with ${c.label} to fall back to, the book does not show "${c.text}"`)
         }
         if (c.sectionAtLeast !== undefined && (await section(page)) < c.sectionAtLeast) {
             fail(`with ${c.label} to fall back to, the book opened in section ${await section(page)}`)
@@ -118,9 +113,10 @@ try {
         if (saves.length) fail(`opening at the fallback place saved a position: ${saves.join(', ')}`)
         await page.keyboard.press('ArrowRight')
         await notice.waitFor({ state: 'hidden', timeout: 5_000 }).catch(() => fail('the notice is still showing after a page turn'))
-        await pause(6000)
-        const stored = await api(`/Oriel/Positions/${itemId}`)
-        if (!saves.length || stored?.cfi === MISSING_CFI || !stored?.cfi) fail(`the page turn did not replace the saved place: ${JSON.stringify(stored)}`)
+        // The reader saves once its delay after the turn has passed.
+        const replaced = got => saves.length && got?.cfi && got.cfi !== MISSING_CFI
+        const stored = await until(async () => { const got = await api(`/Oriel/Positions/${itemId}`); return replaced(got) && got },
+            async () => `the page turn did not replace the saved place: ${JSON.stringify(await api(`/Oriel/Positions/${itemId}`))}`, 15_000)
         pass(`the opening is not saved; a page turn hides the notice and saves ${stored.cfi} in place of the missing one`)
         await context.close()
     }

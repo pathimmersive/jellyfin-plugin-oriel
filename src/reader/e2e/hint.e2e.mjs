@@ -17,6 +17,7 @@
 // Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press as pressAt } from './press.mjs'
+import { pause, until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -53,7 +54,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const PAGED_ZONES = ['Previous page', 'Show the controls', 'Next page']
 const SCROLL_ZONES = ['Scroll up a screen', 'Show the controls', 'Scroll down a screen']
@@ -77,8 +77,22 @@ const open = async page => {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the test EPUB'))
-    await pause(1200)
 }
+
+// Shows the controls with a tap in the middle of the page, by touch or by mouse.
+const showControls = async (page, touch) => {
+    if (!await pressAt(page, 0.5, touch)) fail('no frame shows the page to tap')
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle did not show the controls')
+}
+
+// Opens More, by touch or by mouse.
+const openMore = async (page, press) => {
+    await press(page.getByRole('button', { name: 'More' }))
+    await until(() => page.locator('#more').isVisible(), 'More did not open')
+}
+
+// Waits for a dialog to close.
+const closed = (dialog, message) => until(async () => !await dialog.isVisible(), message)
 
 // The zones' names in order, and the line under them.
 const zones = async dialog => ({
@@ -98,58 +112,45 @@ const checkHybrid = async page => {
     const desktopDialog = page.getByRole('dialog', { name: 'Turning pages' })
     const coarse = await page.evaluate(() => matchMedia('(pointer: coarse)').matches)
     const first = coarse ? zonesDialog : desktopDialog
-    if (!await first.isVisible()) fail(`no ${coarse ? 'tap zones' : 'Turning pages dialog'} on the first open, for a ${coarse ? 'coarse' : 'fine'} primary pointer`)
+    await until(() => first.isVisible(), `no ${coarse ? 'tap zones' : 'Turning pages dialog'} on the first open, for a ${coarse ? 'coarse' : 'fine'} primary pointer`)
     await first.getByRole('button', { name: 'Got it' }).click()
-    await pause(400)
+    await closed(first, 'Got it did not close the first hint')
     pass(`the first open shows the ${coarse ? 'tap zones' : 'Turning pages dialog'} for a ${coarse ? 'coarse' : 'fine'} primary pointer`)
 
     // A tap, and Show reading gestures by touch: the tap zones.
-    if (!await pressAt(page, 0.5, true)) fail('no frame shows the page to tap')
-    await pause(600)
-    if (!await page.locator('#controls header').isVisible()) fail('a tap in the middle did not show the controls')
-    await page.getByRole('button', { name: 'More' }).tap()
-    await pause(300)
+    await showControls(page, true)
+    await openMore(page, locator => locator.tap())
     await page.getByText('Show reading gestures', { exact: true }).tap()
-    await pause(400)
+    await until(async () => await desktopDialog.isVisible() || await zonesDialog.isVisible(), 'after a tap, Show reading gestures showed no hint')
     if (await desktopDialog.isVisible()) fail('after a tap, Show reading gestures showed the Turning pages dialog')
-    if (!await zonesDialog.isVisible()) fail('after a tap, Show reading gestures showed no hint')
     const shown = await zones(zonesDialog)
     if (shown.names.join(', ') !== PAGED_ZONES.join(', ')) fail(`after a tap, the hint's zones are ${shown.names.join(', ')}`)
     await zonesDialog.getByRole('button', { name: 'Got it' }).tap()
-    await pause(400)
+    await closed(zonesDialog, 'Got it did not close the tap zones')
     pass('after a tap, Show reading gestures shows the tap zones')
 
     // A mouse click, and Show reading gestures by mouse: the Turning pages dialog.
-    if (!await page.locator('#controls header').isVisible()) {
-        await pressAt(page, 0.5, false)
-        await pause(600)
-    }
-    await page.getByRole('button', { name: 'More' }).click()
-    await pause(300)
+    if (!await page.locator('#controls header').isVisible()) await showControls(page, false)
+    await openMore(page, locator => locator.click())
     await page.getByText('Show reading gestures', { exact: true }).click()
-    await pause(400)
+    await until(async () => await desktopDialog.isVisible() || await zonesDialog.isVisible(), 'after a mouse click, Show reading gestures showed no hint')
     if (await zonesDialog.isVisible()) fail('after a mouse click, Show reading gestures showed the tap zones')
-    if (!await desktopDialog.isVisible()) fail('after a mouse click, Show reading gestures showed no hint')
     await page.keyboard.press('Escape')
-    await pause(300)
+    await closed(desktopDialog, 'Escape did not close the Turning pages dialog')
     pass('after a mouse click, Show reading gestures shows the Turning pages dialog')
 
     // Choosing Scroll by touch: the Scroll hint says to drag.
-    if (!await page.locator('#controls header').isVisible()) {
-        if (!await pressAt(page, 0.5, true)) fail('no frame shows the page to tap')
-        await pause(600)
-    }
+    if (!await page.locator('#controls header').isVisible()) await showControls(page, true)
     if (!await page.locator('#prefs').isVisible()) {
         await page.getByRole('button', { name: 'Preferences' }).tap()
-        await pause(400)
+        await until(() => page.locator('#prefs').isVisible(), 'Preferences did not open')
     }
     await page.locator('#prefs').getByRole('group', { name: 'Page turn' }).getByRole('button', { name: 'Scroll', exact: true }).tap()
-    await pause(1200)
-    if (!await zonesDialog.isVisible()) fail('choosing Scroll did not show the Scroll hint')
+    await until(() => zonesDialog.isVisible(), 'choosing Scroll did not show the Scroll hint')
     const line = (await zonesDialog.locator('.hint-line').innerText()).trim()
     if (line !== 'Or drag up and down to scroll freely.') fail(`the Scroll hint chosen by touch says '${line}'`)
     await zonesDialog.getByRole('button', { name: 'Got it' }).tap()
-    await pause(400)
+    await closed(zonesDialog, 'Got it did not close the Scroll hint')
     pass("choosing Scroll by touch shows 'Or drag up and down to scroll freely.'")
 }
 
@@ -172,7 +173,7 @@ try {
     else {
         // The first open on this device shows the hint for this screen.
         const dialog = hint(page)
-        if (!await dialog.isVisible()) fail('no reading gestures hint on the first open')
+        await until(() => dialog.isVisible(), 'no reading gestures hint on the first open')
         if (setup.touch) {
             const shown = await zones(dialog)
             if (shown.names.join(', ') !== PAGED_ZONES.join(', ')) fail(`the hint's zones are ${shown.names.join(', ')}`)
@@ -194,6 +195,7 @@ try {
         const before = await position(page)
         const book = await page.locator('#book').boundingBox()
         await page.mouse.click(book.x + book.width * 0.85, book.y + book.height * 0.5)
+        // A window in which nothing must happen: a page turn or the controls would show within it.
         await pause(800)
         if (await position(page) !== before) fail(`a ${setup.touch ? 'tap' : 'click'} behind the hint moved the book from ${before} to ${await position(page)}`)
         if (await page.locator('#controls header').isVisible()) fail('a tap behind the hint showed the controls')
@@ -202,57 +204,48 @@ try {
 
         // Got it closes it, and this device remembers.
         await use(dialog.getByRole('button', { name: 'Got it' }))
-        await pause(400)
-        if (await dialog.isVisible()) fail('Got it did not close the hint')
+        await closed(dialog, 'Got it did not close the hint')
         if (await position(page) !== before) fail('closing the hint moved the book')
         await open(page)
         if (await hint(page).isVisible()) fail('the hint showed again after a reload')
         pass('Got it closes the hint, and a reload does not show it again')
 
         // More brings it back; Escape closes it.
-        if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-        await pause(600)
-        await use(page.getByRole('button', { name: 'More' }))
-        await pause(300)
+        await showControls(page, setup.touch)
+        await openMore(page, use)
         const items = (await page.locator('#more a, #more button').allInnerTexts()).map(text => text.trim())
         const at = items.indexOf('Show reading gestures')
         if (at < 0 || items[at - 1] !== 'Your reading data' || items[at + 1] !== 'Book details in Jellyfin') fail(`More lists ${items.join(', ')}`)
         await use(page.getByText('Show reading gestures', { exact: true }))
-        await pause(400)
-        if (!await hint(page).isVisible()) fail('Show reading gestures did not show the hint')
-        if (await page.locator('#more').isVisible()) fail('Show reading gestures left More open')
+        await until(() => hint(page).isVisible(), 'Show reading gestures did not show the hint')
+        await until(async () => !await page.locator('#more').isVisible(), 'Show reading gestures left More open')
         await page.keyboard.press('Escape')
-        await pause(300)
-        if (await hint(page).isVisible()) fail('Escape did not close the hint')
+        await closed(hint(page), 'Escape did not close the hint')
         pass('More lists Show reading gestures between Your reading data and Book details, it shows the hint, and Escape closes it')
 
         // The first choice of Scroll shows the Scroll hint once.
-        if (!await page.locator('#controls header').isVisible()) {
-            if (!await pressAt(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-            await pause(600)
-        }
+        if (!await page.locator('#controls header').isVisible()) await showControls(page, setup.touch)
+        // Chooses a page turn in Preferences; the reader applies it, and shows any hint for it, as the button is pressed.
         const choose = async name => {
             if (!await page.locator('#prefs').isVisible()) {
-                if (!await page.locator('#controls header').isVisible()) {
-                    await pressAt(page, 0.5, setup.touch)
-                    await pause(600)
-                }
+                if (!await page.locator('#controls header').isVisible()) await showControls(page, setup.touch)
                 await use(page.getByRole('button', { name: 'Preferences' }))
-                await pause(400)
+                await until(() => page.locator('#prefs').isVisible(), 'Preferences did not open')
             }
-            await use(page.locator('#prefs').getByRole('group', { name: 'Page turn' }).getByRole('button', { name, exact: true }))
-            await pause(1200)
+            const button = page.locator('#prefs').getByRole('group', { name: 'Page turn' }).getByRole('button', { name, exact: true })
+            await use(button)
+            await until(async () => await button.getAttribute('aria-pressed') === 'true', `${name} is not chosen after a press`)
         }
         await choose('Scroll')
         const scrolling = scrollHint(page)
-        if (!await scrolling.isVisible()) fail('choosing Scroll did not show the Scroll hint')
+        await until(() => scrolling.isVisible(), 'choosing Scroll did not show the Scroll hint')
         const shown = await zones(scrolling)
         if (shown.names.join(', ') !== SCROLL_ZONES.join(', ')) fail(`the Scroll hint's zones are ${shown.names.join(', ')}`)
         if (shown.line !== SCROLL_LINE) fail(`the Scroll hint says '${shown.line}', expected '${SCROLL_LINE}'`)
         const [top, bottom] = await scrolling.locator('.zone').evaluateAll(zones => [zones[0].getBoundingClientRect().top, zones[2].getBoundingClientRect().top])
         if (!(bottom > top)) fail('the Scroll hint\'s zones are not top to bottom')
         await use(scrolling.getByRole('button', { name: 'Got it' }))
-        await pause(400)
+        await closed(scrolling, 'Got it did not close the Scroll hint')
         await choose('Slide')
         await choose('Scroll')
         if (await scrollHint(page).isVisible()) fail('the Scroll hint showed again on choosing Scroll a second time')

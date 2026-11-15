@@ -7,6 +7,7 @@
 // "builtin" for jellyfin-web's own book player. Exits non-zero when the other
 // one opens, neither does, or the button reads otherwise.
 import { webkit } from 'playwright'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -81,13 +82,10 @@ try {
         // first line of the chapter a saved position falls in.
         const expectText = process.env.ORIEL_EXPECT_TEXT
         if (expectText) {
-            let text = ''
-            for (let i = 0; i < 20 && !text.includes(expectText); i++) {
-                await page.waitForTimeout(500)
-                text = (await Promise.all(page.frames().map(frame =>
-                    frame.evaluate(() => document.body?.innerText ?? '').catch(() => '')))).join('\n')
-            }
-            if (!text.includes(expectText)) missingText = expectText
+            const frameText = async () => (await Promise.all(page.frames().map(frame =>
+                frame.evaluate(() => document.body?.innerText ?? '').catch(() => '')))).join('\n')
+            const shown = await until(async () => (await frameText()).includes(expectText), 'not shown').then(() => true, () => false)
+            if (!shown) missingText = expectText
         }
     }
     if (missingText) {

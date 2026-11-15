@@ -13,6 +13,7 @@
 // on the first failed check.
 import { devices, webkit } from 'playwright'
 import { press } from './press.mjs'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -37,7 +38,6 @@ const itemId = env('ORIEL_ITEM_ID')
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: webkit: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const PORTRAIT = { width: 390, height: 844 }
 const LANDSCAPE = { width: 844, height: 390 }
@@ -133,8 +133,7 @@ try {
 
     // The phone's controls, with no arrows at the edges.
     await press(page, 0.5, true)
-    await pause(600)
-    if (!await controlsShown(page)) fail('a tap in the middle did not show the controls in landscape')
+    await until(() => controlsShown(page), 'a tap in the middle did not show the controls in landscape')
     const header = await box(page, '#controls header')
     const bar = await box(page, '#controls footer')
     if (!header || Math.round(header.top) !== 0 || !bar || Math.round(bar.bottom) !== LANDSCAPE.height) fail(`the header and footer are not at the top and bottom: ${JSON.stringify({ header, bar })}`)
@@ -153,9 +152,11 @@ try {
         if (!await controlsShown(page)) await press(page, 0.5, true)
         await page.click(`#controls ${opener}`)
         await page.waitForSelector(`${selector}:not([hidden])`, { timeout: 5_000 }).catch(() => fail(`${name} did not open`))
-        await pause(400)
-        const panel = await box(page, selector)
-        if (!panel || Math.abs(panel.left - LANDSCAPE.width / 2) > 1 || Math.round(panel.right) !== LANDSCAPE.width || Math.round(panel.top) !== 0 || Math.round(panel.bottom) !== LANDSCAPE.height) fail(`${name} is not over the right half of the screen, its full height: ${JSON.stringify(panel)}`)
+        // The panel slides in; it is checked once it has come to the right half.
+        const panel = await until(async () => {
+            const at = await box(page, selector)
+            return at && Math.abs(at.left - LANDSCAPE.width / 2) <= 1 && Math.round(at.right) === LANDSCAPE.width && Math.round(at.top) === 0 && Math.round(at.bottom) === LANDSCAPE.height ? at : null
+        }, async () => `${name} is not over the right half of the screen, its full height: ${JSON.stringify(await box(page, selector))}`, 5_000)
         if (!await box(page, backdrop)) fail(`${name} opens without dimming the page`)
         await close()
         await page.waitForSelector(selector, { state: 'hidden', timeout: 5_000 }).catch(() => fail(`${name} did not close`))
@@ -168,6 +169,7 @@ try {
     console.error(`FAIL: webkit: ${error.message}`)
     failed = true
 } finally {
+    // WebKit can hang while closing; the result is already known, so stop waiting.
     await Promise.race([browser.close(), new Promise(resolve => setTimeout(resolve, 10_000))])
 }
 process.exit(failed ? 1 : 0)

@@ -6,6 +6,7 @@
 // ORIEL_EXPECT_TEXT, a line of the chapter the saved position falls in.
 // Exits non-zero on the first failed check.
 import { webkit } from 'playwright'
+import { until } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -70,14 +71,9 @@ try {
 
     await page.waitForSelector('#bookPlayer', { timeout: 30_000 })
         .catch(() => fail(`Resume did not open the built-in book player (at ${page.url()})`))
-    let text = ''
-    for (let i = 0; i < 30 && !text.includes(expectText); i++) {
-        await page.waitForTimeout(1000)
-        text = await frameText(page)
-    }
-    if (!text.includes(expectText)) {
-        fail(`Resume opened the built-in book player, but not at the saved chapter: '${expectText}' is not shown (showing '${text.trim().slice(0, 80)}')`)
-    }
+    await until(async () => (await frameText(page)).includes(expectText),
+        async () => `Resume opened the built-in book player, but not at the saved chapter: '${expectText}' is not shown (showing '${(await frameText(page)).trim().slice(0, 80)}')`,
+        30_000)
     pass(`Resume opens the built-in book player at the saved chapter`)
 } catch (error) {
     console.error(`FAIL: ${error.message}`)

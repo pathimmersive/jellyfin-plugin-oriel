@@ -8,6 +8,7 @@
 // ORIEL_AZW3_ID, ORIEL_AZW3_TEXT, ORIEL_PDF_ID and ORIEL_PDF_TEXT (each book's
 // first line). Exits non-zero on the first failed check.
 import { devices, webkit } from 'playwright'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -34,7 +35,6 @@ const authorization = `MediaBrowser Client="oriel-smoke", Device="smoke", Device
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const api = async path => {
     const response = await fetch(`${base}${path}`, { headers: { Authorization: authorization } })
@@ -71,13 +71,7 @@ const RED = [200, 30, 30]
 const near = (a, b) => a && a.every((v, i) => Math.abs(v - b[i]) < 12)
 
 // Waits for a page to show what `seen` looks for; true once it does.
-const shows = async (page, seen) => {
-    for (let i = 0; i < 20; i++) {
-        if (await seen(page)) return true
-        await pause(500)
-    }
-    return false
-}
+const shows = (page, seen) => until(() => seen(page), 'not shown').then(() => true, () => false)
 const showsText = text => async page => (await frameText(page)).includes(text)
 
 const where = page => page.evaluate(() => document.querySelector('foliate-view').lastLocation?.cfi ?? null)
@@ -125,25 +119,20 @@ try {
         if (!book.pdf) pass(`the ${book.label} fetched no PDF.js file`)
 
         const before = await where(page)
+        const moved = await watchMove(page, `turning a page in the ${book.label} left it at ${before}`)
         await page.keyboard.press('ArrowRight')
-        await pause(1500)
+        await moved()
         const turned = await where(page)
         if (!turned || turned === before) fail(`turning a page in the ${book.label} left it at ${before}`)
-        // Longer than the reader waits before saving a move.
-        await pause(6000)
-        const stored = await api(`/Oriel/Positions/${book.id}`)
-        if (stored?.cfi !== turned) fail(`the ${book.label}'s place ${turned} was not saved: ${JSON.stringify(stored)}`)
-        const mirrored = await api(`/UserItems/${book.id}/UserData?userId=${userId}`)
-        if (!(mirrored?.PlaybackPositionTicks > 0)) fail(`the ${book.label}'s place was not mirrored to Jellyfin: ${JSON.stringify(mirrored)}`)
+        // The reader saves, and mirrors to Jellyfin, once its delay after the turn has passed.
+        await until(async () => (await api(`/Oriel/Positions/${book.id}`))?.cfi === turned,
+            async () => `the ${book.label}'s place ${turned} was not saved: ${JSON.stringify(await api(`/Oriel/Positions/${book.id}`))}`, 15_000)
+        await until(async () => (await api(`/UserItems/${book.id}/UserData?userId=${userId}`))?.PlaybackPositionTicks > 0,
+            async () => `the ${book.label}'s place was not mirrored to Jellyfin: ${JSON.stringify(await api(`/UserItems/${book.id}/UserData?userId=${userId}`))}`)
         await page.close()
 
         page = await open(context, book.id)
-        let reopened = null
-        for (let i = 0; i < 10 && reopened !== turned; i++) {
-            await pause(500)
-            reopened = await where(page)
-        }
-        if (reopened !== turned) fail(`the ${book.label} reopened at ${reopened}, not ${turned}`)
+        await until(async () => await where(page) === turned, async () => `the ${book.label} reopened at ${await where(page)}, not ${turned}`, 5_000)
         pass(`a page turned in the ${book.label} is saved, mirrored to Jellyfin, and opens again at ${turned}`)
         await page.close()
     }

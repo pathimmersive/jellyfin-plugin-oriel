@@ -14,6 +14,7 @@
 // ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press as pressAt } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -50,7 +51,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 const ENTRIES = ['Chapter One', 'Chapter Two', 'Chapter Two, Second Half', 'Chapter Three', 'Chapter Four']
 // First lines of the chapters the check can choose.
@@ -59,9 +59,10 @@ const FIRST_LINES = {
     'Chapter Four': 'Oriel smoke chapter four starts here.',
 }
 
+// A tap in the middle of the page, which shows the controls.
 const press = async (page, share) => {
     if (!await pressAt(page, share, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle did not show the controls')
 }
 
 // The page shown, as "<section index>:<page>".
@@ -79,7 +80,7 @@ const open = async (context, id) => {
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail(`the reader did not render ${id}`))
-    await pause(1000)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `the reader rendered ${id} but its footer shows no progress`)
     return page
 }
 
@@ -89,9 +90,8 @@ const openContents = async page => {
     const button = page.getByRole('button', { name: 'Contents' })
     if (!await button.isVisible()) fail('the controls have no Contents button')
     await button.click()
-    await pause(400)
     const panel = page.locator('#contents')
-    if (!await panel.isVisible()) fail('Contents did not open')
+    await until(() => panel.isVisible(), 'Contents did not open')
     return panel
 }
 
@@ -138,17 +138,14 @@ try {
 
     // Escape, Close and the dimmed page close it without moving the book.
     await page.keyboard.press('Escape')
-    await pause(300)
-    if (await panel.isVisible()) fail('Escape did not close Contents')
+    await until(async () => !await panel.isVisible(), 'Escape did not close Contents')
     panel = await openContents(page)
     await panel.getByRole('button', { name: 'Close' }).click()
-    await pause(300)
-    if (await panel.isVisible()) fail('Close did not close Contents')
+    await until(async () => !await panel.isVisible(), 'Close did not close Contents')
     if (setup.touch) {
         panel = await openContents(page)
         await page.locator('#contents-backdrop').click({ position: { x: 20, y: 60 } })
-        await pause(300)
-        if (await panel.isVisible()) fail('a tap on the dimmed page did not close Contents')
+        await until(async () => !await panel.isVisible(), 'a tap on the dimmed page did not close Contents')
     }
     if (await position(page) !== before) fail('closing Contents moved the book')
     pass(`Escape, Close${setup.touch ? ' and the dimmed page' : ''} close Contents and leave the book at ${before}`)
@@ -160,12 +157,13 @@ try {
     panel = await openContents(page)
     const stored = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
     const mirrored = page.waitForRequest(request => request.method() === 'POST' && request.url().includes(`/UserItems/${itemId}/UserData`), { timeout: 15_000 }).catch(() => null)
+    const moved = await watchMove(page, `choosing ${chosen} did not move the book`)
     await panel.getByRole('link', { name: new RegExp(`^${chosen}`) }).click()
-    await pause(1500)
-    if (await panel.isVisible()) fail(`choosing ${chosen} left Contents open`)
-    if (await page.locator('#controls header').isVisible()) fail(`choosing ${chosen} left the controls shown`)
-    if (!(await frameText(page)).includes(FIRST_LINES[chosen])) fail(`choosing ${chosen} does not show '${FIRST_LINES[chosen]}'`)
-    if ((await page.locator('#reading-footer .chapter').innerText()).trim() !== chosen) fail(`the reading footer does not show ${chosen}`)
+    await moved()
+    await until(async () => !await panel.isVisible(), `choosing ${chosen} left Contents open`)
+    await until(async () => !await page.locator('#controls header').isVisible(), `choosing ${chosen} left the controls shown`)
+    await until(async () => (await frameText(page)).includes(FIRST_LINES[chosen]), `choosing ${chosen} does not show '${FIRST_LINES[chosen]}'`)
+    await until(async () => (await page.locator('#reading-footer .chapter').innerText()).trim() === chosen, `the reading footer does not show ${chosen}`)
     if (!await stored) fail(`the move to ${chosen} was not saved to /Oriel/Positions`)
     if (!await mirrored) fail(`the move to ${chosen} was not mirrored to Jellyfin`)
     pass(`choosing ${chosen} from '${current[0].label}' shows it, closes Contents and the controls, and saves and mirrors the place`)

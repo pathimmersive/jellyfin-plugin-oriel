@@ -18,6 +18,7 @@
 // ORIEL_CBZ_ID and ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press, pressPoint } from './press.mjs'
+import { pause, until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -55,7 +56,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // Presses a button or link as this screen's reader would: a tap on a touch screen, else a click.
 const use = locator => setup.touch ? locator.tap() : locator.click()
@@ -84,50 +84,56 @@ const open = async (context, id) => {
     await page.goto(`${base}/Oriel/?id=${id}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail(`the reader did not render ${id}`))
-    await pause(1500)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `the reader rendered ${id} but its footer shows no progress`)
     return page
 }
 
 const showControls = async page => {
     if (await page.locator('#controls header').isVisible()) return
     if (!await press(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
 }
+
+// Closes what Escape closes (the toolbar, a panel) and waits until `shown` is gone.
+const escape = async (page, shown, what) => {
+    await page.keyboard.press('Escape')
+    await until(async () => !await shown.isVisible(), `Escape left ${what} open`)
+}
+
+// Holds until `ms` have passed since `since`: the window in which a press must do nothing else.
+const windowAfter = (since, ms) => pause(Math.max(0, ms - (Date.now() - since)))
 
 const section = page => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index)
 
 // Goes to a chapter from Contents.
 // Waits for the reading footer to show page / total; gives the page shown and the total.
 const counted = async (page, timeout = 60_000) => {
-    const started = Date.now()
-    for (;;) {
-        const text = (await page.locator('#reading-footer .progress').innerText()).trim()
-        const match = /^(\d+)\s*\/\s*(\d+)$/.exec(text)
-        if (match) return { page: Number(match[1]), total: Number(match[2]) }
-        if (Date.now() - started > timeout) fail(`the footer still shows '${text}' after ${timeout / 1000} s, not page / total`)
-        await pause(250)
-    }
+    const progress = async () => (await page.locator('#reading-footer .progress').innerText()).trim()
+    const match = await until(async () => /^(\d+)\s*\/\s*(\d+)$/.exec(await progress()),
+        async () => `the footer still shows '${await progress()}' after ${timeout / 1000} s, not page / total`, timeout)
+    return { page: Number(match[1]), total: Number(match[2]) }
 }
 
 // Opens Preferences, runs `change` on it and closes it.
 const preferences = async (page, change) => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Preferences' }))
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     await change(panel)
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await escape(page, panel, 'Preferences')
 }
 
-const goToChapter = async (page, name) => {
+// Goes to a chapter from Contents, once the move there has finished.
+const goToChapter = async (page, name, index) => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
-    await pause(400)
+    await until(() => page.locator('#contents').isVisible(), 'Contents did not open')
     await use(page.locator('#contents').getByRole('tab', { name: 'Contents' }))
+    const moved = await watchMove(page, `Contents did not move to ${name}`, async () => await section(page) === index)
     await use(page.locator('#contents').getByRole('link', { name: new RegExp(`^${name}`) }))
-    await pause(1500)
+    await moved()
+    await until(async () => !await page.locator('#contents').isVisible(), `going to ${name} left Contents open`)
 }
 
 // The boxes on screen of `words` in the paragraph starting `paragraph`, in
@@ -150,8 +156,8 @@ const place = (page, paragraph, words) => page.evaluate(({ paragraph, words }) =
 // drag across them; on a touch screen, as a long press and handle drag leave
 // it, set in the frame (Playwright cannot long-press).
 const select = async (page, paragraph, words) => {
-    const where = await place(page, paragraph, words)
-    if (!where) fail(`'${words}' is not on the page`)
+    const where = await until(async () => { const found = await place(page, paragraph, words); return found?.lines.length && found },
+        `'${words}' is not on the page`)
     if (setup.touch) {
         await page.evaluate(({ paragraph, at, length }) => {
             const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
@@ -165,25 +171,42 @@ const select = async (page, paragraph, words) => {
     } else {
         const [first] = where.lines
         const last = where.lines.at(-1)
+        // Watch for the mouse up arriving in the section's frame: until it has, a move to the toolbar would still drag the selection.
+        await page.evaluate(() => {
+            const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
+            window.orielMouseUp = false
+            doc.addEventListener('mouseup', () => { window.orielMouseUp = true }, { once: true })
+        })
         await page.mouse.move(first.left + 0.5, (first.top + first.bottom) / 2)
         await page.mouse.down()
         await page.mouse.move(last.right - 0.5, (last.top + last.bottom) / 2, { steps: 8 })
+        // The frame takes a drag's moves a moment after they are sent: release only once it has
+        // selected the words, or the reader settles on part of them.
+        await until(async () => await selectedText(page) === words, async () => `dragging across '${words}' selected '${await selectedText(page)}'`)
         await page.mouse.up()
+        await until(() => page.evaluate(() => window.orielMouseUp), 'the section never had the mouse up that ends the drag')
+        // The reader reads a selection 250 ms after the press ends; until then the toolbar can be
+        // one shown for part of the drag, if the drag paused, so let that read happen.
+        await pause(400)
     }
-    await pause(800)
+    await until(async () => await selectedText(page) === words, async () => `selecting '${words}' selected '${await selectedText(page)}'`)
+    await until(() => toolbar(page).isVisible(), 'selecting text shows no Selected text toolbar')
     return where
 }
 
 const selectedText = page => page.evaluate(() =>
     document.querySelector('foliate-view').renderer.getContents()[0].doc.getSelection().toString())
 
-// Taps or clicks the middle of the first line of `words`.
+// Taps or clicks the middle of the first line of `words`, a highlight, and waits
+// for its toolbar; gives the time of the tap.
 const tapWords = async (page, paragraph, words) => {
-    const where = await place(page, paragraph, words)
-    if (!where) fail(`'${words}' is not on the page`)
+    const where = await until(async () => { const found = await place(page, paragraph, words); return found?.lines.length && found },
+        `'${words}' is not on the page`)
     const [line] = where.lines
+    const tapped = Date.now()
     if (!await pressPoint(page, (line.left + line.right) / 2, (line.top + line.bottom) / 2, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+    await until(() => toolbar(page).isVisible(), 'tapping a highlight shows no toolbar')
+    return tapped
 }
 
 // The highlights drawn on the page: each one's colour, and whether it is ringed.
@@ -208,14 +231,12 @@ const overlaps = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bot
 const openHighlights = async page => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
-    await pause(400)
     const panel = page.locator('#contents')
-    if (!await panel.isVisible()) fail('Contents did not open')
+    await until(() => panel.isVisible(), 'Contents did not open')
     const tabs = (await panel.getByRole('tab').allInnerTexts()).map(text => text.trim())
     if (tabs.join('|') !== 'Contents|Bookmarks|Highlights') fail(`the Contents panel's tabs are ${tabs.join(', ')}`)
     await use(panel.getByRole('tab', { name: 'Highlights' }))
-    await pause(300)
-    if (await panel.getByRole('tab', { name: 'Highlights' }).getAttribute('aria-selected') !== 'true') fail('the Highlights tab is not selected')
+    await until(async () => await panel.getByRole('tab', { name: 'Highlights' }).getAttribute('aria-selected') === 'true', 'the Highlights tab is not selected')
     return panel
 }
 
@@ -265,10 +286,8 @@ try {
 
     // Start in Chapter One, whose filler paragraphs are on its first page.
     const page = await open(context, itemId)
-    await goToChapter(page, 'Chapter One')
+    await goToChapter(page, 'Chapter One', 0)
     if (await section(page) !== 0) fail('Contents did not go to Chapter One')
-    await page.keyboard.press('Escape')
-    await pause(300)
 
     // Selecting text shows the toolbar beside it with the four highlighters.
     const selected = await select(page, ...FIRST)
@@ -287,22 +306,22 @@ try {
 
     // A highlighter highlights it, clears the selection and closes the toolbar.
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Vocabulary' }))
-    await pause(1000)
-    if (await toolbar(page).isVisible()) fail('choosing a highlighter left the toolbar open')
-    if (await selectedText(page)) fail('choosing a highlighter left the text selected')
-    let kept = await stored(itemId)
+    await until(async () => !await toolbar(page).isVisible(), 'choosing a highlighter left the toolbar open')
+    await until(async () => !await selectedText(page), 'choosing a highlighter left the text selected')
+    let kept = await until(async () => { const all = await stored(itemId); return all.length && all }, 'the server keeps no highlight after choosing a highlighter')
     if (kept.length !== 1 || kept[0].colour !== 'blue' || kept[0].text !== FIRST[1]) fail(`the server keeps ${JSON.stringify(kept)}`)
-    let marks = await drawn(page)
+    let marks = await until(async () => { const all = await drawn(page); return all.length && all }, 'the highlight is not drawn on the page')
     if (marks.length !== 1 || marks[0].colour !== 'blue' || marks[0].ringed) fail(`the page shows ${JSON.stringify(marks)}`)
     pass(`'Highlight: Vocabulary' marks '${kept[0].text}' on the page and the server keeps it in ${kept[0].colour}`)
 
     // Tapping it shows the toolbar for it, without turning the page or showing the controls.
-    await tapWords(page, ...FIRST)
-    if (!await toolbar(page).isVisible()) fail('tapping a highlight shows no toolbar')
+    const tapped = await tapWords(page, ...FIRST)
     shown = await toolbarState(page)
     const pressed = shown.buttons.filter(button => button.pressed === 'true').map(button => button.name)
     if (pressed.join() !== 'Highlight: Vocabulary') fail(`for the highlight, the pressed highlighters are ${pressed.join(', ') || 'none'}`)
     if (!shown.remove) fail('for a highlight, the toolbar shows no Remove')
+    // The tap must do nothing else: a turn or the controls would show within this time.
+    await windowAfter(tapped, 600)
     if (await page.locator('#controls header').isVisible()) fail('tapping a highlight showed the controls')
     if (await section(page) !== 0) fail('tapping a highlight turned the page')
     marks = await drawn(page)
@@ -311,7 +330,7 @@ try {
 
     // Another highlighter recolours it.
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Pink' }))
-    await pause(1000)
+    await until(async () => (await stored(itemId))[0]?.colour === 'pink' && (await drawn(page))[0]?.colour === 'pink', 'another highlighter did not recolour the highlight')
     kept = await stored(itemId)
     marks = await drawn(page)
     if (kept.length !== 1 || kept[0].colour !== 'pink' || marks.length !== 1 || marks[0].colour !== 'pink' || marks[0].ringed) fail(`after recolouring, the server keeps ${JSON.stringify(kept)} and the page shows ${JSON.stringify(marks)}`)
@@ -319,22 +338,21 @@ try {
 
     // A tap elsewhere and Escape close the toolbar.
     await tapWords(page, ...FIRST)
+    const elsewhereTapped = Date.now()
     if (!await press(page, 0.5, setup.touch, 0.92)) fail('no frame shows the page to tap')
-    await pause(600)
-    if (await toolbar(page).isVisible()) fail('a tap elsewhere left the toolbar open')
+    await until(async () => !await toolbar(page).isVisible(), 'a tap elsewhere left the toolbar open')
+    // The tap must do nothing else: the controls would show within this time.
+    await windowAfter(elsewhereTapped, 600)
     if (await page.locator('#controls header').isVisible()) fail('the tap that closed the toolbar also showed the controls')
     await tapWords(page, ...FIRST)
-    await page.keyboard.press('Escape')
-    await pause(300)
-    if (await toolbar(page).isVisible()) fail('Escape left the toolbar open')
-    if ((await drawn(page)).some(mark => mark.ringed)) fail('the highlight stays ringed once the toolbar closed')
+    await escape(page, toolbar(page), 'the toolbar')
+    await until(async () => !(await drawn(page)).some(mark => mark.ringed), 'the highlight stays ringed once the toolbar closed')
     pass('a tap elsewhere and Escape close the toolbar, and the tap does nothing else')
 
     // A second highlight, in Quotes.
     await select(page, ...SECOND)
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Quotes' }))
-    await pause(1000)
-    if ((await stored(itemId)).length !== 2 || (await drawn(page)).length !== 2) fail('a second highlight was not kept and drawn')
+    await until(async () => (await stored(itemId)).length === 2 && (await drawn(page)).length === 2, 'a second highlight was not kept and drawn')
 
     // The Highlights tab lists both in book order, marked in their colours.
     const footerPercent = (await page.locator('#reading-footer .progress').innerText()).trim()
@@ -350,37 +368,37 @@ try {
 
     // The chips filter by colour.
     await use(panel.getByRole('button', { name: 'Pink' }))
-    await pause(300)
-    listed = await rows(panel)
+    await until(async () => (await chips(panel))[4] === 'Pink*', 'the Pink chip does not show chosen')
+    listed = await until(async () => { const now = await rows(panel); return now.length === 1 && now }, async () => `with Pink chosen the tab lists ${JSON.stringify(await rows(panel))}`)
     if (listed.length !== 1 || listed[0].colour !== 'pink' || (await chips(panel))[4] !== 'Pink*') fail(`with Pink chosen the tab lists ${JSON.stringify(listed)}`)
     await use(panel.getByRole('button', { name: 'Green' }))
-    await pause(300)
-    const none = (await panel.locator('.highlights .none').innerText()).trim()
+    const noneShown = panel.locator('.highlights .none')
+    await until(async () => await noneShown.count() && await noneShown.isVisible(), 'with Green chosen the tab says nothing')
+    const none = (await noneShown.innerText()).trim()
     if (none !== 'No highlights in this colour.' || (await rows(panel)).length) fail(`with Green chosen the tab shows '${none}'`)
     await use(panel.getByRole('button', { name: 'All' }))
-    await pause(300)
-    if ((await rows(panel)).length !== 2) fail('All does not list every highlight again')
+    await until(async () => (await rows(panel)).length === 2, 'All does not list every highlight again')
     pass(`the chips filter by colour, and a colour with none says '${none}'`)
 
     // From Chapter Three, choosing a highlight goes back to it and saves the place.
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await escape(page, panel, 'Contents')
     // Chapter Three is saved first, so going back to the highlight is a change to save. A save
     // of Chapter One still waiting out its delay does not count: it would leave Chapter Three
     // unsaved, and going back to Chapter One then rightly saves nothing.
     const chapterOne = `${(await stored(itemId))[0].cfi.split('!')[0]}!`
     const awayFirst = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`)
         && !String(request.postDataJSON()?.cfi).startsWith(chapterOne), { timeout: 15_000 }).catch(() => null)
-    await goToChapter(page, 'Chapter Three')
+    await goToChapter(page, 'Chapter Three', 2)
     if (await section(page) !== 2) fail('Contents did not go to Chapter Three')
     if (!await awayFirst) fail('going to Chapter Three was not saved')
     const saved = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
     panel = await openHighlights(page)
+    const backToIt = await watchMove(page, 'choosing the highlight did not go back to Chapter One', async () => await section(page) === 0)
     await use(panel.locator('.highlights li a').first())
-    await pause(1500)
-    if (await panel.isVisible()) fail('choosing a highlight left the panel open')
+    await backToIt()
+    await until(async () => !await panel.isVisible(), 'choosing a highlight left the panel open')
     if (await section(page) !== 0) fail('choosing the highlight did not go back to Chapter One')
-    if ((await drawn(page)).length !== 2) fail('back in Chapter One, the highlights are not drawn')
+    await until(async () => (await drawn(page)).length === 2, 'back in Chapter One, the highlights are not drawn')
     if (!await saved) fail('going to the highlight was not saved to /Oriel/Positions')
     pass('from Chapter Three, choosing a highlight goes back to it, closes the panel, draws it and saves the place')
 
@@ -391,9 +409,7 @@ try {
         localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
     }, credentials)
     const second = await open(other, itemId)
-    await pause(1000)
-    marks = await drawn(second)
-    if (marks.map(mark => mark.colour).sort().join() !== 'pink,yellow') fail(`another browser draws ${JSON.stringify(marks)}`)
+    await until(async () => (marks = await drawn(second)).map(mark => mark.colour).sort().join() === 'pink,yellow', () => `another browser draws ${JSON.stringify(marks)}`)
     if ((await rows(await openHighlights(second))).length !== 2) fail('another browser does not list both highlights')
     await other.close()
     pass('another browser draws both highlights on the page and lists them')
@@ -401,62 +417,65 @@ try {
     // Remove on the toolbar removes one; Delete this highlight the other, leaving the empty state.
     await tapWords(page, ...FIRST)
     await use(toolbar(page).getByRole('button', { name: 'Remove' }))
-    await pause(1000)
+    await until(async () => (await stored(itemId)).length === 1 && (await drawn(page)).length === 1, 'Remove did not remove the highlight from the server and the page')
     kept = await stored(itemId)
     marks = await drawn(page)
     if (kept.length !== 1 || kept[0].colour !== 'yellow' || marks.length !== 1) fail(`after Remove the server keeps ${JSON.stringify(kept)} and the page shows ${JSON.stringify(marks)}`)
     panel = await openHighlights(page)
     await use(panel.getByRole('button', { name: 'Delete this highlight' }))
-    await pause(1000)
-    const empty = (await panel.locator('.highlights .empty').innerText()).replace(/\s+/g, ' ').trim()
+    const emptyShown = panel.locator('.highlights .empty')
+    await until(async () => await emptyShown.count() && await emptyShown.isVisible(), 'Delete this highlight did not leave the empty state')
+    const empty = (await emptyShown.innerText()).replace(/\s+/g, ' ').trim()
     if (empty !== 'No highlights in this book yet. Select text to highlight it or add a note.') fail(`with no highlights the tab shows '${empty}'`)
-    if ((await stored(itemId)).length || (await drawn(page)).length) fail('the deleted highlight is still kept or drawn')
+    await until(async () => !(await stored(itemId)).length && !(await drawn(page)).length, 'the deleted highlight is still kept or drawn')
     pass(`Remove and Delete this highlight remove them from the page and the server, leaving '${empty}'`)
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await escape(page, panel, 'Contents')
 
     // Note on the toolbar opens the Note sheet for the selection; Cancel keeps nothing.
     await select(page, ...THIRD)
     if ((await noteButton(page).innerText()).trim() !== 'Note') fail(`for a selection the toolbar's note button reads '${(await noteButton(page).innerText()).trim()}'`)
     await use(noteButton(page))
-    await pause(400)
-    if (!await noteSheet(page).isVisible()) fail('Note did not open the Note sheet')
-    if (await toolbar(page).isVisible()) fail('the toolbar stayed open under the Note sheet')
+    await until(() => noteSheet(page).isVisible(), 'Note did not open the Note sheet')
+    await until(async () => !await toolbar(page).isVisible(), 'the toolbar stayed open under the Note sheet')
     let sheet = await noteState(page)
     if (JSON.stringify(sheet) !== JSON.stringify({ quote: THIRD[1], fill: 'rgba(255, 213, 79, 0.5)', pressed: 'Highlight: Quotes', note: '' })) fail(`the Note sheet for a selection shows ${JSON.stringify(sheet)}`)
+    // Cancel must send nothing: a highlight added while it closes the sheet would be kept.
+    const added = []
+    const watchAdds = request => { if (request.method() !== 'GET' && request.url().includes('/Oriel/Highlights/')) added.push(`${request.method()} ${request.url()}`) }
+    page.on('request', watchAdds)
     await use(noteSheet(page).getByRole('button', { name: 'Cancel' }))
-    await pause(600)
-    if (await noteSheet(page).isVisible()) fail('Cancel left the Note sheet open')
-    if ((await stored(itemId)).length) fail('Cancel kept a highlight')
+    await until(async () => !await noteSheet(page).isVisible(), 'Cancel left the Note sheet open')
+    page.off('request', watchAdds)
+    if (added.length || (await stored(itemId)).length) fail(`Cancel kept a highlight ${added.join(', ')}`)
     pass(`Note opens the Note sheet with '${sheet.quote}' in Quotes and an empty note, and Cancel keeps nothing`)
 
     // Save makes the highlight, in the highlighter chosen on the sheet, with its note.
     await select(page, ...THIRD)
     await use(noteButton(page))
-    await pause(400)
+    await until(() => noteSheet(page).isVisible(), 'Note did not open the Note sheet again')
     await use(noteSheet(page).getByRole('button', { name: 'Highlight: Green' }))
+    await until(async () => (await noteState(page)).pressed === 'Highlight: Green', 'choosing Green on the sheet does not show it pressed')
     sheet = await noteState(page)
     if (sheet.pressed !== 'Highlight: Green' || sheet.fill !== 'rgba(129, 199, 132, 0.45)') fail(`choosing Green on the sheet shows ${JSON.stringify(sheet)}`)
     await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('Every chapter runs the same.')
     await use(noteSheet(page).getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    if (await noteSheet(page).isVisible()) fail('Save left the Note sheet open')
-    kept = await stored(itemId)
+    await until(async () => !await noteSheet(page).isVisible(), 'Save left the Note sheet open')
+    kept = await until(async () => { const all = await stored(itemId); return all.length && all }, 'after Save the server keeps no highlight')
     if (kept.length !== 1 || kept[0].colour !== 'green' || kept[0].text !== THIRD[1] || kept[0].note !== 'Every chapter runs the same.') fail(`after Save the server keeps ${JSON.stringify(kept)}`)
-    if ((await drawn(page)).map(mark => mark.colour).join() !== 'green') fail('the highlight saved with a note is not drawn in green')
+    await until(async () => (await drawn(page)).map(mark => mark.colour).join() === 'green', 'the highlight saved with a note is not drawn in green')
     pass(`Save highlights '${kept[0].text}' in green with the note '${kept[0].note}'`)
 
     // The highlight tapped offers Edit note, with its note; an edit is kept.
     await tapWords(page, ...THIRD)
     if ((await noteButton(page).innerText()).trim() !== 'Edit note') fail('a highlight with a note does not offer Edit note')
     await use(noteButton(page))
-    await pause(400)
+    await until(() => noteSheet(page).isVisible(), 'Edit note did not open the Note sheet')
     sheet = await noteState(page)
     if (sheet.pressed !== 'Highlight: Green' || sheet.note !== 'Every chapter runs the same.' || sheet.quote !== THIRD[1]) fail(`Edit note shows ${JSON.stringify(sheet)}`)
     await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('Every chapter runs about the same.')
     await use(noteSheet(page).getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    kept = await stored(itemId)
+    await until(async () => (kept = await stored(itemId))[0]?.note === 'Every chapter runs about the same.', () => `after the edit the server keeps ${JSON.stringify(kept)}`)
+    await until(async () => !await noteSheet(page).isVisible(), 'Save left the Note sheet open')
     if (kept.length !== 1 || kept[0].note !== 'Every chapter runs about the same.' || kept[0].colour !== 'green') fail(`after the edit the server keeps ${JSON.stringify(kept)}`)
     pass('Edit note on a tapped highlight shows its note and highlighter, and Save keeps the edit')
 
@@ -464,8 +483,7 @@ try {
     panel = await openHighlights(page)
     const noted = await panel.locator('.highlights li .note').allInnerTexts()
     if (noted.map(text => text.trim()).join('|') !== 'Every chapter runs about the same.') fail(`the Highlights tab shows the notes ${JSON.stringify(noted)}`)
-    await page.keyboard.press('Escape')
-    await pause(300)
+    await escape(page, panel, 'Contents')
     pass('the Highlights tab shows the note under its highlight')
 
     // Another browser shows the note, in the list and on the highlight tapped.
@@ -475,10 +493,11 @@ try {
         localStorage.setItem('oriel-hints', JSON.stringify({ first: true, scroll: true }))
     }, credentials)
     const elsewherePage = await open(third, itemId)
-    const theirNotes = await (await openHighlights(elsewherePage)).locator('.highlights li .note').allInnerTexts()
-    if (theirNotes.map(text => text.trim()).join('|') !== 'Every chapter runs about the same.') fail(`another browser lists the notes ${JSON.stringify(theirNotes)}`)
-    await elsewherePage.keyboard.press('Escape')
-    await pause(300)
+    const theirPanel = await openHighlights(elsewherePage)
+    let theirNotes = []
+    await until(async () => (theirNotes = await theirPanel.locator('.highlights li .note').allInnerTexts()).map(text => text.trim()).join('|') === 'Every chapter runs about the same.',
+        () => `another browser lists the notes ${JSON.stringify(theirNotes)}`)
+    await escape(elsewherePage, theirPanel, 'Contents')
     await tapWords(elsewherePage, ...THIRD)
     if ((await noteButton(elsewherePage).innerText()).trim() !== 'Edit note') fail('in another browser the highlight does not offer Edit note')
     await third.close()
@@ -487,28 +506,30 @@ try {
     // An emptied note is removed, and the highlight stays.
     await tapWords(page, ...THIRD)
     await use(noteButton(page))
-    await pause(400)
+    await until(() => noteSheet(page).isVisible(), 'Edit note did not open the Note sheet')
     await noteSheet(page).getByRole('textbox', { name: 'Note' }).fill('')
     await use(noteSheet(page).getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    kept = await stored(itemId)
+    await until(async () => (kept = await stored(itemId))[0]?.note === '', () => `after emptying the note the server keeps ${JSON.stringify(kept)}`)
+    await until(async () => !await noteSheet(page).isVisible(), 'Save left the Note sheet open')
     if (kept.length !== 1 || kept[0].note !== '' || kept[0].colour !== 'green') fail(`after emptying the note the server keeps ${JSON.stringify(kept)}`)
     await tapWords(page, ...THIRD)
     if ((await noteButton(page).innerText()).trim() !== 'Note') fail('with its note emptied, the highlight still offers Edit note')
-    await page.keyboard.press('Escape')
+    await escape(page, toolbar(page), 'the toolbar')
     pass('saving an empty note removes the note and keeps the highlight')
 
     // With progress in Pages, a highlight shows the page its start is on, one
     // of the pages on screen once the reader goes to it.
-    await pause(300)
     await preferences(page, async panel => {
-        await use(panel.getByRole('radio', { name: 'Pages', exact: true }))
-        await pause(300)
+        const pages = panel.getByRole('radio', { name: 'Pages', exact: true })
+        await use(pages)
+        await until(() => pages.isChecked(), 'Pages is not chosen after a press')
     })
     await counted(page)
     panel = await openHighlights(page)
+    const goneTo = await watchMove(page, 'choosing the highlight with Pages did not move the page')
     await use(panel.locator('.highlights li a').first())
-    await pause(1500)
+    await goneTo()
+    await until(async () => !await panel.isVisible(), 'choosing a highlight left the panel open')
     const shownPages = await page.evaluate(() => {
         const renderer = document.querySelector('foliate-view').renderer
         const root = renderer.getContents()[0].doc.documentElement
@@ -516,9 +537,9 @@ try {
         return Math.max(1, Math.round(renderer.size / (parseFloat(style.columnWidth) + parseFloat(style.columnGap))))
     })
     const onIt = await counted(page, 5000)
-    listed = await rows(await openHighlights(page))
-    await page.keyboard.press('Escape')
-    await pause(300)
+    panel = await openHighlights(page)
+    listed = await rows(panel)
+    await escape(page, panel, 'Contents')
     const at = Number(/^Chapter One · page (\d+)$/.exec(listed[0]?.where ?? '')?.[1])
     if (listed.length !== 1 || !(at >= onIt.page && at < onIt.page + shownPages)) fail(`with Pages the Highlights tab lists ${JSON.stringify(listed)}; the screen shows pages ${onIt.page} to ${onIt.page + shownPages - 1}`)
     pass(`with Pages the highlight shows '${listed[0].where}', a page on screen when the reader goes to it`)
@@ -529,7 +550,7 @@ try {
     if (await comic.locator('#selection-toolbar').count()) fail('a comic has the Selected text toolbar')
     await showControls(comic)
     await use(comic.getByRole('button', { name: 'Contents' }))
-    await pause(400)
+    await until(() => comic.locator('#contents').isVisible(), 'Contents did not open on the comic')
     const comicTabs = (await comic.locator('#contents').getByRole('tab').allInnerTexts()).map(text => text.trim())
     if (comicTabs.join('|') !== 'Contents|Bookmarks') fail(`a comic's Contents tabs are ${comicTabs.join(', ')}`)
     pass('a comic offers no highlighting and no Highlights tab')

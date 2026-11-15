@@ -12,6 +12,7 @@
 // test EPUB) and ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -48,7 +49,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // Presses a button or link as this screen's reader would: a tap on a touch screen, else a click.
 const use = locator => setup.touch ? locator.tap() : locator.click()
@@ -74,29 +74,40 @@ const open = async context => {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await pause(1500)
+    await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), 'the reader rendered the book but its footer shows no progress')
     return page
 }
 
 const showControls = async page => {
     if (await page.locator('#controls header').isVisible()) return
     if (!await press(page, 0.5, setup.touch)) fail('no frame shows the page to tap')
-    await pause(600)
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
 }
 
 const openPrefs = async page => {
     await showControls(page)
     await use(page.getByRole('button', { name: 'Preferences' }))
-    await pause(400)
     const panel = page.locator('#prefs')
-    if (!await panel.isVisible()) fail('Preferences did not open')
+    await until(() => panel.isVisible(), 'Preferences did not open')
     return panel
 }
 
+// What Escape closes, one layer at a time: a sheet, a confirmation, the toolbar, a panel.
+const layers = page => [
+    sheet(page, 'New highlighter'), sheet(page, 'Edit highlighter'), page.getByRole('alertdialog'),
+    toolbar(page), page.locator('#prefs'), page.locator('#contents'),
+]
+const shownLayers = async page => {
+    let shown = 0
+    for (const layer of layers(page)) if (await layer.first().isVisible()) shown++
+    return shown
+}
+// Presses Escape until nothing is open, each press closing at least one layer.
 const closeAll = async page => {
-    for (let i = 0; i < 3; i++) {
+    for (let shown = await shownLayers(page); shown > 0;) {
+        const before = shown
         await page.keyboard.press('Escape')
-        await pause(250)
+        await until(async () => (shown = await shownLayers(page)) < before, `Escape closed nothing of the ${before} layers open`)
     }
 }
 
@@ -129,7 +140,7 @@ const select = async (page, paragraph, words) => {
         return true
     }, { paragraph, words })
     if (!found) fail(`'${words}' is not on the page`)
-    await pause(800)
+    await until(() => toolbar(page).isVisible(), `selecting '${words}' did not show the Selected text toolbar`)
 }
 
 const toolbar = page => page.getByRole('toolbar', { name: 'Selected text' })
@@ -164,9 +175,12 @@ try {
     const page = await open(context)
     await showControls(page)
     await use(page.getByRole('button', { name: 'Contents' }))
-    await pause(400)
+    await until(() => page.locator('#contents').isVisible(), 'Contents did not open')
+    const moved = await watchMove(page, 'Contents did not move to Chapter One',
+        () => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0))
     await use(page.locator('#contents').getByRole('link', { name: /^Chapter One/ }))
-    await pause(1500)
+    await moved()
+    await until(() => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0), 'Contents did not go to Chapter One')
 
     // Preferences lists the built-ins.
     await openPrefs(page)
@@ -182,60 +196,63 @@ try {
 
     // Add a highlighter from Preferences.
     await use(page.locator('#prefs').getByRole('button', { name: 'Add a highlighter' }))
-    await pause(400)
-    if (!await sheet(page, 'New highlighter').isVisible()) fail('Add a highlighter did not open the New highlighter sheet')
+    await until(() => sheet(page, 'New highlighter').isVisible(), 'Add a highlighter did not open the New highlighter sheet')
     let state = await sheetState(page, 'New highlighter')
     if (state.name !== '' || state.checked !== 'Orange') fail(`a new highlighter starts as ${JSON.stringify(state)}`)
     await sheet(page, 'New highlighter').getByRole('textbox', { name: 'Name (optional)' }).fill('Questions')
     await use(sheet(page, 'New highlighter').getByRole('radio', { name: 'Lavender' }))
     await use(sheet(page, 'New highlighter').getByRole('button', { name: 'Add highlighter' }))
-    await pause(1000)
-    if (await sheet(page, 'New highlighter').isVisible()) fail('Add highlighter left the sheet open')
-    let kept = await highlighters()
+    await until(async () => !await sheet(page, 'New highlighter').isVisible(), 'Add highlighter left the sheet open')
+    let kept = await until(async () => { const all = await highlighters(); return all.length !== 4 && all }, 'the server still keeps only the four built-ins after Add highlighter')
     const questions = kept.find(highlighter => highlighter.name === 'Questions')
     if (kept.length !== 5 || questions?.colour !== '#b39ddb' || questions.builtIn) fail(`the server keeps ${JSON.stringify(kept)}`)
-    list = await prefsList(page)
+    list = await until(async () => { const shown = await prefsList(page); return shown.count !== '4 of 8' && shown }, 'after adding, Preferences still shows 4 of 8')
     if (list.count !== '5 of 8' || JSON.stringify(list.rows.at(-1)) !== JSON.stringify({ name: 'Questions', builtIn: false, buttons: ['Move Questions', 'Edit Questions', 'Delete Questions'] })) fail(`after adding, Preferences shows ${JSON.stringify(list)}`)
     pass('the New highlighter sheet starts on the first unused colour and adds Questions in lavender, kept on the server and listed with Delete')
 
     // The toolbar offers it, and highlights in it.
     await closeAll(page)
     await select(page, ...FIRST)
-    let names = await toolbarNames(page)
-    if (names.join('|') !== 'Highlight: Quotes|Highlight: Green|Highlight: Vocabulary|Highlight: Pink|Highlight: Questions|Add a highlighter') fail(`the toolbar offers ${names.join(', ')}`)
+    let offered = await toolbarNames(page)
+    if (offered.join('|') !== 'Highlight: Quotes|Highlight: Green|Highlight: Vocabulary|Highlight: Pink|Highlight: Questions|Add a highlighter') fail(`the toolbar offers ${offered.join(', ')}`)
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Questions' }))
-    await pause(1000)
-    if ((await highlights())[0]?.colour !== questions.id) fail('highlighting in Questions did not keep it in Questions')
-    if ((await drawn(page)).map(mark => mark.fill).join() !== '#b39ddb') fail(`the page shows ${JSON.stringify(await drawn(page))}`)
+    await until(async () => (await highlights())[0]?.colour === questions.id, 'highlighting in Questions did not keep it in Questions')
+    await until(async () => (await drawn(page)).map(mark => mark.fill).join() === '#b39ddb', async () => `the page shows ${JSON.stringify(await drawn(page))}`)
     pass('the toolbar offers Questions after the built-ins, then Add a highlighter, and highlights in it')
 
     // Edit a built-in: its highlights are redrawn.
     await select(page, ...SECOND)
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Pink' }))
-    await pause(1000)
+    await until(async () => (await highlights()).some(highlight => highlight.colour === 'pink'), 'highlighting in Pink kept nothing in Pink')
     await openPrefs(page)
     await use(page.locator('#prefs').getByRole('button', { name: 'Edit Pink' }))
-    await pause(400)
+    await until(() => sheet(page, 'Edit highlighter').isVisible(), 'Edit Pink did not open the Edit highlighter sheet')
     state = await sheetState(page, 'Edit highlighter')
     if (state.name !== 'Pink' || state.checked !== 'Pink') fail(`Edit Pink opens on ${JSON.stringify(state)}`)
     await sheet(page, 'Edit highlighter').getByRole('textbox', { name: 'Name (optional)' }).fill('Rose')
     await use(sheet(page, 'Edit highlighter').getByRole('radio', { name: 'Red' }))
     await use(sheet(page, 'Edit highlighter').getByRole('button', { name: 'Save' }))
-    await pause(1000)
-    kept = await highlighters()
-    if (JSON.stringify(kept[3]) !== JSON.stringify({ id: 'pink', name: 'Rose', colour: '#e57373', builtIn: true, uses: 1 })) fail(`after editing Pink the server keeps ${JSON.stringify(kept[3])}`)
+    const rose = JSON.stringify({ id: 'pink', name: 'Rose', colour: '#e57373', builtIn: true, uses: 1 })
+    await until(async () => JSON.stringify((kept = await highlighters())[3]) === rose, () => `after editing Pink the server keeps ${JSON.stringify(kept[3])}`)
+    await until(async () => !await sheet(page, 'Edit highlighter').isVisible(), 'Save left the Edit highlighter sheet open')
     if (!await page.locator('#prefs').isVisible()) fail('saving the edit closed Preferences')
     await closeAll(page)
-    if (!(await drawn(page)).some(mark => mark.colour === 'pink' && mark.fill === '#e57373')) fail(`after the edit the page shows ${JSON.stringify(await drawn(page))}`)
+    await until(async () => (await drawn(page)).some(mark => mark.colour === 'pink' && mark.fill === '#e57373'), async () => `after the edit the page shows ${JSON.stringify(await drawn(page))}`)
     pass("editing Pink to Rose in red keeps it a built-in, and its highlight is redrawn in red")
 
     // The arrows move one place; a drag by the handle moves it where it is dropped; the toolbar follows.
     await openPrefs(page)
     await page.locator('#prefs').getByRole('button', { name: 'Move Questions' }).focus()
     await page.keyboard.press('ArrowUp')
-    await pause(1000)
-    kept = await highlighters()
-    if (kept.map(highlighter => highlighter.name).join('|') !== 'Quotes|Green|Vocabulary|Questions|Rose') fail(`after ArrowUp the order is ${kept.map(highlighter => highlighter.name).join(', ')}`)
+    const names = list => list.map(highlighter => highlighter.name)
+    await until(async () => names(kept = await highlighters()).join('|') === 'Quotes|Green|Vocabulary|Questions|Rose', () => `after ArrowUp the order is ${names(kept).join(', ')}`)
+    // Once the save is answered the list is drawn again and the focus goes back to the moved handle.
+    const shownOrder = () => page.locator('#prefs .highlighter-list li .move').evaluateAll(moves => ({
+        order: moves.map(move => move.getAttribute('aria-label').replace(/^Move /, '')).join('|'),
+        focused: document.activeElement?.getAttribute('aria-label') ?? null,
+    }))
+    await until(async () => { const shown = await shownOrder(); return shown.order === 'Quotes|Green|Vocabulary|Questions|Rose' && shown.focused === 'Move Questions' },
+        async () => `after ArrowUp Preferences lists ${JSON.stringify(await shownOrder())}`)
     await page.locator('#prefs .highlighter-list li').nth(2).scrollIntoViewIfNeeded()
     const handle = await page.locator('#prefs').getByRole('button', { name: 'Move Quotes' }).boundingBox()
     const target = await page.locator('#prefs .highlighter-list li').nth(2).boundingBox()
@@ -243,51 +260,49 @@ try {
     await page.mouse.down()
     await page.mouse.move(handle.x + handle.width / 2, target.y + target.height * 0.75, { steps: 10 })
     await page.mouse.up()
-    await pause(1000)
-    kept = await highlighters()
-    const order = kept.map(highlighter => highlighter.name).join('|')
-    if (order !== 'Green|Vocabulary|Quotes|Questions|Rose') fail(`after dragging Quotes the order is ${order.replaceAll('|', ', ')}`)
+    await until(async () => names(kept = await highlighters()).join('|') === 'Green|Vocabulary|Quotes|Questions|Rose', () => `after dragging Quotes the order is ${names(kept).join(', ')}`)
+    const order = names(kept).join('|')
     await closeAll(page)
     await select(page, ...THIRD)
-    names = await toolbarNames(page)
-    if (names.join('|') !== 'Highlight: Green|Highlight: Vocabulary|Highlight: Quotes|Highlight: Questions|Highlight: Rose|Add a highlighter') fail(`after reordering the toolbar offers ${names.join(', ')}`)
+    offered = await toolbarNames(page)
+    if (offered.join('|') !== 'Highlight: Green|Highlight: Vocabulary|Highlight: Quotes|Highlight: Questions|Highlight: Rose|Add a highlighter') fail(`after reordering the toolbar offers ${offered.join(', ')}`)
     pass(`the arrows and a drag by the handle reorder them (${order.replaceAll('|', ', ')}), and the toolbar follows`)
 
     // The toolbar's + adds one and highlights the selection in it.
     await use(toolbar(page).getByRole('button', { name: 'Add a highlighter' }))
-    await pause(400)
-    if (await toolbar(page).isVisible()) fail('the toolbar stayed open under the New highlighter sheet')
+    await until(() => sheet(page, 'New highlighter').isVisible(), 'the toolbar\'s + did not open the New highlighter sheet')
+    await until(async () => !await toolbar(page).isVisible(), 'the toolbar stayed open under the New highlighter sheet')
     await use(sheet(page, 'New highlighter').getByRole('radio', { name: 'Teal' }))
     await use(sheet(page, 'New highlighter').getByRole('button', { name: 'Add highlighter' }))
-    await pause(1200)
-    kept = await highlighters()
+    await until(async () => (kept = await highlighters()).length === 6, () => `a highlighter added from the toolbar is not kept: the server keeps ${names(kept).join(', ')}`)
     const teal = kept.find(highlighter => highlighter.name === 'Teal')
     if (!teal || teal.colour !== '#4db6ac') fail(`a highlighter added from the toolbar with no name is kept as ${JSON.stringify(kept.at(-1))}`)
-    const third = (await highlights()).find(highlight => highlight.text === THIRD[1])
-    if (third?.colour !== teal.id) fail('the toolbar\'s new highlighter did not highlight the selection')
+    await until(async () => (await highlights()).find(highlight => highlight.text === THIRD[1])?.colour === teal.id, 'the toolbar\'s new highlighter did not highlight the selection')
     pass("the toolbar's + adds a highlighter named after its swatch (Teal) and highlights the selection in it")
 
     // Delete asks first; Cancel keeps it; Delete moves its highlights to Quotes.
     await openPrefs(page)
     await use(page.locator('#prefs').getByRole('button', { name: 'Delete Questions' }))
-    await pause(600)
     const dialog = page.getByRole('alertdialog', { name: 'Delete the Questions highlighter?' })
-    if (!await dialog.isVisible()) fail('Delete Questions did not ask first')
+    await until(() => dialog.isVisible(), 'Delete Questions did not ask first')
     const body = (await dialog.locator('p').innerText()).trim()
     if (body !== '1 highlight uses it. It will become a Quotes highlight, so nothing you marked is lost.') fail(`the confirmation says '${body}'`)
+    // Cancel must send nothing: a change to the highlighters while it closes the dialog would be the deletion.
+    const changes = []
+    const watchChanges = request => { if (request.method() !== 'GET' && request.url().includes('/Oriel/Highlight')) changes.push(`${request.method()} ${request.url()}`) }
+    page.on('request', watchChanges)
     await use(dialog.getByRole('button', { name: 'Cancel' }))
-    await pause(400)
-    if ((await highlighters()).length !== 6) fail('Cancel deleted the highlighter')
+    await until(async () => !await dialog.isVisible(), 'Cancel left the confirmation open')
+    page.off('request', watchChanges)
+    if (changes.length || (await highlighters()).length !== 6) fail(`Cancel deleted the highlighter ${changes.join(', ')}`)
     await use(page.locator('#prefs').getByRole('button', { name: 'Delete Questions' }))
-    await pause(600)
+    await until(() => dialog.isVisible(), 'Delete Questions did not ask again')
     await use(dialog.getByRole('button', { name: 'Delete' }))
-    await pause(1200)
-    kept = await highlighters()
-    if (kept.some(highlighter => highlighter.name === 'Questions')) fail('Delete kept the highlighter')
-    const first = (await highlights()).find(highlight => highlight.text === FIRST[1])
-    if (first?.colour !== 'yellow') fail(`its highlight is now ${first?.colour}`)
+    await until(async () => !(await highlighters()).some(highlighter => highlighter.name === 'Questions'), 'Delete kept the highlighter')
+    let first = null
+    await until(async () => (first = (await highlights()).find(highlight => highlight.text === FIRST[1]))?.colour === 'yellow', () => `its highlight is now ${first?.colour}`)
     await closeAll(page)
-    if (!(await drawn(page)).some(mark => mark.colour === 'yellow' && mark.fill === '#ffd54f')) fail(`after deleting, the page shows ${JSON.stringify(await drawn(page))}`)
+    await until(async () => (await drawn(page)).some(mark => mark.colour === 'yellow' && mark.fill === '#ffd54f'), async () => `after deleting, the page shows ${JSON.stringify(await drawn(page))}`)
     pass(`Delete asks '${body}', Cancel keeps it, and Delete makes its highlight a Quotes highlight on the page and the server`)
 
     // At 8 there is no more Add; another browser sees the same list.
@@ -301,13 +316,13 @@ try {
     }, credentials)
     const second = await open(other)
     await openPrefs(second)
-    list = await prefsList(second)
+    list = await until(async () => { const shown = await prefsList(second); return shown.count === '8 of 8' && shown }, async () => `with 8 highlighters Preferences shows ${(await prefsList(second)).count}`)
     if (list.count !== '8 of 8' || list.add) fail(`with 8 highlighters Preferences shows ${list.count}, Add ${list.add ? 'shown' : 'hidden'}`)
     if (list.rows.map(row => row.name).join('|') !== full.map(highlighter => highlighter.name).join('|')) fail(`another browser lists ${list.rows.map(row => row.name).join(', ')}`)
     await closeAll(second)
     await select(second, ...THIRD)
-    names = await toolbarNames(second)
-    if (names.includes('Add a highlighter') || names.length !== 8) fail(`with 8 highlighters the toolbar offers ${names.join(', ')}`)
+    offered = await toolbarNames(second)
+    if (offered.includes('Add a highlighter') || offered.length !== 8) fail(`with 8 highlighters the toolbar offers ${offered.join(', ')}`)
     await other.close()
     pass('another browser lists the same 8 highlighters, and at 8 neither Preferences nor the toolbar offers Add a highlighter')
 } catch (error) {

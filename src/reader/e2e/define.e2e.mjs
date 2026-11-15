@@ -13,6 +13,7 @@
 // and ORIEL_BROWSER. Exits non-zero on the first failed check.
 import { chromium, devices, webkit } from 'playwright'
 import { press, pressPoint } from './press.mjs'
+import { until, watchMove } from './wait.mjs'
 
 const env = name => {
     const value = process.env[name]
@@ -49,7 +50,6 @@ if (!setup) {
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
-const pause = ms => new Promise(resolve => setTimeout(resolve, ms))
 
 // Presses a button or link as this screen's reader would: a tap on a touch screen, else a click.
 const use = locator => setup.touch ? locator.tap() : locator.click()
@@ -71,8 +71,15 @@ const standIns = () => {
     Object.defineProperty(navigator, 'clipboard', { value: { writeText: async text => { window.copiedText.push(text) } }, configurable: true })
 }
 
-// Selects `words` in the paragraph starting `paragraph` of the section shown, as a long press leaves it.
+const toolbar = page => page.getByRole('toolbar', { name: 'Selected text' })
+
+// Selects `words` in the paragraph starting `paragraph` of the section shown, as a long press leaves it,
+// once the toolbar of any selection before it has closed, so the toolbar that opens is this selection's.
 const select = async (page, paragraph, words) => {
+    if (await toolbar(page).isVisible()) {
+        await page.keyboard.press('Escape')
+        await until(async () => !await toolbar(page).isVisible(), 'Escape did not close the Selected text toolbar')
+    }
     const found = await page.evaluate(({ paragraph, words }) => {
         const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
         const text = [...doc.querySelectorAll('p')].find(each => each.textContent.startsWith(paragraph))?.firstChild
@@ -86,10 +93,9 @@ const select = async (page, paragraph, words) => {
         return true
     }, { paragraph, words })
     if (!found) fail(`'${words}' is not on the page`)
-    await pause(800)
+    await until(() => toolbar(page).isVisible(), `selecting '${words}' did not show the Selected text toolbar`)
 }
 
-const toolbar = page => page.getByRole('toolbar', { name: 'Selected text' })
 // The second row's buttons on screen, by name.
 const row = page => toolbar(page).locator('.actions button').evaluateAll(items =>
     items.filter(item => !item.hidden).map(item => item.textContent.trim()))
@@ -121,14 +127,14 @@ const define = async (page, paragraph, words) => {
     const names = await row(page)
     if (names[1] !== 'Define') fail(`for '${words}' the second row is ${names.join(', ')}, without Define after Copy`)
     await use(toolbar(page).getByRole('button', { name: 'Define' }))
-    await pause(800)
-    if (!await sheet(page).isVisible()) fail(`Define on '${words}' did not open the Dictionary sheet`)
+    await until(() => sheet(page).isVisible(), `Define on '${words}' did not open the Dictionary sheet`)
+    // The sheet says it is looking the word up until the server answers.
+    await until(async () => await sheet(page).locator('.status').textContent() !== 'Looking up…', `the Dictionary sheet is still looking up '${words}'`)
     return shown(page)
 }
 const closeSheet = async page => {
     await page.keyboard.press('Escape')
-    await pause(300)
-    if (await sheet(page).isVisible()) fail('Escape did not close the Dictionary sheet')
+    await until(async () => !await sheet(page).isVisible(), 'Escape did not close the Dictionary sheet')
 }
 
 const FIRST = 'Paragraph 1 holds'
@@ -155,15 +161,17 @@ try {
     await page.goto(`${base}/Oriel/?id=${itemId}`)
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
         .catch(() => fail('the reader did not render the book'))
-    await pause(1500)
     if (!await page.locator('#controls header').isVisible()) await press(page, 0.5, setup.touch)
-    await pause(600)
+    await until(() => page.locator('#controls header').isVisible(), 'a tap in the middle of the page did not show the controls')
     await use(page.getByRole('button', { name: 'Contents' }))
-    await pause(400)
-    await use(page.locator('#contents').getByRole('link', { name: /^Chapter One/ }))
-    await pause(1500)
+    const contents = page.locator('#contents')
+    await until(() => contents.isVisible(), 'Contents did not open')
+    const moved = await watchMove(page, 'Contents did not move to Chapter One')
+    await use(contents.getByRole('link', { name: /^Chapter One/ }))
+    await moved()
+    await until(() => page.evaluate(() => document.querySelector('foliate-view').renderer.getContents()[0]?.index === 0), 'Contents did not go to Chapter One')
     await page.keyboard.press('Escape')
-    await pause(300)
+    await until(async () => !await contents.isVisible(), 'Escape did not close Contents')
 
     // A word: the sheet as the canvas draws it.
     let seen = await define(page, FIRST, 'filler')
@@ -174,19 +182,19 @@ try {
 
     // Copy and Search in this book act on the word.
     await use(sheet(page).getByRole('button', { name: 'Copy' }))
-    await pause(500)
-    const copied = await page.evaluate(() => window.copiedText)
+    const copied = await until(() => page.evaluate(() => window.copiedText.length ? window.copiedText : null), 'Copy on the sheet put nothing on the clipboard')
     if (copied.join() !== 'filler') fail(`Copy on the sheet put ${JSON.stringify(copied)} on the clipboard`)
-    if ((await page.getByRole('status').filter({ hasText: 'Copied' }).count()) !== 1) fail('Copy on the sheet did not say Copied')
+    await until(async () => (await page.getByRole('status').filter({ hasText: 'Copied' }).count()) === 1, 'Copy on the sheet did not say Copied')
     await use(sheet(page).getByRole('button', { name: 'Search in this book' }))
-    await pause(2500)
-    if (await sheet(page).isVisible()) fail('Search in this book left the Dictionary sheet open')
     const panel = page.locator('#search')
-    const query = await panel.getByRole('searchbox').inputValue().catch(() => '')
-    const found = await panel.locator('.results li').count()
-    if (!await panel.isVisible() || query !== 'filler' || found < 1) fail(`Search in this book opened with '${query}' and ${found} matches`)
+    const query = () => panel.getByRole('searchbox').inputValue().catch(() => '')
+    const matches = () => panel.locator('.results li').count()
+    await until(async () => await panel.isVisible() && await query() === 'filler' && await matches() >= 1,
+        async () => `Search in this book opened with '${await query()}' and ${await matches()} matches`)
+    if (await sheet(page).isVisible()) fail('Search in this book left the Dictionary sheet open')
+    const found = await matches()
     await page.keyboard.press('Escape')
-    await pause(400)
+    await until(async () => !await panel.isVisible(), 'Escape did not close Search')
     pass(`Copy on the sheet copies 'filler', and Search in this book finds its ${found} matches`)
 
     // An inflected word by its base form, a phrase whole, a word not held.
@@ -205,11 +213,10 @@ try {
     await select(page, FIRST, 'holds plain filler text')
     let names = await row(page)
     if (names.includes('Define')) fail('four words show Define')
-    await page.keyboard.press('Escape')
-    await pause(300)
     await select(page, FIRST, 'plain filler text')
     await use(toolbar(page).getByRole('button', { name: 'Highlight: Quotes' }))
-    await pause(1000)
+    await until(async () => (await call(`/Oriel/Highlights/${itemId}`)).length === 1, "'Highlight: Quotes' kept no highlight on the server")
+    await until(async () => !await toolbar(page).isVisible(), "'Highlight: Quotes' left the Selected text toolbar open")
     const line = await page.evaluate(paragraph => {
         const { doc } = document.querySelector('foliate-view').renderer.getContents()[0]
         const frame = doc.defaultView.frameElement.getBoundingClientRect()
@@ -222,7 +229,7 @@ try {
         return { x: frame.left + (box.left + box.right) / 2, y: frame.top + (box.top + box.bottom) / 2 }
     }, FIRST)
     await pressPoint(page, line.x, line.y, setup.touch)
-    await pause(600)
+    await until(() => toolbar(page).isVisible(), 'a tap on the highlight did not show the Selected text toolbar')
     names = await row(page)
     if (names[1] !== 'Define' || names.at(-1) !== 'Remove') fail(`for a tapped highlight the second row is ${names.join(', ')}`)
     pass('four selected words show no Define, and a tapped highlight of three words shows it')
