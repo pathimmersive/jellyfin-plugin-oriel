@@ -80,6 +80,45 @@ public sealed class FontsControllerTests : IDisposable
         "a WOFF2 file cut short",
     };
 
+    [Fact]
+    public void ReadsNamesKeptOnlyOnTheUnicodeOrMacintoshPlatform()
+    {
+        // Platform 0 (Unicode), UTF-16BE; platform 1 (Macintosh) with encoding 0, Mac Roman read as Latin-1.
+        var unicode = Names((0, 3, 0, 1, Utf16("Charter")), (0, 3, 0, 2, Utf16("Italic")));
+        var mac = Names((1, 0, 0, 1, Encoding.Latin1.GetBytes("Charter")), (1, 0, 0, 2, Encoding.Latin1.GetBytes("Bold")));
+
+        Assert.Equal(new FontFile("ttf", "Charter", "Italic", 400, true), FontFile.Read(Sfnt(0x00010000, new() { ["name"] = unicode, ["OS/2"] = Os2(400, true) })));
+        Assert.Equal(new FontFile("ttf", "Charter", "Bold", 700, false), FontFile.Read(Sfnt(0x00010000, new() { ["name"] = mac, ["OS/2"] = Os2(700, false) })));
+    }
+
+    [Fact]
+    public void PrefersWindowsEnglishNamesThenAnyWindowsThenUnicodeThenMacintosh()
+    {
+        // The same name ids in every kind of record, best last, so the order in the table is not what wins.
+        var name = Names(
+            (1, 0, 5, 1, Encoding.Latin1.GetBytes("Mac other")),
+            (1, 0, 0, 1, Encoding.Latin1.GetBytes("Mac English")),
+            (0, 3, 0, 1, Utf16("Unicode")),
+            (3, 1, 0x40C, 1, Utf16("Windows French")),
+            (3, 1, 0x409, 1, Utf16("Windows English")),
+            (3, 1, 0x40C, 2, Utf16("Gras")),
+            (0, 3, 0, 2, Utf16("Unicode style")),
+            (1, 0, 0, 2, Encoding.Latin1.GetBytes("Mac style")),
+            (2, 0, 0, 2, Encoding.ASCII.GetBytes("ISO, ignored")));
+
+        var read = FontFile.Read(Sfnt(0x00010000, new() { ["name"] = name, ["OS/2"] = Os2(700, false) }));
+
+        Assert.Equal(new FontFile("ttf", "Windows English", "Gras", 700, false), read);
+
+        // With no Windows records, Unicode names come before Macintosh ones.
+        var noWindows = Names(
+            (1, 0, 0, 1, Encoding.Latin1.GetBytes("Mac English")),
+            (0, 3, 0, 1, Utf16("Unicode")),
+            (1, 0, 0, 2, Encoding.Latin1.GetBytes("Mac style")),
+            (0, 3, 0, 2, Utf16("Unicode style")));
+        Assert.Equal(new FontFile("ttf", "Unicode", "Unicode style", 700, false), FontFile.Read(Sfnt(0x00010000, new() { ["name"] = noWindows, ["OS/2"] = Os2(700, false) })));
+    }
+
     [Theory]
     [MemberData(nameof(NotFonts))]
     public void ReadsNothingFromAFileThatIsNotAFont(string what)
@@ -96,6 +135,8 @@ public sealed class FontsControllerTests : IDisposable
         "a stream cut short",
         "a UIntBase128 past int range",
         "a UIntBase128 past 32 bits",
+        "a UIntBase128 that starts with a zero byte",
+        "a UIntBase128 past five bytes",
         "declared lengths that overflow",
         "declared lengths past 10 MB",
         "a compressed length past the file",
@@ -341,6 +382,46 @@ public sealed class FontsControllerTests : IDisposable
         return [.. table];
     }
 
+    // A TrueType file with the names, weight and italic given, padded with a table of `padding` bytes.
+    internal static byte[] TrueType(string family, string style, int weight, bool italic, int padding = 0)
+    {
+        var tables = Tables(family, style, weight, italic);
+        if (padding > 0)
+        {
+            tables["pad "] = new byte[padding];
+        }
+
+        return Sfnt(0x00010000, tables);
+    }
+
+    // A name table of any records: platform, encoding, language, name id and the string's bytes.
+    private static byte[] Names(params (int Platform, int Encoding, int Language, int Id, byte[] Text)[] records)
+    {
+        var table = new List<byte>();
+        Put16(table, 0);
+        Put16(table, records.Length);
+        Put16(table, 6 + (records.Length * 12));
+        var offset = 0;
+        foreach (var record in records)
+        {
+            foreach (var value in new[] { record.Platform, record.Encoding, record.Language, record.Id, record.Text.Length, offset })
+            {
+                Put16(table, value);
+            }
+
+            offset += record.Text.Length;
+        }
+
+        foreach (var record in records)
+        {
+            table.AddRange(record.Text);
+        }
+
+        return [.. table];
+    }
+
+    private static byte[] Utf16(string text) => Encoding.BigEndianUnicode.GetBytes(text);
+
     // An OS/2 table with only the weight class and the italic bit of fsSelection set.
     private static byte[] Os2(int weight, bool italic)
     {
@@ -442,6 +523,8 @@ public sealed class FontsControllerTests : IDisposable
             "a stream cut short" => RawWoff2(honest, tables[..(tables.Length / 2)]),
             "a UIntBase128 past int range" => RawWoff2([(5, Base128(0x80000000L)), (6, Base128(os2.Length))], tables),
             "a UIntBase128 past 32 bits" => RawWoff2([(5, [0xFF, 0xFF, 0xFF, 0xFF, 0x7F]), (6, Base128(os2.Length))], tables),
+            "a UIntBase128 that starts with a zero byte" => RawWoff2([(5, [0x80, .. Base128(name.Length)]), (6, Base128(os2.Length))], tables),
+            "a UIntBase128 past five bytes" => RawWoff2([(5, [0x80 | 0x01, 0x80, 0x80, 0x80, 0x80, 0x01]), (6, Base128(os2.Length))], tables),
             "declared lengths that overflow" => RawWoff2([(5, Base128(int.MaxValue)), (6, Base128(int.MaxValue))], tables),
             "declared lengths past 10 MB" => RawWoff2([(5, Base128(name.Length)), (6, Base128(TenMb))], tables),
             "a compressed length past the file" => RawWoff2(honest, tables, compressedLength: 0xFFFFFFF0),

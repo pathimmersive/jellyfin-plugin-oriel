@@ -17,6 +17,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Databases frozen at each released schema, for the upgrade tests (Fixtures/make-fixture.sh). -->
+    <None Update="Fixtures\*.db;Fixtures\*.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\src\Jellyfin.Plugin.Oriel\Jellyfin.Plugin.Oriel.csproj" />
   </ItemGroup>
 
