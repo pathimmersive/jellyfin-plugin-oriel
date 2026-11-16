@@ -1,0 +1,221 @@
+{
+  "6f1d2c3b4a594e6f8a7b9c0d1e2f3a4b": {
+    "positions": [
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "Cfi": "epubcfi(/6/8!/4/2/1:0)",
+        "Fraction": 0.25,
+        "SavedAt": "2026-11-15T09:30:00\u002B00:00"
+      },
+      {
+        "item": "e1f2a3b4c5d64e7f8091a2b3c4d5e6f7",
+        "Cfi": "epubcfi(/6/12!/4/6/1:40)",
+        "Fraction": 0.6,
+        "SavedAt": "2026-11-15T10:30:00\u002B00:00"
+      }
+    ],
+    "bookmarks": [
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "cc7cad052951473980296d1744d20b96",
+        "Cfi": "epubcfi(/6/10!/4/4/1:0)",
+        "Fraction": 0.3,
+        "Text": "Fear is the mind-killer",
+        "CreatedAt": "2026-11-15T09:35:00\u002B00:00"
+      },
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "fa89be508d6446398c989f1d623fb1dc",
+        "Cfi": "epubcfi(/6/8!/4/2/1:0)",
+        "Fraction": 0.25,
+        "Text": "A beginning is the time",
+        "CreatedAt": "2026-11-15T09:30:00\u002B00:00"
+      }
+    ],
+    "highlights": [
+      {
+        "item": "e1f2a3b4c5d64e7f8091a2b3c4d5e6f7",
+        "id": "13d25a19f83d42d9a73f986368fb7950",
+        "Cfi": "epubcfi(/6/12!/4/6,/1:40,/1:70)",
+        "Fraction": 0.6,
+        "Colour": "yellow",
+        "Text": "handsome, clever, and rich",
+        "Note": "Opening line.",
+        "CreatedAt": "2026-11-15T10:30:00\u002B00:00"
+      },
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "2eb1356d1f0b45c39b43d5b81e77f45c",
+        "Cfi": "epubcfi(/6/8!/4/2,/1:0,/1:22)",
+        "Fraction": 0.25,
+        "Colour": "yellow",
+        "Text": "A beginning is the time",
+        "Note": "",
+        "CreatedAt": "2026-11-15T09:30:00\u002B00:00"
+      },
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "4a3aeb1264ff4d41a9fa0a0e63c87434",
+        "Cfi": "epubcfi(/6/10!/4/4,/1:0,/1:22)",
+        "Fraction": 0.3,
+        "Colour": "own-1",
+        "Text": "Fear is the mind-killer",
+        "Note": "Said to calm the mind.",
+        "CreatedAt": "2026-11-15T09:36:00\u002B00:00"
+      }
+    ],
+    "highlighters": [
+      {
+        "Id": "yellow",
+        "Name": "Quotes",
+        "Colour": "#ffd54f",
+        "BuiltIn": true,
+        "Uses": 2
+      },
+      {
+        "Id": "green",
+        "Name": "Green",
+        "Colour": "#81c784",
+        "BuiltIn": true,
+        "Uses": 0
+      },
+      {
+        "Id": "blue",
+        "Name": "Vocabulary",
+        "Colour": "#64b5f6",
+        "BuiltIn": true,
+        "Uses": 0
+      },
+      {
+        "Id": "pink",
+        "Name": "Pink",
+        "Colour": "#f06292",
+        "BuiltIn": true,
+        "Uses": 0
+      },
+      {
+        "Id": "own-1",
+        "Name": "Vocabulary",
+        "Colour": "#2a7ab0",
+        "BuiltIn": false,
+        "Uses": 1
+      }
+    ],
+    "themes": [
+      {
+        "Id": "own-theme",
+        "Name": "Night Blue",
+        "Colours": [
+          "#0b1d2a",
+          "#e6eef5",
+          "#9fb3c4",
+          "#4da3ff",
+          "#264a66",
+          "#1c3446",
+          "#10263a",
+          "#e6eef5",
+          "#1f3b52",
+          "#5f7486"
+        ]
+      }
+    ],
+    "fonts": [
+      {
+        "id": "a6a1fff78d784147a99baff7ab637f71",
+        "Font": {
+          "Format": "ttf",
+          "Family": "Charter",
+          "Style": "Regular",
+          "Weight": 400,
+          "Italic": false
+        },
+        "AddedAt": "2026-11-15T09:30:00\u002B00:00",
+        "data": "AAEAAAECAwQ="
+      },
+      {
+        "id": "c78dc204016a4762812ce494f8774524",
+        "Font": {
+          "Format": "woff2",
+          "Family": "Charter",
+          "Style": "Italic",
+          "Weight": 400,
+          "Italic": true
+        },
+        "AddedAt": "2026-11-15T09:31:00\u002B00:00",
+        "data": "d09GMgUGBwg="
+      }
+    ],
+    "choices": {
+      "Theme": "own-theme",
+      "Font": "own:Charter"
+    }
+  },
+  "0a1b2c3d4e5f4a6b8c7d9e0f1a2b3c4d": {
+    "positions": [
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "Cfi": "epubcfi(/6/14!/4/2/1:0)",
+        "Fraction": 0.4,
+        "SavedAt": "2026-11-16T09:30:00\u002B00:00"
+      }
+    ],
+    "bookmarks": [
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "a7584cb091d14a20851b55a25fd86979",
+        "Cfi": "epubcfi(/6/14!/4/2/1:0)",
+        "Fraction": 0.4,
+        "Text": "The spice must flow",
+        "CreatedAt": "2026-11-16T09:30:00\u002B00:00"
+      }
+    ],
+    "highlights": [
+      {
+        "item": "d0e1f2a3b4c54d6e8f7081a2b3c4d5e6",
+        "id": "4097fe9cccbd42a2acf42bf5525aad85",
+        "Cfi": "epubcfi(/6/14!/4/2,/1:0,/1:19)",
+        "Fraction": 0.4,
+        "Colour": "yellow",
+        "Text": "The spice must flow",
+        "Note": "",
+        "CreatedAt": "2026-11-16T09:30:00\u002B00:00"
+      }
+    ],
+    "highlighters": [
+      {
+        "Id": "yellow",
+        "Name": "Quotes",
+        "Colour": "#ffd54f",
+        "BuiltIn": true,
+        "Uses": 1
+      },
+      {
+        "Id": "green",
+        "Name": "Green",
+        "Colour": "#81c784",
+        "BuiltIn": true,
+        "Uses": 0
+      },
+      {
+        "Id": "blue",
+        "Name": "Vocabulary",
+        "Colour": "#64b5f6",
+        "BuiltIn": true,
+        "Uses": 0
+      },
+      {
+        "Id": "pink",
+        "Name": "Pink",
+        "Colour": "#f06292",
+        "BuiltIn": true,
+        "Uses": 0
+      }
+    ],
+    "themes": [],
+    "fonts": [],
+    "choices": {
+      "Theme": "light",
+      "Font": "Default"
+    }
+  }
+}

@@ -23,10 +23,12 @@ jobs:
           node-version: 24
           cache: npm
           cache-dependency-path: src/reader/package-lock.json
-      # Building the plugin runs npm ci and the reader build, then embeds it.
-      - run: dotnet test
+      # Runs the server's and the reader's unit tests and prints their coverage;
+      # no percentage fails the build. Building the plugin for its tests runs
+      # npm ci and the reader build, then embeds it.
+      - name: Test, with coverage
+        run: bash scripts/coverage.sh
       - run: bash scripts/test-package.sh
-      - run: npm --prefix src/reader test
       - run: bash scripts/check-community-files.sh
 
   # The smoke checks on the latest Jellyfin 12.x and on 12.2, the oldest Oriel

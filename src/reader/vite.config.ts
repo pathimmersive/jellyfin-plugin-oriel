@@ -58,5 +58,12 @@ export default defineConfig({
     test: {
         include: ['tests/**/*.test.ts'],
         environment: 'node',
+        // With --coverage (scripts/coverage.sh): the reader's own code, not the vendored libraries or the tests.
+        coverage: {
+            provider: 'v8',
+            include: ['src/**/*.ts'],
+            exclude: ['src/vite-env.d.ts'],
+            reporter: ['text', 'json-summary'],
+        },
     },
 })

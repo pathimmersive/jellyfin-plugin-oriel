@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Plugin.Oriel.Configuration;
 using Jellyfin.Plugin.Oriel.Controllers;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
@@ -128,6 +129,67 @@ public sealed class LimitsTests : IDisposable
     }
 
     [Fact]
+    public void ImportsHighlightsUpToTheLimitAndNamesIt()
+    {
+        Fill(Reader, bookmarks: 0, highlights: ReadingRules.MaxHighlights - 1);
+        var file = FileOf(Emma, positions: false, bookmarks: 0, highlights: 3);
+
+        var result = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune, Emma)).Import(Reader, file);
+
+        Assert.Equal(1, result.Highlights);
+        Assert.Equal(["highlights"], result.Limited!);
+        Assert.Equal(ReadingRules.MaxHighlights, _store.Highlights.ListForUser(Reader).Count);
+    }
+
+    [Fact]
+    public void ImportsFontsUntilTheUserHasTheMostAllowed()
+    {
+        for (var i = 0; i < ReadingRules.MaxFonts - 1; i++)
+        {
+            _store.Fonts.Add(Reader, new FontFile("ttf", $"Kept {i}", "Regular", 400, false), [0, 1, 0, 0], Now);
+        }
+
+        var file = FontsFile(("Charter", 400, 0), ("Literata", 400, 0), ("Atkinson", 400, 0));
+
+        var result = Uploading().Import(Reader, file);
+
+        Assert.Equal(1, result.Fonts);
+        Assert.Equal(ReadingRules.MaxFonts, _store.Fonts.List(Reader).Count);
+        Assert.Contains(_store.Fonts.List(Reader), font => font.Font.Family == "Charter");
+    }
+
+    [Fact]
+    public void SkipsAFontPastTheQuotaAndImportsTheSmallerOnesAfterIt()
+    {
+        // Room for about 1,000 more bytes: the first font in the file is larger, the second is small.
+        var small = FontsControllerTests.TrueType("Small", "Regular", 400, false).Length;
+        _store.Fonts.Add(Reader, new FontFile("ttf", "Kept", "Regular", 400, false), new byte[ReadingRules.MaxFontBytes - small - 100], Now);
+        var file = FontsFile(("Large", 400, 5_000), ("Small", 400, 0));
+
+        var result = Uploading().Import(Reader, file);
+
+        Assert.Equal(1, result.Fonts);
+        Assert.Equal(["Kept", "Small"], _store.Fonts.List(Reader).Select(font => font.Font.Family).Order().ToArray());
+    }
+
+    [Fact]
+    public void RunsWorkInsideATransactionAsPartOfIt()
+    {
+        // The inner call joins the outer transaction: when the outer fails, the inner write goes too.
+        Assert.Throws<InvalidOperationException>(() => _store.Database.RunInTransaction<int>(() =>
+        {
+            _store.Database.RunInTransaction(() =>
+            {
+                _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi(0), 0.5, Now));
+                return 0;
+            });
+            throw new InvalidOperationException("The outer work failed.");
+        }));
+
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
+    }
+
+    [Fact]
     public async Task RefusesASecondImportWhileTheFirstRuns()
     {
         var catalog = new FakeCatalog(Dune) { Hold = new ManualResetEventSlim(false) };
@@ -181,6 +243,20 @@ public sealed class LimitsTests : IDisposable
             Enumerable.Range(0, bookmarks).Select(i => (ExportedBookmark?)new ExportedBookmark(id, book.Title, book.Authors, book.FileName, Cfi(100 + i), 0.5, "Imported", Now)).ToList(),
             Enumerable.Range(0, highlights).Select(i => (ExportedHighlight?)new ExportedHighlight(id, book.Title, book.Authors, book.FileName, Cfi(200 + i), 0.5, "yellow", "Imported", Now)).ToList());
     }
+
+    // An import that may add fonts, as one does while an admin allows uploads.
+    private ReadingData Uploading() =>
+        new(_store.Database, _store.All, new FakeCatalog(Dune, Emma), () => new PluginConfiguration { EnableFontUploads = true });
+
+    // A file holding only fonts: each a TrueType file of the family and weight, padded by the bytes given.
+    private static ReadingDataFile FontsFile(params (string Family, int Weight, int Padding)[] fonts) =>
+        new(
+            ReadingData.Format,
+            ReadingData.Version,
+            Now,
+            [],
+            Fonts: fonts.Select(font => (ExportedFont?)new ExportedFont(
+                font.Family, "Regular", font.Weight, false, "ttf", FontsControllerTests.TrueType(font.Family, "Regular", font.Weight, false, font.Padding))).ToList());
 
     // Bookmarks and highlights for a user in Dune, written in one transaction so the test stays quick.
     private void Fill(Guid userId, int bookmarks, int highlights) =>
