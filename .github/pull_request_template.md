@@ -7,4 +7,5 @@
 <!-- Commands run and what they showed, for example dotnet test, npm --prefix src/reader test, bash scripts/smoke-plugin.sh. Note anything checked by hand, with the device and Jellyfin version. -->
 
 - [ ] The title is a Conventional Commits subject (`feat:`, `fix:`, `docs:`, `test:`, `ci:`, `chore:`)
+- [ ] A change users will notice has a line under `## [Unreleased]` in CHANGELOG.md
 - [ ] New third-party code has an entry in THIRD_PARTY_NOTICES.md
