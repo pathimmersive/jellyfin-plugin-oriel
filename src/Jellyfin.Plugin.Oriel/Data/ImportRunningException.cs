@@ -3,7 +3,7 @@ using System;
 namespace Jellyfin.Plugin.Oriel.Data;
 
 /// <summary>
-/// Thrown when a user starts an import while one of theirs is still running.
+/// Thrown when an import starts while another is still running on the server.
 /// </summary>
 public class ImportRunningException : Exception
 {

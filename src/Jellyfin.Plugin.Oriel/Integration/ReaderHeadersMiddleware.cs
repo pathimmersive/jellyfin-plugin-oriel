@@ -19,7 +19,7 @@ public sealed class ReaderHeadersMiddleware
     public const string ContentSecurityPolicy =
         "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' blob:; img-src 'self' blob: data:; "
         + "font-src 'self' blob: data:; connect-src 'self' blob: data:; media-src 'self' blob: data:; worker-src 'self' blob:; "
-        + "frame-src 'self' blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
+        + "frame-src blob:; object-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'";
 
     private readonly RequestDelegate _next;
     private readonly Func<string?> _baseUrl;

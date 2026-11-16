@@ -1,9 +1,12 @@
 // Writes an EPUB 3 book whose sections try to run script in every way a book
 // can: an inline script, a script file inside the book, a script from another
-// origin, onload and onerror handlers, a javascript: link and a script inside
-// an SVG section. Each one, if it ran, would record its name in the reader
-// page's window.orielBookScripts or send a request to another origin, so the
-// book-scripts check can tell that none of them ran.
+// origin, onload and onerror handlers, a javascript: link, a frame's inline
+// document (srcdoc), a refresh redirect and a script inside an SVG section.
+// Each one, if it ran, would record its name in the reader page's
+// window.orielBookScripts or send a request to another origin, so the
+// book-scripts check can tell that none of them ran. The frames section also
+// frames jellyfin-web, loads an image and a background from another origin,
+// and links to a web address and to an app's own scheme.
 // Usage: node e2e/make-scripted-epub.mjs <output.epub>
 import { writeFileSync } from 'node:fs'
 import { zip } from './zip.mjs'
@@ -39,10 +42,20 @@ const sections = [
         `<h1>Handlers</h1><p>Oriel book scripts chapter four.</p>`
         + `<img src="missing.png" alt="" onerror="${mark('img-onerror')}"/>`
         + `<p><a id="run" href="javascript:${mark('javascript-link')}">A link that runs script</a></p>${words}`)],
+    ['frames', 'Frames', xhtml('Frames',
+        `<h1>Frames</h1><p>Oriel book scripts chapter five.</p>`
+        + `<iframe id="inline-frame" srcdoc="&lt;script&gt;${mark('srcdoc')}&lt;/script&gt;"></iframe>`
+        + '<iframe id="web-frame" src="/web/index.html"></iframe>'
+        + `<img id="remote-image" src="${ELSEWHERE}/image.png" alt=""/>`
+        + `<p style="background-image: url('${ELSEWHERE}/background.png')">A paragraph with a background from elsewhere.</p>`
+        + `<p><a id="away" href="${ELSEWHERE}/away">A link to a web address</a></p>`
+        + '<p><a id="app" href="ms-settings:privacy">A link to an app</a></p>'
+        + words,
+        `<meta http-equiv="Refresh" content="0; url=/web/index.html"/>`)],
 ]
 const svg = `<?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="600" height="800" viewBox="0 0 600 800" onload="${mark('svg-onload')}">
-<text x="40" y="80" font-size="32">Oriel book scripts chapter five.</text>
+<text x="40" y="80" font-size="32">Oriel book scripts chapter six.</text>
 <script>${mark('svg-script')}</script>
 </svg>`
 

@@ -230,6 +230,54 @@ public sealed class LimitsTests : IDisposable
         Assert.True(importing < TimeSpan.FromSeconds(10), $"import took {importing}");
     }
 
+    [Fact]
+    public async Task RefusesAnotherUsersImportWhileOneRuns()
+    {
+        // An import holds the database's write lock, so a second one, of anyone's, is turned away at once.
+        var catalog = new FakeCatalog(Dune) { Hold = new ManualResetEventSlim(false) };
+        var data = new ReadingData(_store.Database, _store.All, catalog);
+        var file = FileOf(Dune, positions: true, bookmarks: 1, highlights: 0);
+        var first = Task.Run(() => data.Import(Reader, file));
+        Assert.True(catalog.Entered.Wait(TimeSpan.FromSeconds(10)));
+
+        Assert.Throws<ImportRunningException>(() => data.Import(OtherReader, file));
+
+        catalog.Hold.Set();
+        Assert.Equal(1, (await first).Imported);
+        Assert.Equal(1, data.Import(OtherReader, file).Imported);
+    }
+
+    [Theory]
+    [InlineData("positions", ReadingData.MaxPositions)]
+    [InlineData("bookmarks", ReadingRules.MaxBookmarks)]
+    [InlineData("highlights", ReadingRules.MaxHighlights)]
+    [InlineData("highlighters", ReadingRules.MaxHighlighters)]
+    [InlineData("themes", ReadingRules.MaxThemes)]
+    [InlineData("fonts", ReadingRules.MaxFonts)]
+    public void RefusesAFileHoldingMoreThanAnyUserCanHave(string list, int limit)
+    {
+        Assert.NotNull(ReadingData.Parse(ReadingData.Serialize(Holding(list, limit))));
+
+        Assert.Null(ReadingData.Parse(ReadingData.Serialize(Holding(list, limit + 1)), out var reason));
+        Assert.Equal("malformed", reason);
+    }
+
+    // A file holding the number of entries given in one list, each of them valid.
+    private static ReadingDataFile Holding(string list, int count)
+    {
+        var id = Dune.ItemId.ToString("N");
+        var file = new ReadingDataFile(ReadingData.Format, ReadingData.Version, Now, []);
+        return list switch
+        {
+            "positions" => file with { Positions = Enumerable.Range(0, count).Select(i => (ExportedPosition?)new ExportedPosition(id, "Dune", [], "dune.epub", Cfi(i), 0.4, Now)).ToList() },
+            "bookmarks" => FileOf(Dune, positions: false, bookmarks: count, highlights: 0),
+            "highlights" => FileOf(Dune, positions: false, bookmarks: 0, highlights: count),
+            "highlighters" => file with { Highlighters = Enumerable.Range(0, count).Select(i => (ExportedHighlighter?)new ExportedHighlighter($"own{i}", $"Own {i}", "#123456")).ToList() },
+            "themes" => file with { Themes = Enumerable.Range(0, count).Select(i => (ExportedTheme?)new ExportedTheme($"t{i}", $"Theme {i}", "#101010", "#202020", "#303030", "#404040", "#505050", "#606060", "#707070", "#808080", "#909090", "#a0a0a0")).ToList() },
+            _ => FontsFile(Enumerable.Range(0, count).Select(i => ($"Family {i}", 400, 0)).ToArray()),
+        };
+    }
+
     private static string Cfi(int index) => $"epubcfi(/6/4!/4/2/1:{index})";
 
     private static ReadingDataFile FileOf(BookInfo book, bool positions, int bookmarks, int highlights)

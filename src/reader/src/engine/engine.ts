@@ -3,7 +3,7 @@ import * as CFI from '../../vendor/foliate-js/epubcfi.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import { makeBook } from '../../vendor/foliate-js/view.js'
-import { stripSections } from './scripts'
+import { isOpenableLink, stripSections } from './scripts'
 import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
 import type { Box, TextSelection } from '../controls/toolbar'
@@ -326,6 +326,12 @@ export const openBook = async (
                 height: page().height / scale,
             }
         }, gesture, turn, onMenu, onTurn, scroll, (x, y) => tapped(highlightAt(doc, x, y)))
+    })
+    // A link out of the book opens in a new tab that cannot reach back to the reader, and only to a web or mail address.
+    view.addEventListener('external-link', event => {
+        event.preventDefault()
+        const href = (event as CustomEvent<{ href_: string }>).detail.href_
+        if (isOpenableLink(href)) window.open(href, '_blank', 'noopener,noreferrer')
     })
     onView?.(view)
     container.replaceChildren(view)

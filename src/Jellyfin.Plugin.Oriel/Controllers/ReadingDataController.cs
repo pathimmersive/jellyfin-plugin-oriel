@@ -79,7 +79,7 @@ public partial class ReadingDataController : ControllerBase
     /// <returns>
     /// How many positions were imported and kept, and the books that matched none the caller can see;
     /// 400, storing nothing, for a file that is not an Oriel export, has a newer version, is malformed or is too large;
-    /// 409 while another import of the caller's runs.
+    /// 409 while another import runs on the server.
     /// </returns>
     [HttpPost("Import")]
     [RequestSizeLimit(MaxImportBytes + 1)]

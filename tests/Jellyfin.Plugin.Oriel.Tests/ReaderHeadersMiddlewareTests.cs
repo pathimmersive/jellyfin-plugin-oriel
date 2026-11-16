@@ -109,6 +109,13 @@ public class ReaderHeadersMiddlewareTests
     }
 
     [Fact]
+    public void ThePolicyLetsFramesShowOnlyTheBooksOwnSections()
+    {
+        // The reader frames only the blob: sections it makes; a book cannot frame jellyfin-web inside it.
+        Assert.Contains("frame-src blob:;", ReaderHeadersMiddleware.ContentSecurityPolicy);
+    }
+
+    [Fact]
     public async Task TheStartupFilterAddsItAheadOfTheRestOfThePipeline()
     {
         var app = new ApplicationBuilder(new ServiceCollection().AddLogging().AddSingleton(WebPageMiddlewareTests.Configuration.WithBaseUrl(string.Empty)).BuildServiceProvider());

@@ -242,6 +242,6 @@ public static partial class ReadingRules
         return themeKnown && fontKnown ? new StoredChoices(theme, font) : null;
     }
 
-    [GeneratedRegex("^#[0-9a-fA-F]{6}$")]
+    [GeneratedRegex(@"^#[0-9a-fA-F]{6}\z")]
     private static partial Regex HexColour();
 }

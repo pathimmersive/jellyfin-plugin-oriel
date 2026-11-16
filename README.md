@@ -58,6 +58,16 @@ When Jellyfin deletes a user, Oriel deletes everything it keeps for them. A user
 
 Uninstalling Oriel leaves `oriel.db` in place, so reinstalling keeps everyone's data. To remove it, stop Jellyfin and delete the `plugins/Jellyfin.Plugin.Oriel` folder, which holds `oriel.db` with its `oriel.db-wal` and `oriel.db-shm` files. To copy or move the data by hand, stop Jellyfin first so the three files are consistent.
 
+## Privacy and security
+
+- **Each user's reading data is theirs.** Oriel shows it only to that user, and only for books they can see in the library.
+- **Nothing is sent to other sites except by Translate.** The reader loads everything from your server. Translate opens the address an admin sets, with the selected text, and only when a reader presses it.
+- **Books are treated as untrusted.**
+  - Oriel removes scripts from a book before showing it, and the reader's Content-Security-Policy refuses any that remain. Nothing in a book runs, and nothing in it loads from another site.
+  - A link out of a book opens in a new tab, and only for web and mail addresses.
+- **Font uploads are off by default.** When an admin turns them on, each reader may add up to 20 fonts, 5 MB each and 100 MB in all.
+- **Reach your server over HTTPS, as with jellyfin-web.** Install only plugins and custom JavaScript you trust: anything that runs in jellyfin-web acts as the signed-in user, in Oriel too.
+
 ## FAQ and troubleshooting
 
 **Which apps get Oriel?** Oriel runs in jellyfin-web: in a browser, as a home-screen app, and inside the official Jellyfin apps for iOS and Android, which show jellyfin-web. Native clients that draw their own interface, such as Swiftfin, Findroid and Infuse, do not show jellyfin-web and so cannot open Oriel. Jellyfin Media Player and Android TV have not been tested.
