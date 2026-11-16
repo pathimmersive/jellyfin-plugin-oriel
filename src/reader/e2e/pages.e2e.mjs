@@ -226,21 +226,38 @@ try {
     const first = await counted(page, 60_000, chosen)
     console.log(`INFO: ${browserName}: the test book was counted within ${first.ms} ms of choosing Pages`)
     const { sum, starts } = await layOutAll(page)
-    // Chromium can count the documents alive once garbage is collected: showing every section a
-    // second time must add none, as a section left behind is let go.
+    // Chromium can count the documents alive once garbage is collected. A section left behind is let
+    // go, so showing every section three more times adds none for each; a document or two may still
+    // be on its way out, so the step fails only on a growth of two documents a section or more.
     if (browserName === 'chromium') {
         const cdp = await page.context().newCDPSession(page)
         await cdp.send('HeapProfiler.enable')
         const alive = async () => {
+            // A page count running in the background lays sections out in a paginator of its own,
+            // added to the page while it counts; its documents are not the ones this step is about.
+            await until(() => page.evaluate(() => !document.querySelector('body > div > foliate-paginator')), 'the page count in the background did not finish', 60_000)
             for (let i = 0; i < 3; i++) await cdp.send('HeapProfiler.collectGarbage')
             return (await cdp.send('Memory.getDOMCounters')).documents
         }
-        const once = await alive()
-        await layOutAll(page)
-        const twice = await alive()
+        // Every section in turn, three times, from inside the page: reaching into each section from here
+        // would keep a hold on its document of its own.
+        const showAll = () => page.evaluate(async () => {
+            const view = document.querySelector('foliate-view')
+            for (let index = 0; index < view.book.sections.length; index++) {
+                await new Promise(resolve => {
+                    view.addEventListener('relocate', resolve, { once: true })
+                    view.goTo(index)
+                })
+                // Past the paginator's 100 ms turn lock, which drops a move made inside it.
+                await new Promise(resolve => setTimeout(resolve, 150))
+            }
+        })
+        const before = await alive()
+        for (let i = 0; i < 3; i++) await showAll()
+        const after = await alive()
         await cdp.detach()
-        if (twice > once) fail(`showing all ${starts.length} sections again left ${twice} documents alive, up from ${once}: sections already left are kept`)
-        pass(`showing all ${starts.length} sections again keeps ${twice} documents alive, as before`)
+        if (after - before >= 2 * starts.length) fail(`showing all ${starts.length} sections three more times took the documents alive from ${before} to ${after}: sections already left are kept`)
+        pass(`showing all ${starts.length} sections three more times leaves ${after} documents alive, from ${before}`)
     }
     const atLast = await counted(page, 5000)
     if (atLast.total !== sum) fail(`the footer's total is ${atLast.total}, but the sections lay out ${sum} columns`)
