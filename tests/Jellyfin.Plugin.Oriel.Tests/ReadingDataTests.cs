@@ -386,6 +386,30 @@ public sealed class ReadingDataTests : IDisposable
     }
 
     [Fact]
+    public void ReportsAHighlightInABookItCannotMatch()
+    {
+        var missing = new ExportedHighlight(Guid.NewGuid().ToString("N"), "Missing", ["Nobody"], "missing.epub", Cfi, 0.1, "yellow", "Gone", Now);
+        var file = new ReadingDataFile(ReadingData.Format, ReadingData.Version, Now, [], [], [missing]);
+
+        var result = Data(Dune).Import(Reader, file);
+
+        Assert.Equal(0, result.Highlights);
+        Assert.Equal("Missing", Assert.Single(result.Unmatched).Title);
+        Assert.Empty(_store.Highlights.ListForUser(Reader));
+    }
+
+    [Fact]
+    public async Task RefusesABodyPastTheLimitThatDoesNotSayItsLength()
+    {
+        // No Content-Length (a chunked upload): the body is read until it passes the limit.
+        var controller = Controller(Reader);
+        controller.HttpContext.Request.Body = new Zeros(ReadingDataController.MaxImportBytes + 1L);
+
+        Assert.Equal("tooLarge", Refused.Reason((await controller.Import()).Result));
+        Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
+    }
+
+    [Fact]
     public async Task RejectsAMalformedOrOversizedFileAndStoresNothing()
     {
         var tooLarge = Controller(Reader, ReadingData.Serialize(Import(Entry(Dune, Cfi, Now))));
@@ -581,6 +605,40 @@ public sealed class ReadingDataTests : IDisposable
         {
             User = userId.Equals(Guid.Empty) ? null : new User("reader", "provider", "reset") { Id = userId },
         };
+    }
+
+    // A body of zero bytes of the length given, read without holding it.
+    private sealed class Zeros(long length) : Stream
+    {
+        private long _left = length;
+
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = (int)Math.Min(count, _left);
+            Array.Clear(buffer, offset, read);
+            _left -= read;
+            return read;
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider

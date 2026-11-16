@@ -1,7 +1,11 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Oriel.Controllers;
+using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Xunit;
@@ -98,6 +102,42 @@ public class ReaderAssetsTests
         Assert.Equal(first.ETag, Serve(path).ETag);
     }
 
+    [Fact]
+    public void SendsTheReaderRouteWithoutItsSlashToTheSlashKeepingTheQuery()
+    {
+        // The page's asset references are relative, so they resolve only under /Oriel/.
+        var bare = Controller(Guid.Empty, "/Oriel", "?id=abc");
+        var redirect = Assert.IsType<RedirectResult>(bare.GetReader());
+        Assert.Equal("Oriel/?id=abc", redirect.Url);
+
+        var page = Assert.IsType<FileStreamResult>(Controller(Guid.Empty, "/Oriel/", "?id=abc").GetReader());
+        page.FileStream.Dispose();
+        Assert.Equal("text/html", page.ContentType.Split(';')[0]);
+    }
+
+    [Fact]
+    public void AnswersAFileTheReaderDoesNotHaveWith404()
+    {
+        Assert.IsType<NotFoundResult>(Controller(Guid.Empty).GetAsset("assets/missing.js"));
+    }
+
+    [Fact]
+    public async Task NamesTheSignedInCallerAndRefusesAnyoneElse()
+    {
+        var reader = Guid.NewGuid();
+
+        Assert.Equal(reader, (await Controller(reader).GetMe()).Value!.UserId);
+        Assert.IsType<UnauthorizedResult>((await Controller(Guid.Empty).GetMe()).Result);
+    }
+
+    private ReaderAssetsController Controller(Guid caller, string path = "/Oriel/", string query = "")
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Path = path;
+        context.Request.QueryString = new QueryString(query);
+        return new ReaderAssetsController(_assets, new FakeAuthorization(caller)) { ControllerContext = new ControllerContext { HttpContext = context } };
+    }
+
     // Serves one asset as the reader route does; gives its Cache-Control and its entity tag.
     private (string CacheControl, string? ETag) Serve(string path)
     {
@@ -105,5 +145,18 @@ public class ReaderAssetsTests
         var result = Assert.IsType<FileStreamResult>(controller.GetAsset(path));
         result.FileStream.Dispose();
         return (controller.Response.Headers.CacheControl.ToString(), result.EntityTag?.Tag.Value);
+    }
+
+    // AuthorizationInfo.UserId comes from its User; no user means an anonymous caller.
+    private sealed class FakeAuthorization(Guid userId) : IAuthorizationContext
+    {
+        public Task<AuthorizationInfo> GetAuthorizationInfo(HttpContext requestContext) => Task.FromResult(Info());
+
+        public Task<AuthorizationInfo> GetAuthorizationInfo(HttpRequest requestContext) => Task.FromResult(Info());
+
+        private AuthorizationInfo Info() => new()
+        {
+            User = userId.Equals(Guid.Empty) ? null : new User("reader", "provider", "reset") { Id = userId },
+        };
     }
 }
