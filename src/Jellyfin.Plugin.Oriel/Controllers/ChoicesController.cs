@@ -52,7 +52,7 @@ public class ChoicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ChoicesResponse>> GetChoices()
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -76,7 +76,7 @@ public class ChoicesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<ChoicesResponse>> PutChoices([FromBody] ChoicesRequest? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -91,12 +91,6 @@ public class ChoicesController : ControllerBase
 
         _choices.Save(userId.Value, choices);
         return new ChoicesResponse(choices.Theme, choices.Font);
-    }
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
     }
 
     /// <summary>

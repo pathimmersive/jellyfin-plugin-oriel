@@ -136,7 +136,10 @@ public class OrielDatabase
         {
             DataSource = databasePath,
             Mode = SqliteOpenMode.ReadWriteCreate,
-            Pooling = false,
+
+            // Connections are kept open between uses: opening one per use costs about ten times as much,
+            // and closing the last one checkpoints and deletes the write-ahead log every time.
+            Pooling = true,
         }.ToString();
         _migrations = migrations;
     }
@@ -170,28 +173,38 @@ public class OrielDatabase
             }
 
             using var connection = OpenConnection();
-            Execute(connection, "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
-            using (var read = connection.CreateCommand())
+            try
             {
-                read.CommandText = "SELECT version FROM schema_version";
-                var current = read.ExecuteScalar() is long stored ? (int)stored : 0;
-                if (current > _migrations.Count)
+                Execute(connection, "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL)");
+                using (var read = connection.CreateCommand())
                 {
-                    throw new InvalidOperationException(
-                        $"The reading position database is at schema version {current}, newer than this plugin's {_migrations.Count}.");
-                }
+                    read.CommandText = "SELECT version FROM schema_version";
+                    var current = read.ExecuteScalar() is long stored ? (int)stored : 0;
+                    if (current > _migrations.Count)
+                    {
+                        throw new InvalidOperationException(
+                            $"The reading position database is at schema version {current}, newer than this plugin's {_migrations.Count}.");
+                    }
 
-                // Only a file at a schema this plugin reads is switched to WAL; a newer one is left as it is.
-                Execute(connection, "PRAGMA journal_mode = wal");
-                for (var version = current; version < _migrations.Count; version++)
-                {
-                    using var transaction = connection.BeginTransaction();
-                    Execute(connection, _migrations[version]);
-                    Execute(connection, "DELETE FROM schema_version");
-                    Execute(connection, $"INSERT INTO schema_version (version) VALUES ({version + 1})");
-                    transaction.Commit();
-                    applied?.Invoke(version, version + 1);
+                    // Only a file at a schema this plugin reads is switched to WAL; a newer one is left as it is.
+                    Execute(connection, "PRAGMA journal_mode = wal");
+                    for (var version = current; version < _migrations.Count; version++)
+                    {
+                        using var transaction = connection.BeginTransaction();
+                        Execute(connection, _migrations[version]);
+                        Execute(connection, "DELETE FROM schema_version");
+                        Execute(connection, $"INSERT INTO schema_version (version) VALUES ({version + 1})");
+                        transaction.Commit();
+                        applied?.Invoke(version, version + 1);
+                    }
                 }
+            }
+            catch
+            {
+                // A file Oriel cannot use must not stay open in the pool: an admin replacing or removing it
+                // while Jellyfin runs could not, on Windows, and the next try must open it afresh.
+                SqliteConnection.ClearPool(connection);
+                throw;
             }
 
             _migrated = true;
@@ -269,7 +282,16 @@ public class OrielDatabase
         }
         catch
         {
-            Execute(connection, "ROLLBACK");
+            try
+            {
+                Execute(connection, "ROLLBACK");
+            }
+            catch (SqliteException)
+            {
+                // SQLite has already rolled back after some errors (a full disk, an I/O error); the
+                // error that stopped the work is the one to report.
+            }
+
             throw;
         }
         finally

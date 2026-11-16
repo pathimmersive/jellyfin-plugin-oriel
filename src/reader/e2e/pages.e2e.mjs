@@ -226,6 +226,22 @@ try {
     const first = await counted(page, 60_000, chosen)
     console.log(`INFO: ${browserName}: the test book was counted within ${first.ms} ms of choosing Pages`)
     const { sum, starts } = await layOutAll(page)
+    // Chromium can count the documents alive once garbage is collected: showing every section a
+    // second time must add none, as a section left behind is let go.
+    if (browserName === 'chromium') {
+        const cdp = await page.context().newCDPSession(page)
+        await cdp.send('HeapProfiler.enable')
+        const alive = async () => {
+            for (let i = 0; i < 3; i++) await cdp.send('HeapProfiler.collectGarbage')
+            return (await cdp.send('Memory.getDOMCounters')).documents
+        }
+        const once = await alive()
+        await layOutAll(page)
+        const twice = await alive()
+        await cdp.detach()
+        if (twice > once) fail(`showing all ${starts.length} sections again left ${twice} documents alive, up from ${once}: sections already left are kept`)
+        pass(`showing all ${starts.length} sections again keeps ${twice} documents alive, as before`)
+    }
     const atLast = await counted(page, 5000)
     if (atLast.total !== sum) fail(`the footer's total is ${atLast.total}, but the sections lay out ${sum} columns`)
     await goTo(page, () => document.querySelector('foliate-view').goToFraction(1))

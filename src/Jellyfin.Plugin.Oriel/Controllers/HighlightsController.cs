@@ -57,7 +57,7 @@ public class HighlightsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<HighlightResponse>>> GetHighlights([FromRoute] Guid itemId)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -92,7 +92,7 @@ public class HighlightsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<HighlightResponse>> PostHighlight([FromRoute] Guid itemId, [FromBody] HighlightRequest? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -103,7 +103,7 @@ public class HighlightsController : ControllerBase
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
 
-        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        if (request.Fraction is not { } fraction || !ReadingRules.IsFraction(fraction))
         {
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
@@ -166,7 +166,7 @@ public class HighlightsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<HighlightResponse>> PatchHighlight([FromRoute] Guid itemId, [FromRoute] Guid highlightId, [FromBody] ChangeRequest? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -207,7 +207,7 @@ public class HighlightsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteHighlight([FromRoute] Guid itemId, [FromRoute] Guid highlightId)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -223,12 +223,6 @@ public class HighlightsController : ControllerBase
 
     private static HighlightResponse Reply(StoredHighlight highlight) =>
         new(highlight.Id.ToString("N"), highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.Note, highlight.CreatedAt);
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
-    }
 
     /// <summary>
     /// The body of <see cref="PostHighlight"/>.

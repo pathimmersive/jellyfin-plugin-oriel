@@ -122,8 +122,13 @@ public class HighlightersStore
     /// </summary>
     /// <param name="userId">The user.</param>
     /// <returns>The ids.</returns>
-    public IReadOnlySet<string> Ids(Guid userId) =>
-        List(userId).Select(highlighter => highlighter.Id).ToHashSet(StringComparer.Ordinal);
+    public IReadOnlySet<string> Ids(Guid userId)
+    {
+        // Only the list itself: counting the user's highlights by colour, as List does, is not needed here.
+        using var connection = _database.Open();
+        var entries = Entries(connection, userId);
+        return (entries.Count > 0 ? entries : ReadingRules.BuiltInHighlighters).Select(entry => entry.Id).ToHashSet(StringComparer.Ordinal);
+    }
 
     // The highlighters the user has kept, in their order; none for a user who has changed nothing.
     private static List<HighlighterEntry> Entries(StoreConnection connection, Guid userId)

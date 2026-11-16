@@ -52,7 +52,7 @@ public class PositionsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PositionResponse>> GetPosition([FromRoute] Guid itemId)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -88,7 +88,7 @@ public class PositionsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<PositionResponse>> PutPosition([FromRoute] Guid itemId, [FromBody] PositionRequest? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -99,7 +99,7 @@ public class PositionsController : ControllerBase
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
 
-        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        if (request.Fraction is not { } fraction || !ReadingRules.IsFraction(fraction))
         {
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
@@ -112,12 +112,6 @@ public class PositionsController : ControllerBase
         var position = new StoredPosition(cfi, fraction, _time.GetUtcNow());
         _positions.Save(userId.Value, itemId, position);
         return new PositionResponse(position.Cfi, position.Fraction, position.SavedAt);
-    }
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
     }
 
     /// <summary>

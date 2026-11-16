@@ -7,7 +7,7 @@ import { stripSections } from './scripts'
 import type { PageMark } from '../controls/bookmarks'
 import type { TocEntry } from '../controls/contents'
 import type { Box, TextSelection } from '../controls/toolbar'
-import type { SearchSection } from '../controls/search'
+import { type FoliateFound, type SearchSection, sectionsOf } from '../controls/search'
 import type { PageCount, PagesShown } from '../controls/progress'
 import type { Moved, StartAt } from '../position/position'
 import type { Margins, PageTurn } from '../settings/settings'
@@ -24,7 +24,7 @@ interface FoliateView extends HTMLElement {
     goToTextStart(): Promise<void>
     resolveNavigation(target: string): { index?: unknown, anchor?: (doc: Document) => Element | Range | null } | undefined
     book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?(): Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
-    search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoundSection | { progress: number } | 'done'>
+    search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoliateFound>
     getProgressOf(index: number, range?: Range): { tocItem?: { label?: string } } | undefined
     getCFI(index: number, range: Range): string
     addAnnotation(annotation: { value: string }): Promise<unknown>
@@ -48,12 +48,6 @@ interface FoliateView extends HTMLElement {
     }
     isFixedLayout: boolean
     lastLocation?: Location
-}
-
-// A section's matches, as foliate-js's search gives them.
-interface FoundSection {
-    label: string
-    subitems: { cfi: string, excerpt: { pre: string, match: string, post: string } }[]
 }
 
 // What foliate-js reports for the place shown.
@@ -485,14 +479,8 @@ export const openBook = async (
         },
         fixedLayout: view.isFixedLayout,
         searchable: !view.isFixedLayout && view.book.sections.some(section => section.createDocument),
-        async * search(query) {
-            for await (const found of view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_MARK } })) {
-                if (typeof found !== 'object' || !('subitems' in found)) continue
-                yield {
-                    label: found.label.trim(),
-                    matches: found.subitems.map(({ cfi, excerpt }) => ({ cfi, ...excerpt })),
-                }
-            }
+        search(query) {
+            return sectionsOf(view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_MARK } }))
         },
         clearSearch() {
             view.clearSearch()
@@ -586,7 +574,10 @@ export const openBook = async (
             // The container may have been hidden when the margins were last set.
             layOut()
             const { width, height } = view.renderer.getBoundingClientRect()
-            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${view.renderer.getAttribute('max-column-count') ?? ''}|${shownStyles}`
+            // A reader's own fonts are served from blob: URLs that differ on every visit; the rules
+            // naming them do not, so the URLs are left out and a kept count still matches.
+            const styles = shownStyles.replace(/blob:[^)"'\s]+/g, 'blob:')
+            return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${view.renderer.getAttribute('max-column-count') ?? ''}|${styles}`
         },
         async count(cancelled, places = []) {
             if (view.isFixedLayout) return null

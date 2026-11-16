@@ -332,6 +332,26 @@ public sealed class ReadingDataTests : IDisposable
     }
 
     [Fact]
+    public void LooksUpEachBookOnceWhateverItHolds()
+    {
+        _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
+        for (var i = 0; i < 3; i++)
+        {
+            _store.Bookmarks.Add(Reader, Dune.ItemId, $"epubcfi(/6/8!/4/2/{i}:0)", 0.1 * i, "Page", Now);
+            _store.Highlights.Add(Reader, Dune.ItemId, $"epubcfi(/6/8!/4/2/{i}:0,/1:0,/1:4)", 0.1 * i, "yellow", "Text", Now);
+        }
+
+        var catalog = new FakeCatalog([Dune, Emma]);
+        var file = new ReadingData(_store.Database, _store.All, catalog, () => _configuration).Export(Reader, Now);
+        Assert.Equal((1, 3, 3), (file.Positions!.Count, file.Bookmarks!.Count, file.Highlights!.Count));
+        Assert.Equal(1, catalog.Finds);
+
+        catalog.Finds = 0;
+        new ReadingData(_store.Database, _store.All, catalog, () => _configuration).Import(OtherReader, ReadingData.Parse(ReadingData.Serialize(file))!);
+        Assert.Equal(1, catalog.Finds);
+    }
+
+    [Fact]
     public void DoesNotImportIntoABookTheUserCannotSee()
     {
         var result = Data(Dune).Import(Reader, Import(Entry(Hidden, Cfi, Now)));
@@ -345,8 +365,10 @@ public sealed class ReadingDataTests : IDisposable
     {
         _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
 
-        var result = Assert.IsType<FileContentResult>(await Controller(Reader).Export());
+        var controller = Controller(Reader);
+        var result = Assert.IsType<FileContentResult>(await controller.Export());
 
+        Assert.Equal("no-store", controller.Response.Headers.CacheControl.ToString());
         Assert.Equal("oriel-reading-data-2026-10-27.json", result.FileDownloadName);
         Assert.Equal("application/json", result.ContentType);
         Assert.Equal(Cfi, ReadingData.Parse(result.FileContents)!.Positions!.Single()!.Cfi);
@@ -537,7 +559,14 @@ public sealed class ReadingDataTests : IDisposable
 
     private sealed class FakeCatalog(IReadOnlyList<BookInfo> visible) : IBookCatalog
     {
-        public BookInfo? Find(Guid userId, Guid itemId) => visible.FirstOrDefault(book => book.ItemId == itemId);
+        // How many times a book was looked up; each lookup is a library query on a real server.
+        public int Finds { get; set; }
+
+        public BookInfo? Find(Guid userId, Guid itemId)
+        {
+            Finds++;
+            return visible.FirstOrDefault(book => book.ItemId == itemId);
+        }
 
         public IReadOnlyList<BookInfo> Books(Guid userId) => visible;
     }

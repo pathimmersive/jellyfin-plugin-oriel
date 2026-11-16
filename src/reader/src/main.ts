@@ -207,13 +207,14 @@ const start = async (): Promise<void> => {
         // The reading gestures hint follows the reader's last input, in this page and in the book's own documents.
         const input = lastInput(() => matchMedia('(pointer: coarse)').matches)
         input.watch(window)
-        // The book's section windows, for Escape in highlighting and the Dictionary sheet once they exist.
-        const sectionWindows: Window[] = []
+        // The section windows that load before highlighting and the Dictionary sheet exist, for their
+        // Escape once they do; null after that, so no window outlives its section.
+        let sectionWindows: Window[] | null = []
         const watchSections = (view: EventTarget): void => view.addEventListener('load', event => {
             const win = (event as CustomEvent<{ doc: Document }>).detail.doc.defaultView
             if (!win) return
             input.watch(win)
-            sectionWindows.push(win)
+            sectionWindows?.push(win)
             highlighting?.watch(win)
             dictionary?.watch(win)
         })
@@ -277,11 +278,12 @@ const start = async (): Promise<void> => {
                 define: text => sheet.open(text),
             }, input.touch)
             dictionary = sheet
-            for (const win of sectionWindows) {
+            for (const win of sectionWindows ?? []) {
                 highlighting.watch(win)
                 sheet.watch(win)
             }
         }
+        sectionWindows = null
 
         const bookmarks = createBookmarks({
             load: () => readBookmarks(basePath, itemId, authorization),

@@ -115,6 +115,9 @@ const rendered = async (page, what = 'the reader did not render the test EPUB') 
     await until(async () => (await page.locator('#reading-footer .progress').innerText()).trim(), `${what}: its footer shows no progress`)
 }
 
+// What the footer shows of the reader's progress.
+const footer = async page => (await page.locator('#reading-footer .progress').innerText()).trim()
+
 const open = async context => {
     const page = await context.newPage()
     await page.goto(`${base}/Oriel/?id=${itemId}`)
@@ -223,15 +226,24 @@ try {
     await until(async () => await own.getAttribute('aria-pressed') === 'true', 'the family is not marked as chosen')
     let shown = await setInFamily(page, 'after choosing it')
     pass(`choosing '${FAMILY}' sets the text in it, its regular and italic files loaded (${shown.faces.join(', ')})`)
+    // Pages, so the book is counted in the family; the count is kept on this device.
+    const pagesRadio = panel.getByRole('radio', { name: 'Pages', exact: true })
+    await use(pagesRadio)
+    await until(async () => await pagesRadio.getAttribute('aria-checked') === 'true', 'Pages is not marked as chosen')
     await page.keyboard.press('Escape')
     await until(async () => !await panel.isVisible(), 'Escape did not close Preferences')
+    const keptCount = () => page.evaluate(id => JSON.parse(localStorage.getItem('oriel-page-counts') ?? '[]').find(entry => entry.book === id)?.layout ?? null, itemId)
+    const countedIn = await until(async () => /^\d+\s*\/\s*\d+$/.test(await footer(page)) && await keptCount(),
+        async () => `the footer shows '${await footer(page)}', not page / total, in '${FAMILY}'`, 60_000)
 
-    // Kept on this device, the files served by the plugin.
+    // Kept on this device, the files served by the plugin, and the count reused.
     await page.reload()
     await rendered(page, 'the reader did not render after a reload')
     shown = await setInFamily(page, 'after a reload')
     if (served.length < 2 || served.some(status => status !== 200)) fail(`the plugin served the font files with ${served.join(', ') || 'nothing'}`)
-    pass(`after a reload the text is still in '${FAMILY}', its files served by the plugin`)
+    await until(async () => /^\d+\s*\/\s*\d+$/.test(await footer(page)), async () => `after a reload the footer shows '${await footer(page)}', not page / total`, 60_000)
+    if (await keptCount() !== countedIn) fail(`after a reload the book was counted again for a new layout, though nothing about it changed`)
+    pass(`after a reload the text is still in '${FAMILY}', its files served by the plugin, and the book's page count is reused`)
 
     // Another browser lists the family.
     const other = await newContext()
