@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 
 namespace Jellyfin.Plugin.Oriel.Data;
 
@@ -221,13 +222,18 @@ public class ReadingData
     /// </summary>
     public const int Version = 6;
 
+    /// <summary>
+    /// The most positions a file may hold: one a book, for a library far larger than any real one.
+    /// </summary>
+    public const int MaxPositions = 100_000;
+
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     private readonly OrielDatabase _database;
     private readonly ReadingStores _stores;
     private readonly IBookCatalog _catalog;
     private readonly Func<Configuration.PluginConfiguration?> _configuration;
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<Guid, bool> _importing = new();
+    private int _importing;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ReadingData"/> class.
@@ -364,7 +370,11 @@ public class ReadingData
             return null;
         }
 
-        var valid = positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
+        // No user can have more than the limits allow, so no export of theirs holds more.
+        var counted = positions.Count <= MaxPositions && (file.Bookmarks?.Count ?? 0) <= ReadingRules.MaxBookmarks
+            && (file.Highlights?.Count ?? 0) <= ReadingRules.MaxHighlights && (file.Highlighters?.Count ?? 0) <= ReadingRules.MaxHighlighters
+            && (file.Themes?.Count ?? 0) <= ReadingRules.MaxThemes && (file.Fonts?.Count ?? 0) <= ReadingRules.MaxFonts;
+        var valid = counted && positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
             && (file.Themes ?? []).All(Valid) && (file.Fonts ?? []).All(Valid) && file.Choices is null or { Theme: not null, Font: not null };
         if (!valid)
         {
@@ -384,14 +394,15 @@ public class ReadingData
     /// <param name="userId">The user.</param>
     /// <param name="file">A file accepted by <see cref="Parse(ReadOnlySpan{byte})"/>.</param>
     /// <returns>What was imported, kept and left unmatched, and the limits reached.</returns>
-    /// <exception cref="ImportRunningException">Another import of the user's is running.</exception>
+    /// <exception cref="ImportRunningException">Another import is running on the server.</exception>
     /// <remarks>
     /// It runs in one transaction: when any part fails, nothing is stored. Bookmarks and highlights
-    /// past the user's limits are left out and the rest imports.
+    /// past the user's limits are left out and the rest imports. One import runs at a time on the
+    /// server, since its transaction holds the database's write lock.
     /// </remarks>
     public ImportResult Import(Guid userId, ReadingDataFile file)
     {
-        if (!_importing.TryAdd(userId, true))
+        if (Interlocked.CompareExchange(ref _importing, 1, 0) != 0)
         {
             throw new ImportRunningException();
         }
@@ -402,7 +413,7 @@ public class ReadingData
         }
         finally
         {
-            _importing.TryRemove(userId, out _);
+            Volatile.Write(ref _importing, 0);
         }
     }
 

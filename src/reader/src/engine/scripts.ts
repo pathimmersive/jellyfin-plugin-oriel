@@ -12,13 +12,22 @@ export const isScriptUrl = (url: string): boolean =>
     // Browsers ignore whitespace and control characters inside a scheme.
     url.replace(/[\u0000- ]/g, '').toLowerCase().startsWith('javascript:')
 
-/** Removes script elements, event handler attributes and javascript: URLs from a parsed section. */
+/** Whether a link in a book may open outside the reader: only web and mail addresses, never an app's own scheme. */
+export const isOpenableLink = (url: string): boolean => /^(https?:\/\/|mailto:)/i.test(url.trim())
+
+/**
+ * Removes script elements, event handler attributes, javascript: URLs, frames'
+ * inline documents (srcdoc) and refresh redirects from a parsed section.
+ */
 export const stripScripts = (doc: Document): void => {
     for (const script of doc.querySelectorAll('script')) script.remove()
+    for (const refresh of doc.querySelectorAll('meta[http-equiv]')) {
+        if (refresh.getAttribute('http-equiv')?.trim().toLowerCase() === 'refresh') refresh.remove()
+    }
     for (const element of doc.querySelectorAll('*')) {
         for (const attribute of [...element.attributes]) {
             const name = attribute.name.toLowerCase()
-            if (name.startsWith('on') || (URL_ATTRIBUTES.includes(name) && isScriptUrl(attribute.value))) {
+            if (name.startsWith('on') || name === 'srcdoc' || (URL_ATTRIBUTES.includes(name) && isScriptUrl(attribute.value))) {
                 element.removeAttribute(attribute.name)
             }
         }
@@ -35,11 +44,22 @@ export const withoutScripts = (data: string, type: string): string => {
 }
 
 /**
- * Strips every section foliate-js prepares for this book, through its
- * transformTarget's `data` event, before the section's blob: URL is made.
+ * Strips every section foliate-js prepares for this book before the section's
+ * blob: URL is made: through its transformTarget's `data` event (EPUB, KF8),
+ * or, for an old-format MOBI, which has none, as the book parses each section
+ * (its loadSection builds the section from createDocument).
  */
 export const stripSections = (book: object): void => {
-    const target = (book as { transformTarget?: EventTarget }).transformTarget
+    const { transformTarget: target, createDocument } = book as { transformTarget?: EventTarget, createDocument?: (section: unknown) => Promise<Document> }
+    if (!target && typeof createDocument === 'function') {
+        Object.assign(book, {
+            createDocument: async (section: unknown) => {
+                const doc = await createDocument.call(book, section)
+                stripScripts(doc)
+                return doc
+            },
+        })
+    }
     target?.addEventListener('data', event => {
         const detail = (event as CustomEvent<{ data: unknown, type: unknown }>).detail
         const { data, type } = detail

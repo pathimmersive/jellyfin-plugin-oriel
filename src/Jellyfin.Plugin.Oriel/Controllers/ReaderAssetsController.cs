@@ -109,6 +109,6 @@ public partial class ReaderAssetsController : ControllerBase
     /// <param name="UserId">The caller's user id.</param>
     public record MeResponse(Guid UserId);
 
-    [GeneratedRegex(@"^assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css|woff2)$")]
+    [GeneratedRegex(@"^assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css|woff2)\z")]
     private static partial Regex ContentNamed();
 }
