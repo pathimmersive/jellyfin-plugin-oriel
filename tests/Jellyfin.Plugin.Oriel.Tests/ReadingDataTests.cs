@@ -11,7 +11,6 @@ using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Xunit;
 
 namespace Jellyfin.Plugin.Oriel.Tests;
@@ -39,7 +38,7 @@ public sealed class ReadingDataTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);

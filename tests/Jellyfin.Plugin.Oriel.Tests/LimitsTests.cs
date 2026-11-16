@@ -34,7 +34,7 @@ public sealed class LimitsTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);

@@ -132,15 +132,7 @@ public class OrielDatabase
     public OrielDatabase(string databasePath, IReadOnlyList<string> migrations)
     {
         _databasePath = databasePath;
-        _connectionString = new SqliteConnectionStringBuilder
-        {
-            DataSource = databasePath,
-            Mode = SqliteOpenMode.ReadWriteCreate,
-
-            // Connections are kept open between uses: opening one per use costs about ten times as much,
-            // and closing the last one checkpoints and deletes the write-ahead log every time.
-            Pooling = true,
-        }.ToString();
+        _connectionString = ConnectionString(databasePath);
         _migrations = migrations;
     }
 
@@ -347,6 +339,25 @@ public class OrielDatabase
         command.CommandText = sql;
         command.ExecuteNonQuery();
     }
+
+    /// <summary>
+    /// Closes the pooled connections to one database file and to no other, so the file can be removed.
+    /// </summary>
+    /// <param name="databasePath">The database file.</param>
+    internal static void ReleaseConnections(string databasePath)
+    {
+        using var connection = new SqliteConnection(ConnectionString(databasePath));
+        SqliteConnection.ClearPool(connection);
+    }
+
+    // Connections are kept open between uses: opening one per use costs about ten times as much, and
+    // closing the last one checkpoints and deletes the write-ahead log every time.
+    private static string ConnectionString(string databasePath) => new SqliteConnectionStringBuilder
+    {
+        DataSource = databasePath,
+        Mode = SqliteOpenMode.ReadWriteCreate,
+        Pooling = true,
+    }.ToString();
 
     /// <summary>
     /// Opens a connection that waits <see cref="BusyTimeoutMilliseconds"/> for a lock.

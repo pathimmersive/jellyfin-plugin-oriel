@@ -9,7 +9,6 @@ using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.Data.Sqlite;
 using Xunit;
 using Entry = Jellyfin.Plugin.Oriel.Controllers.HighlightersController.HighlighterRequest;
 
@@ -32,7 +31,7 @@ public sealed class HighlightersControllerTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);

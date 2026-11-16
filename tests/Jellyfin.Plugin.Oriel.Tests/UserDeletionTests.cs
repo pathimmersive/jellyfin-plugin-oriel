@@ -34,7 +34,7 @@ public sealed class UserDeletionTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);
@@ -113,8 +113,8 @@ public sealed class UserDeletionTests : IDisposable
 
     private Dictionary<string, int> Rows(Guid userId)
     {
-        SqliteConnection.ClearAllPools();
-        using var connection = new SqliteConnection($"Data Source={Path.Combine(_folder, "oriel.db")}");
+        Pools.Release(_folder);
+        using var connection = new SqliteConnection($"Data Source={Path.Combine(_folder, "oriel.db")};Pooling=False");
         connection.Open();
         return OrielDatabase.UserTables.ToDictionary(table => table, table =>
         {

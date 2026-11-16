@@ -11,7 +11,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Abstractions;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
-using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Xunit;
 
@@ -33,7 +32,7 @@ public sealed class StoreUnavailableTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);
@@ -75,7 +74,7 @@ public sealed class StoreUnavailableTests : IDisposable
     {
         string[] newer = [.. OrielDatabase.Schema, "CREATE TABLE future (x INTEGER)"];
         new StoreSet(DatabasePath, newer).Database.Migrate();
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         var before = File.ReadAllBytes(DatabasePath);
         var store = new StoreSet(DatabasePath);
 
@@ -83,7 +82,7 @@ public sealed class StoreUnavailableTests : IDisposable
 
         Assert.Contains(logged, entry => entry.Level == LogLevel.Critical && entry.Message.Contains("newer than this plugin", StringComparison.Ordinal));
         Assert.Throws<StoreUnavailableException>(() => store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/2!/4/2/1:0)", 0.1, DateTimeOffset.UtcNow)));
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         Assert.Equal(before, File.ReadAllBytes(DatabasePath));
         Assert.Equal([DatabasePath], Directory.GetFiles(_folder));
     }
@@ -96,7 +95,7 @@ public sealed class StoreUnavailableTests : IDisposable
         await Start(store);
         Assert.Throws<StoreUnavailableException>(() => store.Positions.Get(Reader, Book));
 
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         File.Delete(DatabasePath);
 
         Assert.Null(store.Positions.Get(Reader, Book));
