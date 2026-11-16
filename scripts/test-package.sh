@@ -105,10 +105,12 @@ import json, sys
 version = json.load(open(sys.argv[1], encoding="utf-8"))[0]["versions"][0]
 assert version["changelog"] == "### Added\n\n- A test feature.", repr(version["changelog"])
 EOF
+[ "$(cat "$work/notes/notes.md")" = "$(printf '### Added\n\n- A test feature.')" ] \
+    || fail "notes.md, the GitHub release's notes, is not the 0.9.2 section: $(cat "$work/notes/notes.md" 2>&1)"
 if package --version 0.9.3 --out "$work/nonotes" --url-base "$url" --changelog-file "$work/CHANGELOG.md" >/dev/null 2>&1; then
     fail "packaging accepted 0.9.3, which has no section in the changelog"
 fi
 [ ! -e "$work/nonotes" ] || fail "a version without a changelog section still wrote output"
-pass "a version's CHANGELOG.md section is the manifest's changelog text, and a version with no section is refused before anything is written"
+pass "a version's CHANGELOG.md section is the manifest's changelog text and the release notes, and a version with no section is refused before anything is written"
 
 echo "test-package: all checks passed"

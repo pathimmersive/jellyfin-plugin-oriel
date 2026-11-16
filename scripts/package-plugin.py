@@ -14,7 +14,8 @@ the manifest's imageUrl, <url-base>/vX.Y.Z/oriel.png, is what Jellyfin's
 catalog shows. With --manifest, the new version is added to
 that manifest's versions, newest first; without it a new manifest is started.
 With --changelog-file, the version's section of that file (## [X.Y.Z] - date,
-up to the next ## heading) is the manifest's changelog text. A malformed
+up to the next ## heading) is the manifest's changelog text. The changelog
+text is also written to notes.md beside the zip, the GitHub release's notes. A malformed
 version, one the manifest already lists, or one with no section in the
 changelog file fails before anything is written. Needs Python 3 and the .NET 10 SDK.
 """
@@ -33,6 +34,7 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "src", "Jellyfin.Plugin.Oriel", "Jellyfin.Plugin.Oriel.csproj")
 PLUGIN_FILES = ["Jellyfin.Plugin.Oriel.dll", "meta.json", "oriel.png"]
 IMAGE = "oriel.png"
+NOTES = "notes.md"
 # A fixed time inside the zip, so the same build gives the same bytes and checksum.
 ZIP_TIME = (2000, 1, 1, 0, 0, 0)
 
@@ -146,6 +148,8 @@ def main():
     with open(os.path.join(args.out, "manifest.json"), "w", encoding="utf-8", newline="\n") as f:
         json.dump(manifest, f, indent=2)
         f.write("\n")
+    with open(os.path.join(args.out, NOTES), "w", encoding="utf-8", newline="\n") as f:
+        f.write(changelog + "\n")
     print(f"package-plugin: {zip_path} ({checksum}) and manifest.json with {len(plugin['versions'])} version(s)")
 
 

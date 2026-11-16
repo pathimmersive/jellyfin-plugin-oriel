@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in Oriel does not work as it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Questions and setup help go to [Discussions](https://github.com/pathimmersive/jellyfin-plugin-oriel/discussions), and security problems to [private reporting](https://github.com/pathimmersive/jellyfin-plugin-oriel/security/advisories/new), not here.
+  - type: input
+    id: jellyfin-version
+    attributes:
+      label: Jellyfin server version
+      description: Dashboard → General shows it.
+      placeholder: "12.2.0"
+    validations:
+      required: true
+  - type: input
+    id: oriel-version
+    attributes:
+      label: Oriel version
+      description: Dashboard → Plugins lists it. If you built Oriel yourself, give the commit.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: client
+    attributes:
+      label: Client and device
+      description: The browser or Jellyfin app and its version, and the device and its operating system.
+      placeholder: "Safari on an iPhone 15, iOS 26.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: book-format
+    attributes:
+      label: Book format
+      description: The format of the book that shows the problem.
+      options:
+        - EPUB
+        - PDF
+        - CBZ comic
+        - MOBI
+        - AZW3
+        - Any book, or no book open
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: What you did, step by step, from opening the book.
+      placeholder: |
+        1.
+        2.
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you saw, and what you expected instead. Screenshots help.
+    validations:
+      required: true
+  - type: dropdown
+    id: play-takeover
+    attributes:
+      label: Does Play on a book in Jellyfin open Oriel?
+      description: The setting under Dashboard → Plugins → Oriel.
+      options:
+        - "Yes"
+        - "No"
+        - I don't know
+  - type: textarea
+    id: logs
+    attributes:
+      label: Server log lines
+      description: Any lines from the Jellyfin server log that mention Oriel around the time of the problem.
+      render: text

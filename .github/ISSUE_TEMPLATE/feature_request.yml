@@ -1,0 +1,27 @@
+name: Feature request
+description: Suggest something Oriel should do
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas still being shaped are welcome in [Discussions](https://github.com/pathimmersive/jellyfin-plugin-oriel/discussions/categories/ideas) first.
+  - type: textarea
+    id: what
+    attributes:
+      label: What you want to do while reading
+      description: What Oriel should let you do, from a reader's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters to you
+      description: The problem it solves, or what you do today instead.
+    validations:
+      required: true
+  - type: textarea
+    id: elsewhere
+    attributes:
+      label: How other readers handle it
+      description: An app or reader that does this well, if you know one.

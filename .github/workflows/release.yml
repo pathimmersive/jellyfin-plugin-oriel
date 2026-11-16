@@ -7,9 +7,11 @@ name: Release
 #
 # Building and publishing are split. build can only read the repository: it runs
 # the tests and the packaging, with no dependency install scripts, and hands the
-# zip, its image, its SHA-256 and the manifest on as the artifact "release".
-# release builds nothing and checks out nothing: it attests the zip it was given
-# and creates the GitHub release. Only release can write to the repository.
+# zip, its image, its SHA-256, its release notes and the manifest on as the
+# artifact "release". The notes are the version's CHANGELOG.md section, and a
+# version with no section fails the packaging. release builds nothing and checks
+# out nothing: it attests the zip it was given and creates the GitHub release.
+# Only release can write to the repository.
 #
 # Releases are switched off until the repository variable RELEASES_ENABLED is
 # set to true. Until then the guard job fails and every other job waits on it,
@@ -92,6 +94,7 @@ jobs:
             dist/oriel_*.zip
             dist/oriel_*.zip.sha256
             dist/oriel.png
+            dist/notes.md
           if-no-files-found: error
           retention-days: 7
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
@@ -118,7 +121,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" dist/oriel_*.zip dist/oriel_*.zip.sha256 dist/oriel.png --title "Oriel $GITHUB_REF_NAME" --generate-notes --verify-tag
+        run: gh release create "$GITHUB_REF_NAME" dist/oriel_*.zip dist/oriel_*.zip.sha256 dist/oriel.png --title "Oriel $GITHUB_REF_NAME" --notes-file dist/notes.md --verify-tag
 
   publish:
     needs: release
