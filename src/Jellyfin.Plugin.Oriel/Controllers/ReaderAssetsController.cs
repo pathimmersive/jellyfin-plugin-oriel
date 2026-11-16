@@ -1,10 +1,12 @@
 using System;
 using System.Net.Mime;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Net.Http.Headers;
 
 namespace Jellyfin.Plugin.Oriel.Controllers;
 
@@ -14,8 +16,11 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [ApiController]
 [Refusals]
 [Route("Oriel")]
-public class ReaderAssetsController : ControllerBase
+public partial class ReaderAssetsController : ControllerBase
 {
+    // One tag for every file of this build: a new build of the plugin gives every file a new one.
+    private static readonly EntityTagHeaderValue BuildTag = new($"\"{typeof(ReaderAssets).Assembly.ManifestModule.ModuleVersionId:N}\"");
+
     private readonly ReaderAssets _assets;
     private readonly IAuthorizationContext _authorizationContext;
 
@@ -66,7 +71,16 @@ public class ReaderAssetsController : ControllerBase
             return NotFound();
         }
 
-        return File(content, contentType);
+        // The build names its scripts, styles and fonts by their content, so a browser can keep them; the
+        // page, the manifest, the icons and the PDF files keep their names, so a browser asks again each time.
+        if (ContentNamed().IsMatch(path))
+        {
+            Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+            return File(content, contentType);
+        }
+
+        Response.Headers.CacheControl = "no-cache";
+        return File(content, contentType, lastModified: null, entityTag: BuildTag);
     }
 
     /// <summary>
@@ -80,13 +94,13 @@ public class ReaderAssetsController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<MeResponse>> GetMe()
     {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        if (info.UserId.Equals(Guid.Empty))
+        var caller = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
+        if (caller is not { } userId)
         {
             return Unauthorized();
         }
 
-        return new MeResponse(info.UserId);
+        return new MeResponse(userId);
     }
 
     /// <summary>
@@ -94,4 +108,7 @@ public class ReaderAssetsController : ControllerBase
     /// </summary>
     /// <param name="UserId">The caller's user id.</param>
     public record MeResponse(Guid UserId);
+
+    [GeneratedRegex(@"^assets/[^/]+-[A-Za-z0-9_-]{8}\.(js|css|woff2)$")]
+    private static partial Regex ContentNamed();
 }

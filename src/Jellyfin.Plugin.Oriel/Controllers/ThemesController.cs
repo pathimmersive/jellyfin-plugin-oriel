@@ -46,7 +46,7 @@ public class ThemesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ThemeResponse>>> GetThemes()
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -70,7 +70,7 @@ public class ThemesController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<ThemeResponse>>> PutThemes([FromBody] IReadOnlyList<ThemeRequest?>? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -98,12 +98,6 @@ public class ThemesController : ControllerBase
         theme.Colours[7],
         theme.Colours[8],
         theme.Colours[9]);
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
-    }
 
     /// <summary>
     /// A theme in the body of <see cref="PutThemes"/>.

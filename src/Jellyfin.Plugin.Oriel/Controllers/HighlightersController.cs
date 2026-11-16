@@ -46,7 +46,7 @@ public partial class HighlightersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<HighlighterResponse>>> GetHighlighters()
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -70,7 +70,7 @@ public partial class HighlightersController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult<IReadOnlyList<HighlighterResponse>>> PutHighlighters([FromBody] IReadOnlyList<HighlighterRequest?>? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -87,12 +87,6 @@ public partial class HighlightersController : ControllerBase
 
     private static HighlighterResponse Reply(StoredHighlighter highlighter) =>
         new(highlighter.Id, highlighter.Name, highlighter.Colour, highlighter.BuiltIn, highlighter.Uses);
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
-    }
 
     /// <summary>
     /// A highlighter in the body of <see cref="PutHighlighters"/>.

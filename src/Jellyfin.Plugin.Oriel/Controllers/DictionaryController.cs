@@ -47,8 +47,8 @@ public class DictionaryController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<DictionaryResponse>> GetDefinition([FromQuery] string? word)
     {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        if (info.UserId.Equals(Guid.Empty))
+        var caller = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
+        if (caller is not { } userId)
         {
             return Unauthorized();
         }

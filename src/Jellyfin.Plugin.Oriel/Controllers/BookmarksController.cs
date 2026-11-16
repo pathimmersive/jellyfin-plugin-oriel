@@ -54,7 +54,7 @@ public class BookmarksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult<IReadOnlyList<BookmarkResponse>>> GetBookmarks([FromRoute] Guid itemId)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -89,7 +89,7 @@ public class BookmarksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<BookmarkResponse>> PostBookmark([FromRoute] Guid itemId, [FromBody] BookmarkRequest? request)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -100,7 +100,7 @@ public class BookmarksController : ControllerBase
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
 
-        if (request.Fraction is not { } fraction || double.IsNaN(fraction) || fraction < 0 || fraction > 1)
+        if (request.Fraction is not { } fraction || !ReadingRules.IsFraction(fraction))
         {
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
@@ -138,7 +138,7 @@ public class BookmarksController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> DeleteBookmark([FromRoute] Guid itemId, [FromRoute] Guid bookmarkId)
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -154,12 +154,6 @@ public class BookmarksController : ControllerBase
 
     private static BookmarkResponse Reply(StoredBookmark bookmark) =>
         new(bookmark.Id.ToString("N"), bookmark.Cfi, bookmark.Fraction, bookmark.Text, bookmark.CreatedAt);
-
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
-    }
 
     /// <summary>
     /// The body of <see cref="PostBookmark"/>.

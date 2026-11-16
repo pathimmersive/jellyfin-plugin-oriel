@@ -58,7 +58,7 @@ public partial class ReadingDataController : ControllerBase
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     public async Task<ActionResult> Export()
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -68,6 +68,8 @@ public partial class ReadingDataController : ControllerBase
         var file = _readingData.Export(userId.Value, now);
         LogExported(_logger, userId.Value, file.Positions?.Count ?? 0, file.Bookmarks?.Count ?? 0, file.Highlights?.Count ?? 0);
         var name = string.Create(CultureInfo.InvariantCulture, $"oriel-reading-data-{now:yyyy-MM-dd}.json");
+        // The user's own reading data: kept by no cache along the way.
+        Response.Headers.CacheControl = "no-store";
         return File(ReadingData.Serialize(file), MediaTypeNames.Application.Json, name);
     }
 
@@ -88,7 +90,7 @@ public partial class ReadingDataController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<ImportResult>> Import()
     {
-        var userId = await CallerAsync().ConfigureAwait(false);
+        var userId = await _authorizationContext.CallerAsync(HttpContext).ConfigureAwait(false);
         if (userId is null)
         {
             return Unauthorized();
@@ -164,9 +166,4 @@ public partial class ReadingDataController : ControllerBase
         return buffer.ToArray();
     }
 
-    private async Task<Guid?> CallerAsync()
-    {
-        var info = await _authorizationContext.GetAuthorizationInfo(HttpContext).ConfigureAwait(false);
-        return info.UserId.Equals(Guid.Empty) ? null : info.UserId;
-    }
 }

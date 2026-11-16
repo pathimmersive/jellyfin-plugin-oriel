@@ -60,7 +60,7 @@ export const downloadBook = async (
         for (;;) {
             const { done: finished, value } = await reader.read()
             if (finished) break
-            chunks.push(value as Uint8Array<ArrayBuffer>)
+            chunks.push(value)
             done += value.byteLength
             progress(done, total)
         }

@@ -46,16 +46,12 @@ public partial class DatabaseStartup : IHostedService
         try
         {
             var version = _database.Migrate((from, to) => LogMigrated(_logger, from, to));
-            _logger.LogInformation("Oriel reading position store is at schema version {Version}", version);
+            LogVersion(_logger, version);
             Sweep();
         }
         catch (Exception exception)
         {
-            _logger.LogCritical(
-                exception,
-                "Oriel cannot open its reading data store at {Path}: {Reason}. Oriel's reading data is unavailable until the file is fixed; nothing in its folder was changed",
-                _database.DatabasePath,
-                exception.Message);
+            LogCannotOpen(_logger, exception, _database.DatabasePath, exception.Message);
         }
 
         return Task.CompletedTask;
@@ -85,6 +81,12 @@ public partial class DatabaseStartup : IHostedService
             UserDeletion.Delete(_database, _logger, userId, "no longer a Jellyfin user");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "Oriel reading position store is at schema version {Version}")]
+    private static partial void LogVersion(ILogger logger, int version);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "Oriel cannot open its reading data store at {Path}: {Reason}. Oriel's reading data is unavailable until the file is fixed; nothing in its folder was changed")]
+    private static partial void LogCannotOpen(ILogger logger, Exception exception, string path, string reason);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel did not look for deleted users' reading data: Jellyfin listed no users")]
     private static partial void LogNoUsers(ILogger logger);

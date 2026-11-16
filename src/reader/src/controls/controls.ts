@@ -1,4 +1,4 @@
-import { type FontChoice, FONTS, type FontName, fontStack, INDENT, MAX_THEMES, ownFamilyOf, ownFont, ownTheme, type OwnTheme, ownThemeOf, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, startingColours, stepIn, stepSize, type ThemeChoice, themeShown, THEMES, type ThemeId } from '../settings/settings'
+import { FONTS, type FontName, fontStack, INDENT, MAX_THEMES, ownFamilyOf, ownFont, ownTheme, type OwnTheme, ownThemeOf, type PageTurn, type Progress, LINE_SPACING, MARGIN, marginsFor, PARAGRAPH_SPACING, type Range, resetLayout, type Settings, SIDES, SIZE, startingColours, stepIn, stepSize, type ThemeChoice, themeShown, THEMES, type ThemeId } from '../settings/settings'
 import { type OwnFonts, stylesOf } from './fonts'
 import type { Bookmarks } from './bookmarks'
 import type { ContentsRow } from './contents'
@@ -554,7 +554,7 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     let fontButtons: HTMLButtonElement[] = []
     const addFont = element('button', { type: 'button', class: 'font add', 'aria-label': 'Add font' }, `${icon(ICONS.upload)}Add font`)
     const fillFontButtons = (): void => {
-        const builtIn = (Object.keys(FONTS) as FontName[]).map(name => ({ name, choice: name as FontChoice, own: false }))
+        const builtIn = (Object.keys(FONTS) as FontName[]).map(name => ({ name, choice: name, own: false }))
         const own = options.fonts.families().map(family => ({ name: family.name, choice: ownFont(family.name), own: true }))
         fontButtons = [...builtIn, ...own].map(({ name, choice, own: mine }) => {
             const button = element('button', { type: 'button', class: mine ? 'font own' : 'font', 'aria-pressed': 'false', 'data-font': choice }, mine ? icon(ICONS.upload) : '')

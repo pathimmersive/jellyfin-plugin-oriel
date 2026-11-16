@@ -34,7 +34,7 @@ public sealed class LimitsTests : IDisposable
 
     public void Dispose()
     {
-        SqliteConnection.ClearAllPools();
+        Pools.Release(_folder);
         if (Directory.Exists(_folder))
         {
             Directory.Delete(_folder, recursive: true);
@@ -77,19 +77,39 @@ public sealed class LimitsTests : IDisposable
     }
 
     [Fact]
+    public void ReportsTheErrorThatStoppedTheWorkWhenSqliteHasAlreadyRolledBack()
+    {
+        // After some errors (a full disk, an I/O error) SQLite ends the transaction itself.
+        var stopped = Assert.Throws<InvalidOperationException>(() => _store.Database.RunInTransaction<int>(() =>
+        {
+            using var connection = _store.Database.Open();
+            using var rollback = connection.CreateCommand();
+            rollback.CommandText = "ROLLBACK";
+            rollback.ExecuteNonQuery();
+            throw new InvalidOperationException("The work failed.");
+        }));
+
+        Assert.Equal("The work failed.", stopped.Message);
+    }
+
+    [Fact]
     public void StoresNothingWhenAnImportFailsPartWay()
     {
-        var file = FileOf(Dune, positions: true, bookmarks: 3, highlights: 3);
-        var catalog = new FakeCatalog(Dune) { FailAfter = 3 };
+        // Dune's position and bookmarks are written before Emma's highlights, whose lookup fails.
+        var file = FileOf(Dune, positions: true, bookmarks: 3, highlights: 0) with
+        {
+            Highlights = FileOf(Emma, positions: false, bookmarks: 0, highlights: 3).Highlights,
+        };
+        var catalog = new FakeCatalog(Dune, Emma) { FailAfter = 1 };
 
         Assert.Throws<IOException>(() => new ReadingData(_store.Database, _store.All, catalog).Import(Reader, file));
 
-        Assert.True(catalog.Calls > 3);
+        Assert.Equal(2, catalog.Calls);
         Assert.Null(_store.Positions.Get(Reader, Dune.ItemId));
         Assert.Empty(_store.Bookmarks.ListForUser(Reader));
         Assert.Empty(_store.Highlights.ListForUser(Reader));
 
-        var imported = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune)).Import(Reader, file);
+        var imported = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune, Emma)).Import(Reader, file);
         Assert.Equal((1, 3, 3), (imported.Imported, imported.Bookmarks, imported.Highlights));
     }
 

@@ -264,10 +264,11 @@ public class ReadingData
     /// <returns>The file.</returns>
     public ReadingDataFile Export(Guid userId, DateTimeOffset now)
     {
+        var find = Lookup(userId);
         var positions = new List<ExportedPosition?>();
         foreach (var (itemId, position) in _stores.Positions.ListForUser(userId))
         {
-            if (_catalog.Find(userId, itemId) is { } book)
+            if (find(itemId) is { } book)
             {
                 positions.Add(new ExportedPosition(
                     itemId.ToString("N"), book.Title, book.Authors, book.FileName, position.Cfi, position.Fraction, position.SavedAt));
@@ -277,7 +278,7 @@ public class ReadingData
         var bookmarks = new List<ExportedBookmark?>();
         foreach (var (itemId, bookmark) in _stores.Bookmarks.ListForUser(userId))
         {
-            if (_catalog.Find(userId, itemId) is { } book)
+            if (find(itemId) is { } book)
             {
                 bookmarks.Add(new ExportedBookmark(
                     itemId.ToString("N"), book.Title, book.Authors, book.FileName, bookmark.Cfi, bookmark.Fraction, bookmark.Text, bookmark.CreatedAt));
@@ -287,7 +288,7 @@ public class ReadingData
         var highlights = new List<ExportedHighlight?>();
         foreach (var (itemId, highlight) in _stores.Highlights.ListForUser(userId))
         {
-            if (_catalog.Find(userId, itemId) is { } book)
+            if (find(itemId) is { } book)
             {
                 highlights.Add(new ExportedHighlight(
                     itemId.ToString("N"), book.Title, book.Authors, book.FileName, highlight.Cfi, highlight.Fraction, highlight.Colour, highlight.Text, highlight.CreatedAt, highlight.Note));
@@ -408,6 +409,7 @@ public class ReadingData
     private ImportResult ImportAll(Guid userId, ReadingDataFile file)
     {
         IReadOnlyList<BookInfo>? books = null;
+        var find = Lookup(userId);
         var limited = new List<string>();
         int imported = 0, kept = 0, bookmarks = 0, highlights = 0;
         var unmatched = new List<UnmatchedBook>();
@@ -423,7 +425,7 @@ public class ReadingData
 
         foreach (var entry in file.Positions!)
         {
-            var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
+            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
                 Unmatched(entry.Title, entry.Authors, entry.FileName);
@@ -444,7 +446,7 @@ public class ReadingData
 
         foreach (var entry in file.Bookmarks ?? [])
         {
-            var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
+            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
                 Unmatched(entry.Title, entry.Authors, entry.FileName);
@@ -487,7 +489,7 @@ public class ReadingData
 
         foreach (var entry in file.Highlights ?? [])
         {
-            var itemId = Match(userId, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
+            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
                 Unmatched(entry.Title, entry.Authors, entry.FileName);
@@ -608,6 +610,23 @@ public class ReadingData
     private static bool Valid(ExportedFont? entry) =>
         entry is { Data: { Length: > 0 and <= ReadingRules.MaxFontFileBytes } data } && FontFile.Read(data) is not null;
 
+    // Looks a book up once for one export or import, however many positions, bookmarks and highlights it
+    // holds: each lookup is a library query, two with the book's authors.
+    private Func<Guid, BookInfo?> Lookup(Guid userId)
+    {
+        var found = new Dictionary<Guid, BookInfo?>();
+        return itemId =>
+        {
+            if (!found.TryGetValue(itemId, out var book))
+            {
+                book = _catalog.Find(userId, itemId);
+                found[itemId] = book;
+            }
+
+            return book;
+        };
+    }
+
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 
     private static Guid? Only(IEnumerable<BookInfo> candidates)
@@ -616,9 +635,9 @@ public class ReadingData
         return found.Count == 1 ? found[0].ItemId : null;
     }
 
-    private Guid? Match(Guid userId, string? id, string? entryTitle, IReadOnlyList<string>? entryAuthors, string? entryFileName, Func<IReadOnlyList<BookInfo>> books)
+    private static Guid? Match(Func<Guid, BookInfo?> find, string? id, string? entryTitle, IReadOnlyList<string>? entryAuthors, string? entryFileName, Func<IReadOnlyList<BookInfo>> books)
     {
-        if (Guid.TryParse(id, out var itemId) && _catalog.Find(userId, itemId) is not null)
+        if (Guid.TryParse(id, out var itemId) && find(itemId) is not null)
         {
             return itemId;
         }

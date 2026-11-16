@@ -868,9 +868,14 @@ pass "the server log shows Oriel's schema steps and its imports, with ids and co
 # A deleted Jellyfin user's reading data goes with them: a user with a place, a
 # bookmark, a highlight, a theme, a font and choices is deleted through
 # Jellyfin's API, and oriel.db then holds none of their rows, while this run's
-# own user keeps theirs. oriel.db is copied out and read with node:sqlite.
+# own user keeps theirs. oriel.db is copied out and read with node:sqlite, with
+# its write-ahead log: while the server runs, the latest writes are only there.
 count_rows() {
+    rm -f "$work/rows.db" "$work/rows.db-wal" "$work/rows.db-shm"
     MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db" "$(hostpath "$work/rows.db")" >/dev/null || fail "copy oriel.db out of the server"
+    for part in wal shm; do
+        MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db-$part" "$(hostpath "$work/rows.db-$part")" >/dev/null 2>&1 || true
+    done
     node --no-warnings -e '
         const { DatabaseSync } = require("node:sqlite")
         const db = new DatabaseSync(process.argv[1], { readOnly: true })
@@ -997,12 +1002,16 @@ check_settings_in_browser "$base" chromium
 # A database from a newer Oriel never stops Jellyfin: it starts, the reader and
 # the web integration are served, Oriel's data endpoints answer 503
 # storeUnavailable, and the file is left as it was. The real database goes back
-# afterwards.
+# afterwards. It is copied out once the server has stopped, which writes the
+# write-ahead log back into oriel.db and removes it.
+docker stop "$container" >/dev/null || fail "docker stop"
 MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db" "$(hostpath "$work/oriel.db")" >/dev/null || fail "copy oriel.db out of the server"
+if MSYS_NO_PATHCONV=1 docker cp "$container:$data_dir/oriel.db-wal" "$(hostpath "$work/left.db-wal")" >/dev/null 2>&1; then
+    fail "oriel.db-wal is still there after the server stopped, so oriel.db alone is not the whole database"
+fi
 cp "$work/oriel.db" "$work/oriel-newer.db"
 node --no-warnings -e "const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(process.argv[1]); db.exec('UPDATE schema_version SET version = version + 1'); db.close()"     "$(hostpath "$work/oriel-newer.db")" || fail "could not make a newer oriel.db"
 planted="$(sha256sum "$work/oriel-newer.db" | cut -d' ' -f1)"
-docker stop "$container" >/dev/null || fail "docker stop"
 MSYS_NO_PATHCONV=1 docker cp "$(hostpath "$work/oriel-newer.db")" "$container:$data_dir/oriel.db" >/dev/null || fail "plant a newer oriel.db"
 docker start "$container" >/dev/null || fail "docker start"
 port="$(docker port "$container" 8096/tcp | head -1 | sed 's/.*://')"
