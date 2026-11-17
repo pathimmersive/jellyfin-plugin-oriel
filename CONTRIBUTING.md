@@ -1,6 +1,6 @@
 # Contributing to Oriel
 
-Thanks for your interest. Oriel is in early development, so please open an issue to discuss a change before starting on a pull request.
+Thanks for your interest. For anything larger than a small fix, please open an issue or a discussion before starting on a pull request, so the change can be agreed first.
 
 ## Questions and ideas
 
@@ -19,6 +19,23 @@ Security problems go through private reporting instead, never a public issue; se
 3. Write commit messages and the pull request title as [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `ci:` or `chore:`, then what changed.
 4. If users will notice the change, add a line for it under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md), in the section that fits (`Added`, `Changed`, `Fixed`, `Security`). A release's section becomes its release notes and the changelog in Jellyfin's plugin catalog.
 5. Open a pull request against `main`. CI runs the build, the tests and the smoke test; they must pass before the change can merge. Pull requests are squash-merged.
+
+## Making a release
+
+Releases are made by repository admins, from `main`.
+
+1. Move the lines under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md) into a new `## [X.Y.Z] - YYYY-MM-DD` section. That section becomes the release notes and the changelog in Jellyfin's plugin catalog, and a tag whose version has no section fails before anything is built.
+2. Before the first release, remove the "first release is in preparation" line from the README's Installing section. `scripts/check-community-files.sh --release` fails while it remains, and the release workflow runs it before building.
+3. Merge those changes through a pull request, then push a tag `vX.Y.Z` on `main`.
+
+Releases are switched off until the repository variable `RELEASES_ENABLED` is `true` (under **Settings**, Secrets and variables, Actions, Variables). While it is off, a pushed tag fails the release workflow's first job with "Releases are switched off", and nothing is built, released or published.
+
+When releases are on, the tag runs the release workflow:
+- it builds the plugin as version `X.Y.Z.0`;
+- it attaches `oriel_X.Y.Z.0.zip` and its SHA-256 (`oriel_X.Y.Z.0.zip.sha256`) to a GitHub release;
+- it publishes `manifest.json` to GitHub Pages with every earlier version still listed.
+
+The zip's build provenance is attested: `gh attestation verify oriel_X.Y.Z.0.zip --repo pathimmersive/jellyfin-plugin-oriel` shows it was built by this repository's release workflow. The build runs no dependency install scripts, the job that publishes builds nothing, and only repository admins can push `v*` tags. `scripts/package-plugin.py` does the packaging and can be run locally the same way.
 
 ## The logo
 

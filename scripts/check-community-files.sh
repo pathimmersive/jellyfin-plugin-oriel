@@ -4,8 +4,10 @@
 # Also checks the issue forms and their required fields, the issue chooser's
 # links to Discussions and private security reports, that contributions are
 # asked for a CHANGELOG.md line, and that releases take their notes from it.
+# With --release, also fails while the README still says the first release is
+# in preparation; the release workflow runs it that way before building.
 #
-# Usage: scripts/check-community-files.sh
+# Usage: scripts/check-community-files.sh [--release]
 #
 # A vendored package is a folder under src/reader/vendor with a LICENSE file;
 # a bundled library is a .js file or a folder under src/reader/vendor/*/vendor,
@@ -18,6 +20,8 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo"
 missing=0
+release_mode=0
+[ "${1:-}" = "--release" ] && release_mode=1
 
 fail() { echo "FAIL: $*" >&2; missing=$((missing + 1)); }
 pass() { echo "PASS: $*"; }
@@ -98,6 +102,18 @@ if [ -f README.md ] && grep -q -E '^## FAQ and troubleshooting' README.md; then
     pass "README.md has an FAQ and troubleshooting section"
 else
     fail "README.md has no '## FAQ and troubleshooting' section"
+fi
+if grep -q -E '^ +run: bash scripts/check-community-files\.sh --release$' "$release"; then
+    pass "the release workflow refuses a tag while the README says the release is in preparation"
+else
+    fail "$release does not run 'bash scripts/check-community-files.sh --release'"
+fi
+if [ "$release_mode" = 1 ]; then
+    if grep -q -i 'first release is in preparation' README.md; then
+        fail "README.md still says the first release is in preparation; remove that line before releasing"
+    else
+        pass "README.md does not say the first release is in preparation"
+    fi
 fi
 
 notices="THIRD_PARTY_NOTICES.md"

@@ -8,7 +8,7 @@ Include what is affected, the Jellyfin server version and the Oriel version or c
 
 ## Supported versions
 
-Oriel has no release yet. Fixes go into `main`; once releases exist, the latest release is supported.
+The latest release is supported. Fixes go into `main` and ship in the next release; please upgrade to it.
 
 ## Scope
 
