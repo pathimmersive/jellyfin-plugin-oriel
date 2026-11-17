@@ -6,8 +6,10 @@ Usage:
                     [--manifest EXISTING] [--changelog TEXT | --changelog-file CHANGELOG.md]
                     [--jellyfin-version V]
 
-The zip, oriel_X.Y.Z.0.zip, holds the plugin assembly, meta.json and the
-plugin's image, oriel.png, which meta.json names. Its download address in the
+The zip, oriel_X.Y.Z.0.zip, holds the plugin assembly, meta.json, the
+plugin's image, oriel.png, which meta.json names, and the repository's
+LICENSE and THIRD_PARTY_NOTICES.md, so every copy carries the licences of the
+code and fonts inside it. Its download address in the
 manifest is <url-base>/vX.Y.Z/oriel_X.Y.Z.0.zip, the layout of GitHub release
 downloads. oriel.png is also written beside the zip, to be released with it:
 the manifest's imageUrl, <url-base>/vX.Y.Z/oriel.png, is what Jellyfin's
@@ -33,6 +35,8 @@ import zipfile
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROJECT = os.path.join(REPO, "src", "Jellyfin.Plugin.Oriel", "Jellyfin.Plugin.Oriel.csproj")
 PLUGIN_FILES = ["Jellyfin.Plugin.Oriel.dll", "meta.json", "oriel.png"]
+# Taken from the repository root, as they are.
+NOTICE_FILES = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
 IMAGE = "oriel.png"
 NOTES = "notes.md"
 # A fixed time inside the zip, so the same build gives the same bytes and checksum.
@@ -113,8 +117,10 @@ def main():
         zip_name = f"oriel_{version}.zip"
         zip_path = os.path.join(args.out, zip_name)
         with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as z:
-            for name in PLUGIN_FILES:
-                with open(os.path.join(build, name), "rb") as f:
+            sources = [(name, os.path.join(build, name)) for name in PLUGIN_FILES]
+            sources += [(name, os.path.join(REPO, name)) for name in NOTICE_FILES]
+            for name, source in sources:
+                with open(source, "rb") as f:
                     info = zipfile.ZipInfo(name, ZIP_TIME)
                     info.compress_type = zipfile.ZIP_DEFLATED
                     info.external_attr = 0o644 << 16

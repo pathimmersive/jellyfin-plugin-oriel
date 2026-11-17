@@ -47,11 +47,12 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         target: 'es2022',
-        // The reader, and the Your reading data page beside it.
+        // The reader, and the Your reading data and Licenses pages beside it.
         rollupOptions: {
             input: {
                 index: fileURLToPath(new URL('./index.html', import.meta.url)),
                 data: fileURLToPath(new URL('./data.html', import.meta.url)),
+                licenses: fileURLToPath(new URL('./licenses.html', import.meta.url)),
             },
         },
     },
