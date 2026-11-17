@@ -64,7 +64,7 @@ assert sha256 == f"{hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()}  or
 assert version["changelog"] == "First test release.", version["changelog"]
 assert version["timestamp"].endswith("Z"), version["timestamp"]
 EOF
-pass "the zip holds only the plugin assembly, meta.json and its image at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5; the .sha256 file holds the zip's SHA-256 and name"
+pass "the zip holds only the plugin assembly, meta.json, its image, LICENSE and THIRD_PARTY_NOTICES.md at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5; the .sha256 file holds the zip's SHA-256 and name"
 
 package --version 0.9.1 --out "$work/second" --url-base "$url" --manifest "$work/first/manifest.json" \
     || fail "packaging 0.9.1 on top of 0.9.0"
