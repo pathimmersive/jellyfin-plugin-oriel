@@ -1,0 +1,10 @@
+/* The license texts: long, preformatted, wrapped to the screen. */
+.licenses-page pre {
+    margin: 12px 0 0;
+    padding: 12px;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.06);
+    font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}

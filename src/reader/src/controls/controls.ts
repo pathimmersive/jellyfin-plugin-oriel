@@ -20,6 +20,8 @@ export interface ControlsOptions {
     detailsUrl: string
     /** Your reading data for this book. */
     dataUrl: string
+    /** Oriel's license and the third-party notices. */
+    licensesUrl: string
     /** Goes to a fraction of the book, as a reader move. */
     seek(fraction: number): Promise<void>
     /** The Contents panel's rows, with the entry being read marked. */
@@ -85,6 +87,7 @@ const ICONS = {
     more: 'M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z',
     data: 'M9 3L5 6.99h3V14h2V6.99h3L9 3zm7 14.01V10h-2v7.01h-3L15 21l4-3.99h-3z',
     info: 'M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z',
+    licenses: 'M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z',
     toc: 'M3 9h14V7H3v2zm0 4h14v-2H3v2zm0 4h14v-2H3v2zm16 0h2v-2h-2v2zm0-10v2h2V7h-2zm0 6h2v-2h-2v2z',
     close: 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z',
     prefs: 'M5 3h2v6H5zM5 13h2v8H5zM3 9h6v4H3zM11 3h2v2h-2zM11 9h2v12h-2zM9 5h6v4H9zM17 3h2v10h-2zM17 17h2v4h-2zM15 13h6v4h-6z',
@@ -248,7 +251,8 @@ export const createControls = (root: HTMLElement, options: ControlsOptions): Con
     const showGestures = element('button', { type: 'button' }, `${icon(ICONS.gesture)}<span>Show reading gestures</span>`)
     const searchItem = element('button', { type: 'button' }, `${icon(ICONS.search)}<span>Search in this book</span>`)
     if (options.search) more.append(searchItem)
-    more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'))
+    more.append(link(options.dataUrl, ICONS.data, 'Your reading data'), showGestures, link(options.detailsUrl, ICONS.info, 'Book details in Jellyfin'),
+        link(options.licensesUrl, ICONS.licenses, 'Licenses'))
 
     // Contents: a sheet over a dimmed page on a phone, a panel beside the page
     // on a wider screen, with a tab for the book's contents, one for its

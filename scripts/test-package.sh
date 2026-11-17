@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Checks scripts/package-plugin.py on its own: the zip holds only the plugin
-# assembly, meta.json and the image meta.json names, at the requested version;
+# assembly, meta.json and the image meta.json names, at the requested version,
+# with LICENSE and THIRD_PARTY_NOTICES.md exactly as the repository holds them;
 # the image is written beside the zip and named as the manifest's imageUrl; the manifest entry matches
 # meta.json and the zip's MD5, a later release keeps the earlier versions, and a
 # repeated version or a malformed version fails without writing anything.
@@ -30,13 +31,15 @@ pass "a malformed version is refused and writes nothing"
 
 package --version 0.9.0 --out "$work/first" --url-base "$url" --changelog "First test release." \
     || fail "packaging 0.9.0"
-"$py" - "$work/first" "$url" <<'EOF' || fail "the 0.9.0 package is not as expected"
+"$py" - "$work/first" "$url" "$repo" <<'EOF' || fail "the 0.9.0 package is not as expected"
 import hashlib, json, sys, zipfile
-out, url = sys.argv[1], sys.argv[2]
+out, url, repo = sys.argv[1], sys.argv[2], sys.argv[3]
 zip_path = f"{out}/oriel_0.9.0.0.zip"
 with zipfile.ZipFile(zip_path) as z:
     names = sorted(z.namelist())
-    assert names == ["Jellyfin.Plugin.Oriel.dll", "meta.json", "oriel.png"], f"zip holds {names}"
+    assert names == ["Jellyfin.Plugin.Oriel.dll", "LICENSE", "THIRD_PARTY_NOTICES.md", "meta.json", "oriel.png"], f"zip holds {names}"
+    for notice in ["LICENSE", "THIRD_PARTY_NOTICES.md"]:
+        assert z.read(notice) == open(f"{repo}/{notice}", "rb").read(), f"{notice} in the zip differs from the repository's"
     meta = json.loads(z.read("meta.json"))
     image = z.read("oriel.png")
 assert meta["imagePath"] == "oriel.png", f"meta.json imagePath {meta.get('imagePath')!r}"
@@ -61,7 +64,7 @@ assert sha256 == f"{hashlib.sha256(open(zip_path, 'rb').read()).hexdigest()}  or
 assert version["changelog"] == "First test release.", version["changelog"]
 assert version["timestamp"].endswith("Z"), version["timestamp"]
 EOF
-pass "the zip holds only the plugin assembly, meta.json and its image at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5; the .sha256 file holds the zip's SHA-256 and name"
+pass "the zip holds only the plugin assembly, meta.json, its image, LICENSE and THIRD_PARTY_NOTICES.md at 0.9.0.0; the image is the manifest's imageUrl; the manifest matches meta.json and the zip's MD5; the .sha256 file holds the zip's SHA-256 and name"
 
 package --version 0.9.1 --out "$work/second" --url-base "$url" --manifest "$work/first/manifest.json" \
     || fail "packaging 0.9.1 on top of 0.9.0"

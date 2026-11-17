@@ -314,6 +314,7 @@ const start = async (): Promise<void> => {
             title: opened.title,
             detailsUrl: `${basePath}/web/#/details?id=${encodeURIComponent(itemId)}`,
             dataUrl: `${basePath}/Oriel/data.html?id=${encodeURIComponent(itemId)}`,
+            licensesUrl: `${basePath}/Oriel/licenses.html?id=${encodeURIComponent(itemId)}`,
             seek: fraction => opened.seek(fraction),
             contents: () => {
                 const counted = settings.progress === 'pages' ? count : null
