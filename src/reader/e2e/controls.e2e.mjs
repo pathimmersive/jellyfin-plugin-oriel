@@ -120,11 +120,29 @@ try {
     const dataUrl = `${base}/Oriel/data.html?id=${itemId}`
     if (await data.evaluate(a => a.href) !== dataUrl) fail(`Your reading data goes to ${await data.evaluate(a => a.href)}, expected ${dataUrl}`)
     if (await details.evaluate(a => a.href) !== detailsUrl) fail(`Book details goes to ${await details.evaluate(a => a.href)}`)
+    const licenses = page.getByRole('link', { name: 'Licenses' })
+    const licensesUrl = `${base}/Oriel/licenses.html?id=${itemId}`
+    if (!await licenses.isVisible()) fail('More does not list Licenses')
+    if (await licenses.evaluate(a => a.href) !== licensesUrl) fail(`Licenses goes to ${await licenses.evaluate(a => a.href)}, expected ${licensesUrl}`)
+    // The Licenses page shows Oriel's license and the third-party notices under the reader's policy.
+    const licensesPage = await page.context().newPage()
+    const licensesResponse = await licensesPage.goto(licensesUrl)
+    const licensesPolicy = (await licensesResponse.allHeaders())['content-security-policy'] ?? ''
+    if (!/script-src 'self'(;|$)/.test(licensesPolicy)) fail(`the Licenses page's Content-Security-Policy is '${licensesPolicy}'`)
+    await until(async () => (await licensesPage.locator('#license').innerText()).includes('GNU GENERAL PUBLIC LICENSE'),
+        'the Licenses page does not show the GNU General Public License')
+    const noticesText = await licensesPage.locator('#notices').innerText()
+    for (const name of ['foliate-js', 'PDF.js', 'WordNet', 'SIL Open Font License']) {
+        if (!noticesText.includes(name)) fail(`the Licenses page's notices do not name ${name}`)
+    }
+    const licensesBack = await licensesPage.locator('#back').evaluate(a => a.href)
+    if (licensesBack !== `${base}/Oriel/?id=${itemId}`) fail(`the Licenses page's Back goes to ${licensesBack}`)
+    await licensesPage.close()
     await page.locator('#more-backdrop').click({ position: { x: 20, y: 300 } })
     await until(async () => !await data.isVisible(), 'a tap outside More did not close it')
     if (!await shown(page)) fail('a tap outside More hid the controls')
     if (await position(page) !== before) fail('a tap outside More turned the page')
-    pass('More links to Your reading data and the book\'s details, and a tap outside closes it without turning')
+    pass("More links to Your reading data, the book's details and Licenses, whose page shows the GPL and the notices under the reader's policy, and a tap outside closes it without turning")
 
     // Releasing the slider moves the book, saved and mirrored, controls kept.
     // The target is far from where the book is, so the move is a real one: a

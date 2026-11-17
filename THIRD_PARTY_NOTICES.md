@@ -1,6 +1,8 @@
 # Third-party notices
 
-Oriel is licensed under the GNU General Public License v3.0 or later. It ships the third-party code, fonts and data below, each under its own license. The code's licenses are compatible with GPL-3.0. The fonts are under free font licenses, such as the SIL Open Font License, and ship as separate font files beside the code, not combined with it.
+Oriel is licensed under the GNU General Public License v3.0 or later. It ships the third-party code, fonts and data below, each under its own license. The code's licenses are compatible with GPL-3.0. The fonts are under free font licenses, such as the SIL Open Font License. They are embedded in the plugin's assembly, each as a resource of its own, and served to the browser as separate font files; they are not combined with the code.
+
+This file and Oriel's LICENSE travel with every copy: in each release's zip, and in the reader under More, Licenses.
 
 Not shipped, and so not listed: the Jellyfin libraries, which the server provides at runtime; and the npm packages used only to build and test the reader.
 
