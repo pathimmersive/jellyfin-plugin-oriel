@@ -1111,6 +1111,37 @@ code="$(curl -s -o "$work/image" -w '%{http_code}' "$prefix/web/oriel-repo/v$rep
 cmp -s "$work/image" "$repo/src/Jellyfin.Plugin.Oriel/oriel.png" || fail "the catalog image at $image_url is not the plugin's oriel.png"
 pass "the catalog lists $PLUGIN_NAME with its image, served at $image_url"
 
+# The install below is an upgrade of the build running now. Reading data saved
+# before it must come back unchanged after it: a place, a bookmark and a highlight.
+code="$(get_status -H "Authorization: $token_header" "$prefix/Oriel/Highlighters")"
+[ "$code" = "200" ] || fail "GET /Oriel/Highlighters returned $code"
+colour="$(json_str id < "$work/body")"
+[ -n "$colour" ] || fail "the user has no highlighter to highlight with: $(cat "$work/body")"
+code="$(get_status -X PUT -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"cfi":"epubcfi(/6/6!/4/2/1:0)","fraction":0.42}' "$prefix/Oriel/Positions/$item_id")"
+[ "$code" = "200" ] || fail "saving a place before the upgrade returned $code: $(cat "$work/body")"
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d '{"cfi":"epubcfi(/6/6!/4/2/1:0)","fraction":0.42,"text":"Kept across the upgrade."}' "$prefix/Oriel/Bookmarks/$item_id")"
+[ "$code" = "200" ] || [ "$code" = "201" ] || fail "adding a bookmark before the upgrade returned $code: $(cat "$work/body")"
+code="$(get_status -X POST -H 'Content-Type: application/json' -H "Authorization: $token_header" \
+    -d "{\"cfi\":\"epubcfi(/6/6!/4/2,/1:0,/1:8)\",\"fraction\":0.42,\"colour\":\"$colour\",\"text\":\"Kept too\",\"note\":\"A note kept across the upgrade.\"}" \
+    "$prefix/Oriel/Highlights/$item_id")"
+[ "$code" = "200" ] || [ "$code" = "201" ] || fail "adding a highlight before the upgrade returned $code: $(cat "$work/body")"
+# What the user's data reads as before the upgrade, one file per endpoint.
+snapshot() {
+    local into="$1" kind
+    mkdir -p "$into"
+    for kind in Positions Bookmarks Highlights; do
+        code="$(get_status -H "Authorization: $token_header" "$prefix/Oriel/$kind/$item_id")"
+        # No place saved answers 404; recorded as such, so a lost place shows in the comparison.
+        [ "$code" = "200" ] || [ "$code" = "404" ] || fail "GET /Oriel/$kind/$item_id returned $code"
+        { echo "HTTP $code"; cat "$work/body"; } > "$into/$kind.json"
+    done
+}
+snapshot "$work/before-upgrade"
+grep -q "Kept across the upgrade." "$work/before-upgrade/Bookmarks.json" || fail "the bookmark saved before the upgrade is not listed"
+grep -q "A note kept across the upgrade." "$work/before-upgrade/Highlights.json" || fail "the highlight saved before the upgrade is not listed"
+
 repo_url_query="$("$py" -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$repo_inside/manifest.json")"
 code="$(get_status -X POST -H "Authorization: $token_header" \
     "$prefix/Packages/Installed/$PLUGIN_NAME?assemblyGuid=$PLUGIN_ID&version=$repo_version.0&repositoryUrl=$repo_url_query")"
@@ -1121,12 +1152,21 @@ prefix="http://127.0.0.1:$port/jf"
 wait_ready "$prefix"
 code="$(get_status -H "Authorization: $token_header" "$prefix/Plugins")"
 [ "$code" = "200" ] || fail "GET /Plugins returned $code"
+cp "$work/body" "$work/plugins.json"
 entry="$(sed 's/},{/}\n{/g' "$work/body" | grep "\"Name\":\"$PLUGIN_NAME\"" | grep "\"Version\":\"$repo_version.0\"" || true)"
 [ -n "$entry" ] || fail "after installing from the repository, /Plugins does not list $PLUGIN_NAME $repo_version.0: $(cat "$work/body")"
 [ "$(echo "$entry" | json_str Status)" = "Active" ] || fail "$PLUGIN_NAME $repo_version.0 is not Active: $entry"
 code="$(get_status "$prefix/Oriel/")"
 [ "$code" = "200" ] || fail "after installing from the repository GET /Oriel/ returned $code"
 pass "$PLUGIN_NAME $repo_version.0 installs from the repository, is Active after a restart and serves the reader"
+count="$(sed 's/},{/}\n{/g' "$work/plugins.json" | grep -c "\"Name\":\"$PLUGIN_NAME\"" || true)"
+[ "$count" = "1" ] || fail "after the upgrade /Plugins lists $PLUGIN_NAME $count times, expected only $repo_version.0: $(cat "$work/plugins.json")"
+snapshot "$work/after-upgrade"
+for kind in Positions Bookmarks Highlights; do
+    cmp -s "$work/before-upgrade/$kind.json" "$work/after-upgrade/$kind.json" \
+        || fail "the upgrade lost or changed the user's $kind: before $(cat "$work/before-upgrade/$kind.json"), after $(cat "$work/after-upgrade/$kind.json")"
+done
+pass "upgrading to $PLUGIN_NAME $repo_version.0 from the repository keeps the user's place, bookmarks and highlights unchanged, and only $repo_version.0 is loaded"
 check_plugin_image "$prefix" "$repo_version.0"
 
 echo "smoke-plugin: all checks passed"
