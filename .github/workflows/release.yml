@@ -10,8 +10,12 @@ name: Release
 # zip, its image, its SHA-256, its release notes and the manifest on as the
 # artifact "release". The notes are the version's CHANGELOG.md section, and a
 # version with no section fails the packaging. release builds nothing and checks
-# out nothing: it attests the zip it was given and creates the GitHub release.
-# Only release can write to the repository.
+# out nothing: it attests the zip it was given and creates the GitHub release
+# as a draft. publish deploys the manifest to Pages, and only then go-live
+# publishes the draft, so a failure leaves a draft, never a release with no
+# manifest. A rerun replaces the draft's files and notes. build checks first
+# that CI passed on the tagged commit. Only release and go-live can write to
+# the repository, and neither checks anything out.
 #
 # Releases are switched off until the repository variable RELEASES_ENABLED is
 # set to true. Until then the guard job fails and every other job waits on it,
@@ -49,6 +53,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      checks: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -60,6 +65,16 @@ jobs:
             || { echo "::error::$GITHUB_REF_NAME is not a commit on main"; exit 1; }
       - name: Check the README is ready for a release
         run: bash scripts/check-community-files.sh --release
+      - name: Check CI passed on the tagged commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for check in build-and-test smoke; do
+            conclusion="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=$check" \
+              --jq '[.check_runs[] | select(.conclusion == "success")] | length')"
+            [ "$conclusion" -gt 0 ] \
+              || { echo "::error::$check has not passed on $GITHUB_SHA; tag a commit whose CI on main is green"; exit 1; }
+          done
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 10.0.x
@@ -119,11 +134,25 @@ jobs:
       - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: dist/oriel_*.zip
-      - name: Create the release
+      # A draft until the manifest is on Pages. A rerun finds the draft an
+      # earlier run left and replaces its files and notes.
+      - name: Create the draft release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" dist/oriel_*.zip dist/oriel_*.zip.sha256 dist/oriel.png --title "Oriel $GITHUB_REF_NAME" --notes-file dist/notes.md --verify-tag
+        run: |
+          draft="$(gh release view "$GITHUB_REF_NAME" --json isDraft --jq .isDraft 2>/dev/null || echo none)"
+          case "$draft" in
+            none)
+              gh release create "$GITHUB_REF_NAME" --draft --notes-file dist/notes.md --verify-tag \
+                --title "Oriel $GITHUB_REF_NAME" dist/oriel_*.zip dist/oriel_*.zip.sha256 dist/oriel.png ;;
+            true)
+              gh release upload "$GITHUB_REF_NAME" dist/oriel_*.zip dist/oriel_*.zip.sha256 dist/oriel.png --clobber
+              gh release edit "$GITHUB_REF_NAME" --title "Oriel $GITHUB_REF_NAME" --notes-file dist/notes.md ;;
+            *)
+              echo "::error::$GITHUB_REF_NAME is already published; release a new version instead"
+              exit 1 ;;
+          esac
 
   publish:
     needs: release
@@ -138,3 +167,17 @@ jobs:
     steps:
       - id: deploy
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # Last: the release goes public only once its manifest is on Pages.
+  go-live:
+    needs: publish
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
