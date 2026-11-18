@@ -124,6 +124,26 @@ public sealed class StoreUnavailableTests : IDisposable
     }
 
     [Fact]
+    public void AnswersASaveThatWaitsOutAnotherWritersLockWith503()
+    {
+        var store = new StoreSet(DatabasePath);
+        store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/4!/4/2/1:0)", 0.1, DateTimeOffset.UtcNow));
+        using var writer = store.Database.OpenConnection();
+        OrielDatabase.Execute(writer, "BEGIN IMMEDIATE");
+
+        var thrown = Record.Exception(() => store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/4!/4/2/1:9)", 0.2, DateTimeOffset.UtcNow)));
+        OrielDatabase.Execute(writer, "ROLLBACK");
+        Assert.NotNull(thrown);
+        var context = Failed(thrown);
+        new StoreUnavailableAttribute().OnException(context);
+
+        Assert.True(context.ExceptionHandled, $"{thrown.GetType().Name} was not answered");
+        var result = Assert.IsType<ObjectResult>(context.Result);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+        Assert.Equal("storeUnavailable", Assert.IsType<StoreUnavailableAttribute.Unavailable>(result.Value).Reason);
+    }
+
+    [Fact]
     public void LeavesAnyOtherFailureAlone()
     {
         var context = Failed(new InvalidOperationException());

@@ -487,11 +487,12 @@ internal sealed class StoreConnection : IDisposable
     /// </summary>
     /// <param name="table">The table.</param>
     /// <param name="userId">The user.</param>
-    public void Added(string table, Guid userId)
+    /// <param name="rows">How many rows were added.</param>
+    public void Added(string table, Guid userId, int rows = 1)
     {
         if (_shared is not null && _shared.Counts.TryGetValue((table, userId), out var count))
         {
-            _shared.Counts[(table, userId)] = count + 1;
+            _shared.Counts[(table, userId)] = count + rows;
         }
     }
 
