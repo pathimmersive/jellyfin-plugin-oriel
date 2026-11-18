@@ -78,16 +78,17 @@ const clear = async id => {
     }
 }
 const BOOKMARKS_FULL = 'You have 5,000 bookmarks, the most Oriel keeps. Remove one to add another.'
-// Fills a user's bookmarks to the limit on a book, by importing them.
+// Fills a user's bookmarks to the limit on a book, by importing them, and says how long the import took.
 const fillBookmarks = async (id, as, from = 0) => {
     const now = new Date().toISOString()
     const file = {
         format: 'oriel-reading-data', version: 6, exportedAt: now, positions: [],
         bookmarks: Array.from({ length: 5000 }, (_, i) => ({ itemId: id, cfi: `epubcfi(/6/2!/4/2/1:${from + i})`, fraction: 0.01, text: `Planted ${from + i}`, createdAt: now })),
     }
+    const started = performance.now()
     const response = await fetch(`${base}/Oriel/Import`, { method: 'POST', headers: { Authorization: as, 'Content-Type': 'application/json' }, body: JSON.stringify(file) })
     if (!response.ok) fail(`importing 5,000 bookmarks returned ${response.status}`)
-    return response.json()
+    return { ...(await response.json()), seconds: ((performance.now() - started) / 1000).toFixed(1) }
 }
 // A user for the limit check, signed in: deleting the user afterwards deletes
 // their 5,000 bookmarks with them, where removing them one by one takes minutes.
@@ -390,7 +391,7 @@ try {
     if (!same(await state(await shownButton(page)), BOOKMARK)) fail(`at the limit the button shows ${JSON.stringify(await state(await shownButton(page)))}`)
     const again = await fillBookmarks(comicId, limitAuthorization, 5000)
     if (again.bookmarks !== 0 || again.limited?.join() !== 'bookmarks') fail(`importing past the limit gave ${JSON.stringify({ bookmarks: again.bookmarks, limited: again.limited })}`)
-    pass(`at 5,000 bookmarks the button says '${BOOKMARKS_FULL}', nothing more is kept, and an import past it names the limit`)
+    pass(`at 5,000 bookmarks the button says '${BOOKMARKS_FULL}', nothing more is kept, and an import past it names the limit (importing 5,000 took ${planted.seconds} s)`)
     await limitContext.close()
     await removeUser(limitUser.id)
     limitUser = null

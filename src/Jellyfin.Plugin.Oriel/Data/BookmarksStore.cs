@@ -136,6 +136,64 @@ public class BookmarksStore
     }
 
     /// <summary>
+    /// Adds bookmarks to a user's books in one transaction, leaving out any already at the same book and CFI.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="bookmarks">The bookmarks, in the order they are added.</param>
+    /// <returns>How many were added, and whether the rest were left out at <see cref="ReadingRules.MaxBookmarks"/>.</returns>
+    /// <remarks>The user's bookmarks are counted once, and one insert is reused for every one.</remarks>
+    public (int Added, bool Limited) AddMany(Guid userId, IEnumerable<(Guid ItemId, string Cfi, double Fraction, string Text, DateTimeOffset CreatedAt)> bookmarks)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        var count = connection.Count("bookmarks", userId);
+        using var insert = connection.CreateCommand();
+        insert.CommandText =
+            """
+            INSERT INTO bookmarks (id, user_id, item_id, cfi, fraction, text, created_at)
+            VALUES ($id, $user, $item, $cfi, $fraction, $text, $created)
+            ON CONFLICT (user_id, item_id, cfi) DO NOTHING
+            """;
+        var id = insert.Parameters.Add("$id", SqliteType.Text);
+        insert.Parameters.AddWithValue("$user", OrielDatabase.Key(userId));
+        var item = insert.Parameters.Add("$item", SqliteType.Text);
+        var cfi = insert.Parameters.Add("$cfi", SqliteType.Text);
+        var fraction = insert.Parameters.Add("$fraction", SqliteType.Real);
+        var text = insert.Parameters.Add("$text", SqliteType.Text);
+        var created = insert.Parameters.Add("$created", SqliteType.Text);
+        var added = 0;
+        var limited = false;
+        foreach (var entry in bookmarks)
+        {
+            if (count >= ReadingRules.MaxBookmarks)
+            {
+                // At the limit only one the user already has may pass, and it changes nothing.
+                if (connection.Exists("bookmarks", userId, entry.ItemId, entry.Cfi))
+                {
+                    continue;
+                }
+
+                limited = true;
+                break;
+            }
+
+            id.Value = OrielDatabase.Key(Guid.NewGuid());
+            item.Value = OrielDatabase.Key(entry.ItemId);
+            cfi.Value = entry.Cfi;
+            fraction.Value = entry.Fraction;
+            text.Value = entry.Text;
+            created.Value = OrielDatabase.Time(entry.CreatedAt);
+            var rows = insert.ExecuteNonQuery();
+            added += rows;
+            count += rows;
+        }
+
+        transaction.Commit();
+        connection.Added("bookmarks", userId, added);
+        return (added, limited);
+    }
+
+    /// <summary>
     /// Removes one of a user's bookmarks in a book.
     /// </summary>
     /// <param name="userId">The user.</param>

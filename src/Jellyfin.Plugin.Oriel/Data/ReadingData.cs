@@ -396,9 +396,10 @@ public class ReadingData
     /// <returns>What was imported, kept and left unmatched, and the limits reached.</returns>
     /// <exception cref="ImportRunningException">Another import is running on the server.</exception>
     /// <remarks>
-    /// It runs in one transaction: when any part fails, nothing is stored. Bookmarks and highlights
-    /// past the user's limits are left out and the rest imports. One import runs at a time on the
-    /// server, since its transaction holds the database's write lock.
+    /// Every entry's book is found before the transaction begins, so the database's write lock is
+    /// held only while the import writes. It runs in one transaction: when any part fails, nothing is
+    /// stored. Bookmarks and highlights past the user's limits are left out and the rest imports. One
+    /// import runs at a time on the server, since its transaction holds the database's write lock.
     /// </remarks>
     public ImportResult Import(Guid userId, ReadingDataFile file)
     {
@@ -409,7 +410,12 @@ public class ReadingData
 
         try
         {
-            return _database.RunInTransaction(() => ImportAll(userId, file));
+            var books = new BookMatcher(_catalog, userId);
+            var matched = new MatchedFile(
+                file.Positions!.Select(entry => books.Match(entry!.ItemId, entry.Title, entry.Authors, entry.FileName)).ToList(),
+                (file.Bookmarks ?? []).Select(entry => books.Match(entry!.ItemId, entry.Title, entry.Authors, entry.FileName)).ToList(),
+                (file.Highlights ?? []).Select(entry => books.Match(entry!.ItemId, entry.Title, entry.Authors, entry.FileName)).ToList());
+            return _database.RunInTransaction(() => ImportAll(userId, file, matched));
         }
         finally
         {
@@ -417,10 +423,8 @@ public class ReadingData
         }
     }
 
-    private ImportResult ImportAll(Guid userId, ReadingDataFile file)
+    private ImportResult ImportAll(Guid userId, ReadingDataFile file, MatchedFile matched)
     {
-        IReadOnlyList<BookInfo>? books = null;
-        var find = Lookup(userId);
         var limited = new List<string>();
         int imported = 0, kept = 0, bookmarks = 0, highlights = 0;
         var unmatched = new List<UnmatchedBook>();
@@ -434,12 +438,11 @@ public class ReadingData
             }
         }
 
-        foreach (var entry in file.Positions!)
+        foreach (var (entry, itemId) in file.Positions!.Zip(matched.Positions))
         {
-            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
-                Unmatched(entry.Title, entry.Authors, entry.FileName);
+                Unmatched(entry!.Title, entry.Authors, entry.FileName);
                 continue;
             }
 
@@ -455,27 +458,22 @@ public class ReadingData
             imported++;
         }
 
-        foreach (var entry in file.Bookmarks ?? [])
+        var toBookmark = new List<(Guid, string, double, string, DateTimeOffset)>();
+        foreach (var (entry, itemId) in (file.Bookmarks ?? []).Zip(matched.Bookmarks))
         {
-            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
-                Unmatched(entry.Title, entry.Authors, entry.FileName);
+                Unmatched(entry!.Title, entry.Authors, entry.FileName);
                 continue;
             }
 
-            try
-            {
-                if (_stores.Bookmarks.Add(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value).Added)
-                {
-                    bookmarks++;
-                }
-            }
-            catch (LimitReachedException reached)
-            {
-                limited.Add(reached.Limit);
-                break;
-            }
+            toBookmark.Add((itemId.Value, entry!.Cfi!, entry.Fraction!.Value, entry.Text!, entry.CreatedAt!.Value));
+        }
+
+        (bookmarks, var bookmarksLimited) = _stores.Bookmarks.AddMany(userId, toBookmark);
+        if (bookmarksLimited)
+        {
+            limited.Add("bookmarks");
         }
 
         // The file's own highlighters the user does not have join the user's, while there is room.
@@ -498,27 +496,22 @@ public class ReadingData
             _stores.Highlighters.Replace(userId, own);
         }
 
-        foreach (var entry in file.Highlights ?? [])
+        var toHighlight = new List<(Guid, string, double, string, string, DateTimeOffset, string)>();
+        foreach (var (entry, itemId) in (file.Highlights ?? []).Zip(matched.Highlights))
         {
-            var itemId = Match(find, entry!.ItemId, entry.Title, entry.Authors, entry.FileName, () => books ??= _catalog.Books(userId));
             if (itemId is null)
             {
-                Unmatched(entry.Title, entry.Authors, entry.FileName);
+                Unmatched(entry!.Title, entry.Authors, entry.FileName);
                 continue;
             }
 
-            try
-            {
-                if (_stores.Highlights.Add(userId, itemId.Value, entry.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : ReadingRules.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty).Added)
-                {
-                    highlights++;
-                }
-            }
-            catch (LimitReachedException reached)
-            {
-                limited.Add(reached.Limit);
-                break;
-            }
+            toHighlight.Add((itemId.Value, entry!.Cfi!, entry.Fraction!.Value, ids.Contains(entry.Colour!) ? entry.Colour! : ReadingRules.FallbackHighlighter, entry.Text!, entry.CreatedAt!.Value, entry.Note ?? string.Empty));
+        }
+
+        (highlights, var highlightsLimited) = _stores.Highlights.AddMany(userId, toHighlight);
+        if (highlightsLimited)
+        {
+            limited.Add("highlights");
         }
 
         var (themes, fonts, choices) = ImportSetup(userId, file);
@@ -640,32 +633,85 @@ public class ReadingData
 
     private static string Normalize(string? value) => (value ?? string.Empty).Trim().ToUpperInvariant();
 
-    private static Guid? Only(IEnumerable<BookInfo> candidates)
-    {
-        var found = candidates.Take(2).ToList();
-        return found.Count == 1 ? found[0].ItemId : null;
-    }
+    // Each entry's book, in the file's order: null where none matched.
+    private sealed record MatchedFile(IReadOnlyList<Guid?> Positions, IReadOnlyList<Guid?> Bookmarks, IReadOnlyList<Guid?> Highlights);
 
-    private static Guid? Match(Func<Guid, BookInfo?> find, string? id, string? entryTitle, IReadOnlyList<string>? entryAuthors, string? entryFileName, Func<IReadOnlyList<BookInfo>> books)
+    // Finds the book an entry belongs to. Each id is looked up once, and the user's books are read
+    // once and indexed by title and authors and by file name, when an entry first needs them.
+    private sealed class BookMatcher(IBookCatalog catalog, Guid userId)
     {
-        if (Guid.TryParse(id, out var itemId) && find(itemId) is not null)
-        {
-            return itemId;
-        }
+        private readonly Dictionary<Guid, BookInfo?> _found = [];
+        private Dictionary<string, List<BookInfo>>? _byTitle;
+        private Dictionary<string, List<BookInfo>>? _byFileName;
 
-        var title = Normalize(entryTitle);
-        if (title.Length > 0)
+        public Guid? Match(string? id, string? title, IReadOnlyList<string>? authors, string? fileName)
         {
-            var authors = (entryAuthors ?? []).Select(Normalize).Order().ToList();
-            var byTitle = Only(books().Where(book =>
-                Normalize(book.Title) == title && book.Authors.Select(Normalize).Order().SequenceEqual(authors)));
-            if (byTitle is not null)
+            if (Guid.TryParse(id, out var itemId) && Find(itemId) is not null)
+            {
+                return itemId;
+            }
+
+            var titleKey = Normalize(title);
+            if (titleKey.Length > 0 && Only(Index().ByTitle, TitleKey(titleKey, authors ?? [])) is { } byTitle)
             {
                 return byTitle;
             }
+
+            var fileKey = Normalize(fileName);
+            return fileKey.Length > 0 ? Only(Index().ByFileName, fileKey) : null;
         }
 
-        var fileName = Normalize(entryFileName);
-        return fileName.Length > 0 ? Only(books().Where(book => Normalize(book.FileName) == fileName)) : null;
+        // A normalised title with its normalised authors in order, so authors match in any order.
+        private static string TitleKey(string normalizedTitle, IEnumerable<string> authors) =>
+            string.Join('\0', [normalizedTitle, .. authors.Select(Normalize).Order(StringComparer.Ordinal)]);
+
+        private static Guid? Only(Dictionary<string, List<BookInfo>> index, string key) =>
+            index.TryGetValue(key, out var books) && books.Count == 1 ? books[0].ItemId : null;
+
+        private static void Add(Dictionary<string, List<BookInfo>> index, string key, BookInfo book)
+        {
+            if (!index.TryGetValue(key, out var books))
+            {
+                index[key] = books = [];
+            }
+
+            books.Add(book);
+        }
+
+        private BookInfo? Find(Guid itemId)
+        {
+            if (!_found.TryGetValue(itemId, out var book))
+            {
+                book = catalog.Find(userId, itemId);
+                _found[itemId] = book;
+            }
+
+            return book;
+        }
+
+        private (Dictionary<string, List<BookInfo>> ByTitle, Dictionary<string, List<BookInfo>> ByFileName) Index()
+        {
+            if (_byTitle is null || _byFileName is null)
+            {
+                _byTitle = new Dictionary<string, List<BookInfo>>(StringComparer.Ordinal);
+                _byFileName = new Dictionary<string, List<BookInfo>>(StringComparer.Ordinal);
+                foreach (var book in catalog.Books(userId))
+                {
+                    var title = Normalize(book.Title);
+                    if (title.Length > 0)
+                    {
+                        Add(_byTitle, TitleKey(title, book.Authors), book);
+                    }
+
+                    var fileName = Normalize(book.FileName);
+                    if (fileName.Length > 0)
+                    {
+                        Add(_byFileName, fileName, book);
+                    }
+                }
+            }
+
+            return (_byTitle, _byFileName);
+        }
     }
 }

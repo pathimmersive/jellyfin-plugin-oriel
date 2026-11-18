@@ -142,6 +142,68 @@ public class HighlightsStore
     }
 
     /// <summary>
+    /// Adds highlights to a user's books in one transaction, leaving out any already at the same book and CFI.
+    /// </summary>
+    /// <param name="userId">The user.</param>
+    /// <param name="highlights">The highlights, in the order they are added.</param>
+    /// <returns>How many were added, and whether the rest were left out at <see cref="ReadingRules.MaxHighlights"/>.</returns>
+    /// <remarks>The user's highlights are counted once, and one insert is reused for every one.</remarks>
+    public (int Added, bool Limited) AddMany(Guid userId, IEnumerable<(Guid ItemId, string Cfi, double Fraction, string Colour, string Text, DateTimeOffset CreatedAt, string Note)> highlights)
+    {
+        using var connection = _database.Open();
+        using var transaction = connection.BeginTransaction();
+        var count = connection.Count("highlights", userId);
+        using var insert = connection.CreateCommand();
+        insert.CommandText =
+            """
+            INSERT INTO highlights (id, user_id, item_id, cfi, fraction, colour, text, note, created_at)
+            VALUES ($id, $user, $item, $cfi, $fraction, $colour, $text, $note, $created)
+            ON CONFLICT (user_id, item_id, cfi) DO NOTHING
+            """;
+        var id = insert.Parameters.Add("$id", SqliteType.Text);
+        insert.Parameters.AddWithValue("$user", OrielDatabase.Key(userId));
+        var item = insert.Parameters.Add("$item", SqliteType.Text);
+        var cfi = insert.Parameters.Add("$cfi", SqliteType.Text);
+        var fraction = insert.Parameters.Add("$fraction", SqliteType.Real);
+        var colour = insert.Parameters.Add("$colour", SqliteType.Text);
+        var text = insert.Parameters.Add("$text", SqliteType.Text);
+        var note = insert.Parameters.Add("$note", SqliteType.Text);
+        var created = insert.Parameters.Add("$created", SqliteType.Text);
+        var added = 0;
+        var limited = false;
+        foreach (var entry in highlights)
+        {
+            if (count >= ReadingRules.MaxHighlights)
+            {
+                // At the limit only one the user already has may pass, and it changes nothing.
+                if (connection.Exists("highlights", userId, entry.ItemId, entry.Cfi))
+                {
+                    continue;
+                }
+
+                limited = true;
+                break;
+            }
+
+            id.Value = OrielDatabase.Key(Guid.NewGuid());
+            item.Value = OrielDatabase.Key(entry.ItemId);
+            cfi.Value = entry.Cfi;
+            fraction.Value = entry.Fraction;
+            colour.Value = entry.Colour;
+            text.Value = entry.Text;
+            note.Value = entry.Note;
+            created.Value = OrielDatabase.Time(entry.CreatedAt);
+            var rows = insert.ExecuteNonQuery();
+            added += rows;
+            count += rows;
+        }
+
+        transaction.Commit();
+        connection.Added("highlights", userId, added);
+        return (added, limited);
+    }
+
+    /// <summary>
     /// Changes the highlighter or the note, or both, of one of a user's highlights in a book.
     /// </summary>
     /// <param name="userId">The user.</param>

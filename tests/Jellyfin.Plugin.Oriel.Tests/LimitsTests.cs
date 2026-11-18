@@ -231,6 +231,52 @@ public sealed class LimitsTests : IDisposable
     }
 
     [Fact]
+    public void ImportsAFullFileMatchedByTitleAndAuthorsAgainstALargeLibraryWithinFiveSeconds()
+    {
+        // A file from another server: its ids are unknown here, so every entry is matched by title and authors.
+        var library = Enumerable.Range(0, 5000).Select(i => new BookInfo(Guid.NewGuid(), $"Book {i}", [$"Author {i}", "Editor"], $"book-{i}.epub")).ToArray();
+        var elsewhere = library.Select(_ => Guid.NewGuid().ToString("N")).ToArray();
+        var file = new ReadingDataFile(
+            ReadingData.Format,
+            ReadingData.Version,
+            Now,
+            [],
+            Enumerable.Range(0, ReadingRules.MaxBookmarks).Select(i => (ExportedBookmark?)new ExportedBookmark(
+                elsewhere[i % 5000], $"book {i % 5000}", ["editor", $"author {i % 5000}"], null, Cfi(i), 0.5, "Imported", Now)).ToList(),
+            Enumerable.Range(0, ReadingRules.MaxHighlights).Select(i => (ExportedHighlight?)new ExportedHighlight(
+                elsewhere[i % 5000], $"Book {i % 5000}", [$"Author {i % 5000}", "Editor"], null, Cfi(i), 0.5, "yellow", "Imported", Now)).ToList());
+        var data = new ReadingData(_store.Database, _store.All, new FakeCatalog(library));
+
+        var clock = Stopwatch.StartNew();
+        var result = data.Import(Reader, file);
+        var importing = clock.Elapsed;
+
+        Assert.Equal((ReadingRules.MaxBookmarks, ReadingRules.MaxHighlights), (result.Bookmarks, result.Highlights));
+        Assert.Empty(result.Unmatched);
+        Assert.Equal(4, _store.Highlights.List(Reader, library[1234].ItemId).Count);
+        Assert.True(importing < TimeSpan.FromSeconds(5), $"import took {importing}");
+    }
+
+    [Fact]
+    public async Task LetsAnotherUserSaveWhileAnImportMatchesItsBooks()
+    {
+        var catalog = new FakeCatalog(Dune, Emma) { Hold = new ManualResetEventSlim(false) };
+        var data = new ReadingData(_store.Database, _store.All, catalog);
+        var importing = Task.Run(() => data.Import(Reader, FileOf(Dune, positions: true, bookmarks: 1, highlights: 1)));
+        Assert.True(catalog.Entered.Wait(TimeSpan.FromSeconds(10)));
+
+        var clock = Stopwatch.StartNew();
+        var failed = Record.Exception(() => _store.Positions.Save(OtherReader, Emma.ItemId, new StoredPosition(Cfi(0), 0.3, Now)));
+        var saving = clock.Elapsed;
+        catalog.Hold.Set();
+
+        Assert.Null(failed);
+        Assert.True(saving < TimeSpan.FromSeconds(1), $"the save waited {saving}");
+        Assert.Equal(0.3, _store.Positions.Get(OtherReader, Emma.ItemId)!.Fraction);
+        Assert.Equal((1, 1, 1), ((await importing).Imported, (await importing).Bookmarks, (await importing).Highlights));
+    }
+
+    [Fact]
     public async Task RefusesAnotherUsersImportWhileOneRuns()
     {
         // An import holds the database's write lock, so a second one, of anyone's, is turned away at once.
