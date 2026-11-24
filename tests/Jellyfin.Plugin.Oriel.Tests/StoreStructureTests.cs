@@ -154,9 +154,9 @@ public sealed class StoreStructureTests : IDisposable
     }
 
     [Fact]
-    public void ADatabaseWrittenBeforeTheSplitOpensWithNoMigrationAndReadsTheSame()
+    public void ADatabaseWrittenBeforeTheSplitMigratesFromItsOwnStepsAndReadsTheSame()
     {
-        Assert.Equal(SchemaAtTheSplit, OrielDatabase.Schema.Select(step => step.ReplaceLineEndings("\n")));
+        Assert.Equal(SchemaAtTheSplit, OrielDatabase.Schema.Take(SchemaAtTheSplit.Length).Select(step => step.ReplaceLineEndings("\n")));
 
         Directory.CreateDirectory(_folder);
         using (var connection = new SqliteConnection($"Data Source={DatabasePath};Pooling=False"))
@@ -179,8 +179,8 @@ public sealed class StoreStructureTests : IDisposable
 
         var stores = new StoreSet(DatabasePath);
         var steps = 0;
-        Assert.Equal(SchemaAtTheSplit.Length, stores.Database.Migrate((_, _) => steps++));
-        Assert.Equal(0, steps);
+        Assert.Equal(OrielDatabase.Schema.Count, stores.Database.Migrate((_, _) => steps++));
+        Assert.Equal(OrielDatabase.Schema.Count - SchemaAtTheSplit.Length, steps);
 
         var at = new DateTimeOffset(2026, 11, 14, 9, 0, 0, TimeSpan.Zero);
         Assert.Equal(new StoredPosition("epubcfi(/6/4)", 0.25, at), stores.Positions.Get(Reader, Book));
