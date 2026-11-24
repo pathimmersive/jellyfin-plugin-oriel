@@ -105,7 +105,7 @@ public class FontsStore
 
         using (var size = connection.CreateCommand())
         {
-            size.CommandText = "SELECT COALESCE(SUM(LENGTH(data)), 0) FROM fonts WHERE user_id = $user";
+            size.CommandText = "SELECT COALESCE(SUM(size), 0) FROM fonts WHERE user_id = $user";
             size.Parameters.AddWithValue("$user", OrielDatabase.Key(userId));
             if ((long)size.ExecuteScalar()! + data.LongLength > ReadingRules.MaxFontBytes)
             {
@@ -117,7 +117,7 @@ public class FontsStore
         var stored = new StoredFont(Guid.NewGuid(), font, addedAt);
         using (var insert = connection.CreateCommand())
         {
-            insert.CommandText = "INSERT INTO fonts (id, user_id, family, style, weight, italic, format, data, added_at) VALUES ($id, $user, $family, $style, $weight, $italic, $format, $data, $added)";
+            insert.CommandText = "INSERT INTO fonts (id, user_id, family, style, weight, italic, format, added_at, size) VALUES ($id, $user, $family, $style, $weight, $italic, $format, $added, $size)";
             insert.Parameters.AddWithValue("$id", OrielDatabase.Key(stored.Id));
             insert.Parameters.AddWithValue("$user", OrielDatabase.Key(userId));
             insert.Parameters.AddWithValue("$family", font.Family);
@@ -125,9 +125,17 @@ public class FontsStore
             insert.Parameters.AddWithValue("$weight", font.Weight);
             insert.Parameters.AddWithValue("$italic", font.Italic ? 1 : 0);
             insert.Parameters.AddWithValue("$format", font.Format);
-            insert.Parameters.AddWithValue("$data", data);
             insert.Parameters.AddWithValue("$added", OrielDatabase.Time(addedAt));
+            insert.Parameters.AddWithValue("$size", data.LongLength);
             insert.ExecuteNonQuery();
+        }
+
+        using (var file = connection.CreateCommand())
+        {
+            file.CommandText = "INSERT INTO font_files (font_id, data) VALUES ($id, $data)";
+            file.Parameters.AddWithValue("$id", OrielDatabase.Key(stored.Id));
+            file.Parameters.AddWithValue("$data", data);
+            file.ExecuteNonQuery();
         }
 
         transaction.Commit();
@@ -144,7 +152,7 @@ public class FontsStore
     {
         using var connection = _database.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT format, data FROM fonts WHERE id = $id AND user_id = $user";
+        command.CommandText = "SELECT fonts.format, font_files.data FROM fonts JOIN font_files ON font_files.font_id = fonts.id WHERE fonts.id = $id AND fonts.user_id = $user";
         command.Parameters.AddWithValue("$id", OrielDatabase.Key(fontId));
         command.Parameters.AddWithValue("$user", OrielDatabase.Key(userId));
         using var reader = command.ExecuteReader();

@@ -101,6 +101,23 @@ public class OrielDatabase
             font TEXT NOT NULL
         )
         """,
+
+        // The fonts' files move to a table of their own: kept among a font's columns, they were walked to
+        // reach the column after them, whenever fonts were listed. A font's file goes with it.
+        """
+        ALTER TABLE fonts ADD COLUMN size INTEGER NOT NULL DEFAULT 0;
+        UPDATE fonts SET size = LENGTH(data);
+        CREATE TABLE font_files (
+            font_id TEXT NOT NULL PRIMARY KEY,
+            data BLOB NOT NULL
+        );
+        INSERT INTO font_files (font_id, data) SELECT id, data FROM fonts;
+        ALTER TABLE fonts DROP COLUMN data;
+        CREATE TRIGGER font_removed AFTER DELETE ON fonts
+        BEGIN
+            DELETE FROM font_files WHERE font_id = OLD.id;
+        END
+        """,
     ];
 
     /// <summary>
