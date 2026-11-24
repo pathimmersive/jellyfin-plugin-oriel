@@ -154,7 +154,7 @@ public sealed class LoggingTests : IDisposable
     [InlineData("{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [{\"cfi\": \"x\", \"fraction\": 7}]}", "malformed")]
     public void SaysWhyAnImportFileIsRefused(string json, string reason)
     {
-        Assert.Null(ReadingData.Parse(Encoding.UTF8.GetBytes(json), out var why));
+        Assert.Null(ReadingFiles.Parse(Encoding.UTF8.GetBytes(json), out var why));
         Assert.Equal(reason, why);
     }
 
@@ -226,7 +226,7 @@ public sealed class LoggingTests : IDisposable
     private ReadingDataController Data(StoreSet store, ReadingDataFile? body = null, bool failing = false)
     {
         var context = new DefaultHttpContext();
-        context.Request.Body = new MemoryStream(body is null ? [] : ReadingData.Serialize(body));
+        context.Request.Body = new MemoryStream(body is null ? [] : ReadingFiles.Serialize(body));
         var data = new ReadingData(store.Database, store.All, new Catalog(failing), () => new Configuration.PluginConfiguration { EnableFontUploads = true });
         return new ReadingDataController(data, new Authorization(), new FixedTime(), _log.For<ReadingDataController>())
         {

@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Net.Mime;
+using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
@@ -10,6 +11,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Net.Http.Headers;
 
 namespace Jellyfin.Plugin.Oriel.Controllers;
 
@@ -70,7 +72,25 @@ public partial class ReadingDataController : ControllerBase
         var name = string.Create(CultureInfo.InvariantCulture, $"oriel-reading-data-{now:yyyy-MM-dd}.json");
         // The user's own reading data: kept by no cache along the way.
         Response.Headers.CacheControl = "no-store";
-        return File(ReadingData.Serialize(file), MediaTypeNames.Application.Json, name);
+        Response.ContentType = MediaTypeNames.Application.Json;
+        var disposition = new ContentDispositionHeaderValue("attachment");
+        disposition.SetHttpFileName(name);
+        Response.Headers.ContentDisposition = disposition.ToString();
+        try
+        {
+            await ReadingData.WriteAsync(Response.Body, file, HttpContext.RequestAborted).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (HttpContext.RequestAborted.IsCancellationRequested)
+        {
+            // The caller stopped reading: there is no one to answer.
+        }
+        catch when (!Response.HasStarted)
+        {
+            Response.Headers.Remove(HeaderNames.ContentDisposition);
+            throw;
+        }
+
+        return new EmptyResult();
     }
 
     /// <summary>
@@ -82,7 +102,8 @@ public partial class ReadingDataController : ControllerBase
     /// 409 while another import runs on the server.
     /// </returns>
     [HttpPost("Import")]
-    [RequestSizeLimit(MaxImportBytes + 1)]
+    // The body is counted as it is read. A limit of the server's own would end the connection before the refusal is sent.
+    [DisableRequestSizeLimit]
     [Produces(MediaTypeNames.Application.Json)]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -97,13 +118,28 @@ public partial class ReadingDataController : ControllerBase
         }
 
         // A body that says it is too large is refused before it is read.
-        var body = Request.ContentLength > MaxImportBytes ? null : await ReadAtMostAsync(Request.Body, MaxImportBytes).ConfigureAwait(false);
-        if (body is null)
+        if (Request.ContentLength > MaxImportBytes)
         {
             return BadRequest(new RequestRefusal("tooLarge"));
         }
 
-        if (ReadingData.Parse(body, out var reason) is not { } file)
+        ReadingDataFile? file;
+        string? reason;
+        try
+        {
+            var body = new LimitedStream(Request.Body, MaxImportBytes);
+            (file, reason) = await ReadingData.ReadAsync(body).ConfigureAwait(false);
+
+            // Reading stops where the JSON is wrong. What is left is counted too, so a body past the limit is
+            // refused for that whatever it holds.
+            await body.CopyToAsync(Stream.Null).ConfigureAwait(false);
+        }
+        catch (BodyTooLargeException)
+        {
+            return BadRequest(new RequestRefusal("tooLarge"));
+        }
+
+        if (file is null)
         {
             return BadRequest(new RequestRefusal(reason ?? "malformed"));
         }
@@ -147,23 +183,42 @@ public partial class ReadingDataController : ControllerBase
     [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel's import for user {UserId} failed part way ({Failure}) and stored nothing")]
     private static partial void LogImportFailed(ILogger logger, Guid userId, string failure);
 
-    // The whole stream, or null when it is longer than `limit` bytes.
-    private static async Task<byte[]?> ReadAtMostAsync(Stream stream, int limit)
+    // Reads a stream as it comes and throws once more than `limit` bytes of it have.
+    private sealed class LimitedStream(Stream stream, long limit) : Stream
     {
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk).ConfigureAwait(false)) > 0)
-        {
-            if (buffer.Length + read > limit)
-            {
-                return null;
-            }
+        private long _read;
 
-            buffer.Write(chunk, 0, read);
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
+            _read += read;
+            return _read > limit ? throw new BodyTooLargeException() : read;
         }
 
-        return buffer.ToArray();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
     }
 
+    private sealed class BodyTooLargeException : Exception
+    {
+    }
 }

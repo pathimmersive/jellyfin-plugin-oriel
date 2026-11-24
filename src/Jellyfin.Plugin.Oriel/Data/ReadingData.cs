@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace Jellyfin.Plugin.Oriel.Data;
 
@@ -18,7 +20,7 @@ namespace Jellyfin.Plugin.Oriel.Data;
 /// <param name="Highlights">The user's highlights, from version 3; none in an earlier file.</param>
 /// <param name="Highlighters">The user's highlighters in their order, from version 5; none in an earlier file.</param>
 /// <param name="Themes">The user's own themes in their order, from version 6; none in an earlier file.</param>
-/// <param name="Fonts">The user's own font files, from version 6; none in an earlier file.</param>
+/// <param name="Fonts">The user's own font files, from version 6; none in an earlier file. An export's are read from the store one at a time, each time they are listed.</param>
 /// <param name="Choices">The theme and font the user has chosen, from version 6; null when none.</param>
 public sealed record ReadingDataFile(
     [property: JsonPropertyName("format")] string? Format,
@@ -29,7 +31,7 @@ public sealed record ReadingDataFile(
     [property: JsonPropertyName("highlights")] IReadOnlyList<ExportedHighlight?>? Highlights = null,
     [property: JsonPropertyName("highlighters")] IReadOnlyList<ExportedHighlighter?>? Highlighters = null,
     [property: JsonPropertyName("themes")] IReadOnlyList<ExportedTheme?>? Themes = null,
-    [property: JsonPropertyName("fonts")] IReadOnlyList<ExportedFont?>? Fonts = null,
+    [property: JsonPropertyName("fonts")] IEnumerable<ExportedFont?>? Fonts = null,
     [property: JsonPropertyName("choices")] ExportedChoices? Choices = null);
 
 /// <summary>
@@ -305,84 +307,63 @@ public class ReadingData
         var themes = _stores.Themes.List(userId).Select(theme => (ExportedTheme?)new ExportedTheme(
             theme.Id, theme.Name, theme.Colours[0], theme.Colours[1], theme.Colours[2], theme.Colours[3], theme.Colours[4],
             theme.Colours[5], theme.Colours[6], theme.Colours[7], theme.Colours[8], theme.Colours[9])).ToList();
-        var fonts = new List<ExportedFont?>();
-        foreach (var stored in _stores.Fonts.List(userId))
-        {
-            if (_stores.Fonts.GetData(userId, stored.Id) is { } file)
-            {
-                fonts.Add(new ExportedFont(stored.Font.Family, stored.Font.Style, stored.Font.Weight, stored.Font.Italic, file.Format, file.Data));
-            }
-        }
-
+        var fonts = Fonts(userId, _stores.Fonts.List(userId));
         var choices = _stores.Choices.Get(userId) is { } chosen ? new ExportedChoices(chosen.Theme, chosen.Font) : null;
         return new ReadingDataFile(Format, Version, now, positions, bookmarks, highlights, highlighters, themes, fonts, choices);
     }
 
     /// <summary>
-    /// Writes a file as JSON.
+    /// Writes a file as UTF-8 JSON, a part at a time.
     /// </summary>
+    /// <param name="stream">Where it is written.</param>
     /// <param name="file">The file.</param>
-    /// <returns>The UTF-8 JSON.</returns>
-    public static byte[] Serialize(ReadingDataFile file) => JsonSerializer.SerializeToUtf8Bytes(file, Json);
+    /// <param name="cancellationToken">Stops the writing.</param>
+    /// <returns>A task that ends when the file is written.</returns>
+    public static Task WriteAsync(Stream stream, ReadingDataFile file, CancellationToken cancellationToken) =>
+        JsonSerializer.SerializeAsync(stream, file, Json, cancellationToken);
 
     /// <summary>
     /// Reads a file, accepting it only when it is an Oriel file of a version this plugin reads
     /// and every position, bookmark and highlight in it is complete and in range.
     /// </summary>
-    /// <param name="json">The UTF-8 JSON.</param>
-    /// <returns>The file, or null when it is not one this plugin can import.</returns>
-    public static ReadingDataFile? Parse(ReadOnlySpan<byte> json) => Parse(json, out _);
-
-    /// <summary>
-    /// Reads a file as <see cref="Parse(ReadOnlySpan{byte})"/> does, saying why it refused one.
-    /// </summary>
-    /// <param name="json">The UTF-8 JSON.</param>
-    /// <param name="reason">notAnExport, newerVersion or malformed when the file is refused; null when it is read.</param>
-    /// <returns>The file, or null when it is not one this plugin can import.</returns>
-    public static ReadingDataFile? Parse(ReadOnlySpan<byte> json, out string? reason)
+    /// <param name="stream">The UTF-8 JSON, read a part at a time.</param>
+    /// <returns>
+    /// The file and null, or null and why it is not one this plugin can import: notAnExport, newerVersion or malformed.
+    /// </returns>
+    public static async Task<(ReadingDataFile? File, string? Reason)> ReadAsync(Stream stream)
     {
         ReadingDataFile? file;
         try
         {
-            file = JsonSerializer.Deserialize<ReadingDataFile>(json, Json);
+            file = await JsonSerializer.DeserializeAsync<ReadingDataFile>(stream, Json).ConfigureAwait(false);
         }
         catch (JsonException)
         {
-            reason = "malformed";
-            return null;
+            return (null, "malformed");
         }
 
         if (file?.Format != Format)
         {
-            reason = "notAnExport";
-            return null;
+            return (null, "notAnExport");
         }
 
         if (file.Version > Version)
         {
-            reason = "newerVersion";
-            return null;
+            return (null, "newerVersion");
         }
 
-        reason = "malformed";
         if (file is not { Version: >= 1, Positions: { } positions })
         {
-            return null;
+            return (null, "malformed");
         }
 
         // No user can have more than the limits allow, so no export of theirs holds more.
         var counted = positions.Count <= MaxPositions && (file.Bookmarks?.Count ?? 0) <= ReadingRules.MaxBookmarks
             && (file.Highlights?.Count ?? 0) <= ReadingRules.MaxHighlights && (file.Highlighters?.Count ?? 0) <= ReadingRules.MaxHighlighters
-            && (file.Themes?.Count ?? 0) <= ReadingRules.MaxThemes && (file.Fonts?.Count ?? 0) <= ReadingRules.MaxFonts;
+            && (file.Themes?.Count ?? 0) <= ReadingRules.MaxThemes && (file.Fonts?.Count() ?? 0) <= ReadingRules.MaxFonts;
         var valid = counted && positions.All(Valid) && (file.Bookmarks ?? []).All(Valid) && (file.Highlights ?? []).All(Valid) && (file.Highlighters ?? []).All(Valid)
             && (file.Themes ?? []).All(Valid) && (file.Fonts ?? []).All(Valid) && file.Choices is null or { Theme: not null, Font: not null };
-        if (!valid)
-        {
-            return null;
-        }
-
-        reason = null;
-        return file;
+        return valid ? (file, null) : (null, "malformed");
     }
 
     /// <summary>
@@ -392,7 +373,7 @@ public class ReadingData
     /// and each highlight go to their book the same way, and are added unless the user has one at the same place.
     /// </summary>
     /// <param name="userId">The user.</param>
-    /// <param name="file">A file accepted by <see cref="Parse(ReadOnlySpan{byte})"/>.</param>
+    /// <param name="file">A file accepted by <see cref="ReadAsync"/>.</param>
     /// <returns>What was imported, kept and left unmatched, and the limits reached.</returns>
     /// <exception cref="ImportRunningException">Another import is running on the server.</exception>
     /// <remarks>
@@ -580,6 +561,19 @@ public class ReadingData
         }
 
         return (themes, families.Count, choices);
+    }
+
+    // Each font with its file, read when it is listed, so a file is held only while it is written. One removed
+    // by then is left out.
+    private IEnumerable<ExportedFont?> Fonts(Guid userId, IReadOnlyList<StoredFont> fonts)
+    {
+        foreach (var stored in fonts)
+        {
+            if (_stores.Fonts.GetData(userId, stored.Id) is { } file)
+            {
+                yield return new ExportedFont(stored.Font.Family, stored.Font.Style, stored.Font.Weight, stored.Font.Italic, file.Format, file.Data);
+            }
+        }
     }
 
     private static bool Valid(ExportedPosition? entry) =>
