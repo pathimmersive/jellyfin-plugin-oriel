@@ -1,7 +1,7 @@
 import { deflateRawSync } from 'node:zlib'
 import { describe, expect, it } from 'vitest'
-import { BookLoadError, downloadErrorMessage } from '../src/api/client'
-import { DrmError, failureFor, OFFLINE, saveNotice } from '../src/controls/failure'
+import { BookLoadError, downloadErrorMessage, DownloadStalledError } from '../src/api/client'
+import { DrmError, failureFor, OFFLINE } from '../src/controls/failure'
 import { drmProtected, encryptsMoreThanFonts, mobiEncrypted, zipEntry } from '../src/engine/drm'
 import { zip } from '../e2e/zip.mjs'
 
@@ -11,6 +11,7 @@ describe('failureFor', () => {
     it('reads an answer that never came, and 502 to 504, as a server Oriel cannot reach', () => {
         expect(failureFor(new TypeError('Load failed'), 'downloaded')).toEqual(OFFLINE)
         for (const status of [502, 503, 504]) expect(failureFor(loadError(status), 'downloaded')).toEqual(OFFLINE)
+        expect(failureFor(new DownloadStalledError(), 'downloaded')).toEqual(OFFLINE)
         expect(OFFLINE.retry).toBe(true)
     })
 
@@ -43,15 +44,6 @@ describe('failureFor', () => {
         })
         // A TypeError once the book has downloaded is the book's, not the network's.
         expect(failureFor(new TypeError('x is undefined'), 'opened')).toMatchObject({ kind: 'other' })
-    })
-})
-
-describe('saveNotice', () => {
-    it('says signed out for a save refused with 401, not saved for another failure, and nothing once one goes through', () => {
-        expect(saveNotice(false, 401)).toBe('signedOut')
-        expect(saveNotice(false, null)).toBe('notSaved')
-        expect(saveNotice(false, 500)).toBe('notSaved')
-        expect(saveNotice(true, null)).toBeNull()
     })
 })
 

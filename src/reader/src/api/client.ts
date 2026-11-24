@@ -9,6 +9,14 @@ export class BookLoadError extends Error {
     }
 }
 
+/** A book that stopped arriving: no byte of it came for as long as the reader waits. */
+export class DownloadStalledError extends Error {
+    constructor() {
+        super('The book stopped arriving')
+        this.name = 'DownloadStalledError'
+    }
+}
+
 export const downloadErrorMessage = (status: number): string => {
     switch (status) {
         case 401:
@@ -25,6 +33,22 @@ export const downloadErrorMessage = (status: number): string => {
 /** Bytes received so far, and the file's size when the server says it. */
 export type DownloadProgress = (done: number, total: number | null) => void
 
+/** How long a download may go without a byte before it has stalled. */
+export const STALL_MS = 30_000
+// The wait is counted in steps, so a device asleep, whose timers stop, has not waited through its sleep.
+const STALL_STEPS = 10
+
+// Calls `stalled` once nothing has been `heard` for STALL_MS, until `stop`.
+const watchForStall = (stalled: () => void): { heard: () => void, stop: () => void } => {
+    let quiet = 0
+    const timer = setInterval(() => {
+        if (++quiet < STALL_STEPS) return
+        clearInterval(timer)
+        stalled()
+    }, STALL_MS / STALL_STEPS)
+    return { heard: () => { quiet = 0 }, stop: () => clearInterval(timer) }
+}
+
 // The file's size from Content-Length, unless the body is encoded, when the
 // header counts the encoded bytes rather than the ones received.
 const declaredSize = (headers: Headers): number | null => {
@@ -38,7 +62,8 @@ const declaredSize = (headers: Headers): number | null => {
  * library access and download permission, reporting the bytes as they arrive.
  * The file takes the name the server gives it, lower-cased, because foliate-js
  * tells some formats (comics) from EPUB by name; without one it is named as
- * an EPUB.
+ * an EPUB. A download that goes STALL_MS without a byte, its answer's first
+ * included, is dropped and fails as stalled.
  */
 export const downloadBook = async (
     basePath: string,
@@ -47,27 +72,39 @@ export const downloadBook = async (
     fetchImpl: typeof fetch = fetch,
     progress: DownloadProgress = () => {},
 ): Promise<File> => {
-    const response = await fetchImpl(`${basePath}/Items/${encodeURIComponent(itemId)}/Download`, {
-        headers: { Authorization: authorization },
-    })
-    if (!response.ok) throw new BookLoadError(downloadErrorMessage(response.status), response.status)
-    const total = declaredSize(response.headers)
-    const chunks: Uint8Array<ArrayBuffer>[] = []
-    let done = 0
-    progress(done, total)
-    if (response.body) {
-        const reader = response.body.getReader()
-        for (;;) {
-            const { done: finished, value } = await reader.read()
-            if (finished) break
-            chunks.push(value)
-            done += value.byteLength
-            progress(done, total)
+    const request = new AbortController()
+    const stall = watchForStall(() => request.abort(new DownloadStalledError()))
+    try {
+        const response = await fetchImpl(`${basePath}/Items/${encodeURIComponent(itemId)}/Download`, {
+            headers: { Authorization: authorization },
+            signal: request.signal,
+        })
+        stall.heard()
+        if (!response.ok) throw new BookLoadError(downloadErrorMessage(response.status), response.status)
+        const total = declaredSize(response.headers)
+        const chunks: Uint8Array<ArrayBuffer>[] = []
+        let done = 0
+        progress(done, total)
+        if (response.body) {
+            const reader = response.body.getReader()
+            for (;;) {
+                const { done: finished, value } = await reader.read()
+                if (finished) break
+                stall.heard()
+                chunks.push(value)
+                done += value.byteLength
+                progress(done, total)
+            }
         }
+        const type = response.headers.get('Content-Type') ?? ''
+        const name = attachmentName(response.headers.get('Content-Disposition'))?.toLowerCase() || `${itemId}.epub`
+        return new File(chunks, name, { type })
+    } catch (error) {
+        // Browsers differ in what a request dropped part way throws.
+        throw request.signal.aborted ? new DownloadStalledError() : error
+    } finally {
+        stall.stop()
     }
-    const type = response.headers.get('Content-Type') ?? ''
-    const name = attachmentName(response.headers.get('Content-Disposition'))?.toLowerCase() || `${itemId}.epub`
-    return new File(chunks, name, { type })
 }
 
 /** What the loading screen shows of a book before it opens. */
@@ -521,21 +558,22 @@ export const readChoices = async (
 /**
  * Keeps the theme and font the user has chosen: true once the server has
  * them, or refused them as ones the user no longer has; false while it
- * cannot be reached.
+ * cannot be reached; 'signedOut' when the session has ended.
  */
 export const saveChoices = async (
     basePath: string,
     authorization: string,
     choices: Choices,
     fetchImpl: typeof fetch = fetch,
-): Promise<boolean> => {
+): Promise<boolean | 'signedOut'> => {
     try {
         const response = await fetchImpl(choicesUrl(basePath), {
             method: 'PUT',
             headers: { Authorization: authorization, 'Content-Type': 'application/json' },
             body: JSON.stringify(choices),
         })
-        return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 401 && response.status !== 408 && response.status !== 429)
+        if (response.status === 401) return 'signedOut'
+        return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429)
     } catch {
         return false
     }

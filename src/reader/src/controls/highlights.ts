@@ -33,10 +33,10 @@ export interface Highlights {
     all(): Highlight[]
     /** The highlight at a CFI, or null. */
     at(cfi: string): Highlight | null
-    /** Highlights text, with a note (empty for none); false when the server did not take it. */
-    add(cfi: string, fraction: number, colour: string, text: string, note?: string): Promise<boolean>
-    /** Changes a highlight's highlighter, its note, or both. */
-    update(id: string, change: HighlightChange): Promise<void>
+    /** Highlights text, with a note (empty for none); false when the server did not take it, 'limitReached' when the user keeps the most allowed. */
+    add(cfi: string, fraction: number, colour: string, text: string, note?: string): Promise<boolean | 'limitReached'>
+    /** Changes a highlight's highlighter, its note, or both; false when the server did not take it. */
+    update(id: string, change: HighlightChange): Promise<boolean>
     /** Removes a highlight. */
     remove(id: string): Promise<void>
     /** Goes to a highlight, as a reader move. */
@@ -50,7 +50,7 @@ export interface Highlights {
 /** What the highlights need: the server, and the book. */
 export interface HighlightSources {
     load(): Promise<Highlight[] | null>
-    add(cfi: string, fraction: number, colour: string, text: string, note: string): Promise<Highlight | null>
+    add(cfi: string, fraction: number, colour: string, text: string, note: string): Promise<Highlight | null | 'limitReached'>
     update(id: string, change: HighlightChange): Promise<Highlight | null>
     remove(id: string): Promise<boolean>
     /** Book order of two places: negative when `a` comes first. */
@@ -97,12 +97,14 @@ export const createHighlights = (sources: HighlightSources): Highlights => {
         at: cfi => kept.find(highlight => highlight.cfi === cfi) ?? null,
         async add(cfi, fraction, colour, text, note = '') {
             const added = await sources.add(cfi, fraction, colour, text, note)
+            if (added === 'limitReached') return added
             if (added) keep(added)
             return !!added
         },
         async update(id, change) {
             const changed = await sources.update(id, change)
             if (changed) keep(changed)
+            return !!changed
         },
         async remove(id) {
             if (!await sources.remove(id)) return
