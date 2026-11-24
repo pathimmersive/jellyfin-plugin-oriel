@@ -9,7 +9,7 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 
 /// <summary>
 /// Answers 503 with <c>{ reason: "storeUnavailable" }</c> when the reading data store cannot be opened, or
-/// when a request waited out the busy timeout behind another writer, so the reader tries again.
+/// when a request waited out the busy timeout behind another writer.
 /// </summary>
 public sealed class StoreUnavailableAttribute : ExceptionFilterAttribute
 {
