@@ -67,7 +67,7 @@ public sealed class ReadingDataTests : IDisposable
         _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now.AddTicks(1234567)));
         var file = Data(Dune).Export(Reader, Now);
 
-        var parsed = ReadingData.Parse(ReadingData.Serialize(file));
+        var parsed = ReadingFiles.Parse(ReadingFiles.Serialize(file));
 
         Assert.NotNull(parsed);
         var (written, read) = (file.Positions!.Single()!, parsed.Positions!.Single()!);
@@ -118,7 +118,7 @@ public sealed class ReadingDataTests : IDisposable
     [MemberData(nameof(RejectedFiles))]
     public void RejectsAFileThatCannotBeImported(string reason, string json)
     {
-        Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes(json)) is null, reason);
+        Assert.True(ReadingFiles.Parse(Encoding.UTF8.GetBytes(json)) is null, reason);
     }
 
     [Fact]
@@ -132,7 +132,7 @@ public sealed class ReadingDataTests : IDisposable
         var exported = Assert.Single(file.Bookmarks!);
         Assert.Equal(new ExportedBookmark(Dune.ItemId.ToString("N"), "Dune", Dune.Authors, "dune.epub", Cfi, 0.6, "It begins", Now), exported);
 
-        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        var parsed = ReadingFiles.Parse(ReadingFiles.Serialize(file))!;
         Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Bookmarks);
         Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Bookmarks);
         Assert.Single(_store.Bookmarks.List(Reader, Dune.ItemId));
@@ -150,7 +150,7 @@ public sealed class ReadingDataTests : IDisposable
         var exported = Assert.Single(file.Highlights!);
         Assert.Equal(new ExportedHighlight(Dune.ItemId.ToString("N"), "Dune", Dune.Authors, "dune.epub", Cfi, 0.6, "blue", "It begins", Now, "Where it starts."), exported);
 
-        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        var parsed = ReadingFiles.Parse(ReadingFiles.Serialize(file))!;
         Assert.Equal(0, Data(Dune, Emma).Import(Reader, parsed).Highlights);
         Assert.Equal(1, Data(Dune, Emma).Import(OtherReader, parsed).Highlights);
         Assert.Single(_store.Highlights.List(Reader, Dune.ItemId));
@@ -170,7 +170,7 @@ public sealed class ReadingDataTests : IDisposable
             [new ExportedHighlighter("yellow", "Lines", "#ffb74d"), new ExportedHighlighter("green", "Green", "#81c784"), new ExportedHighlighter("blue", "Vocabulary", "#64b5f6"), new ExportedHighlighter("pink", "Pink", "#f06292"), new ExportedHighlighter("questions", "Questions", "#b39ddb")],
             file.Highlighters!);
 
-        var parsed = ReadingData.Parse(ReadingData.Serialize(file))!;
+        var parsed = ReadingFiles.Parse(ReadingFiles.Serialize(file))!;
         var result = Data(Dune).Import(OtherReader, parsed);
         Assert.Equal((1, 1), (result.Highlighters, result.Highlights));
         var theirs = _store.Highlighters.List(OtherReader);
@@ -182,7 +182,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ImportsAHighlightWhoseHighlighterTheUserDoesNotHaveAsQuotes()
     {
-        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"gone\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+        var file = ReadingFiles.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"gone\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
 
         Assert.NotNull(file);
         Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
@@ -192,7 +192,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ImportsAVersion3FileWhoseHighlightsHaveNoNotes()
     {
-        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"pink\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+        var file = ReadingFiles.Parse(Encoding.UTF8.GetBytes(WithHighlight($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"colour\": \"pink\", \"text\": \"Words\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
 
         Assert.NotNull(file);
         Assert.Equal(1, Data(Dune).Import(Reader, file).Highlights);
@@ -202,7 +202,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ImportsAVersion2FileWithNoHighlights()
     {
-        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithBookmark($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
+        var file = ReadingFiles.Parse(Encoding.UTF8.GetBytes(WithBookmark($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"text\": \"Page\", \"createdAt\": \"2026-10-27T12:00:00Z\"}}")));
 
         Assert.NotNull(file);
         var result = Data(Dune).Import(Reader, file);
@@ -213,7 +213,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public void ImportsAVersion1FileWithNoBookmarks()
     {
-        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(File($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}}")));
+        var file = ReadingFiles.Parse(Encoding.UTF8.GetBytes(File($"{{\"itemId\": \"{Dune.ItemId:N}\", \"cfi\": \"{Cfi}\", \"fraction\": 0.5, \"savedAt\": \"2026-10-27T12:00:00Z\"}}")));
 
         Assert.NotNull(file);
         var result = Data(Dune).Import(Reader, file);
@@ -346,7 +346,7 @@ public sealed class ReadingDataTests : IDisposable
         Assert.Equal(1, catalog.Finds);
 
         catalog.Finds = 0;
-        new ReadingData(_store.Database, _store.All, catalog, () => _configuration).Import(OtherReader, ReadingData.Parse(ReadingData.Serialize(file))!);
+        new ReadingData(_store.Database, _store.All, catalog, () => _configuration).Import(OtherReader, ReadingFiles.Parse(ReadingFiles.Serialize(file))!);
         Assert.Equal(1, catalog.Finds);
     }
 
@@ -365,24 +365,34 @@ public sealed class ReadingDataTests : IDisposable
         _store.Positions.Save(Reader, Dune.ItemId, new StoredPosition(Cfi, 0.6, Now));
 
         var controller = Controller(Reader);
-        var result = Assert.IsType<FileContentResult>(await controller.Export());
+        var body = new MemoryStream();
+        controller.Response.Body = body;
+        Assert.IsType<EmptyResult>(await controller.Export());
 
         Assert.Equal("no-store", controller.Response.Headers.CacheControl.ToString());
-        Assert.Equal("oriel-reading-data-2026-10-27.json", result.FileDownloadName);
-        Assert.Equal("application/json", result.ContentType);
-        Assert.Equal(Cfi, ReadingData.Parse(result.FileContents)!.Positions!.Single()!.Cfi);
+        Assert.StartsWith("attachment; filename=oriel-reading-data-2026-10-27.json;", controller.Response.Headers.ContentDisposition.ToString(), StringComparison.Ordinal);
+        Assert.Equal("application/json", controller.Response.ContentType);
+        Assert.Equal(Cfi, ReadingFiles.Parse(body.ToArray())!.Positions!.Single()!.Cfi);
     }
 
     [Fact]
     public async Task ImportsAPostedFile()
     {
-        var file = ReadingData.Serialize(Import(Entry(Dune, Cfi, Now)));
+        var file = ReadingFiles.Serialize(Import(Entry(Dune, Cfi, Now)));
 
         var result = (await Controller(Reader, file).Import()).Value;
 
         Assert.NotNull(result);
         Assert.Equal((1, 0, 0), (result.Imported, result.Kept, result.Unmatched.Count));
         Assert.NotNull(_store.Positions.Get(Reader, Dune.ItemId));
+    }
+
+    [Fact]
+    public async Task ImportsAFileSavedWithAByteOrderMark()
+    {
+        byte[] file = [0xEF, 0xBB, 0xBF, .. ReadingFiles.Serialize(Import(Entry(Dune, Cfi, Now)))];
+
+        Assert.Equal(1, (await Controller(Reader, file).Import()).Value!.Imported);
     }
 
     [Fact]
@@ -412,7 +422,7 @@ public sealed class ReadingDataTests : IDisposable
     [Fact]
     public async Task RejectsAMalformedOrOversizedFileAndStoresNothing()
     {
-        var tooLarge = Controller(Reader, ReadingData.Serialize(Import(Entry(Dune, Cfi, Now))));
+        var tooLarge = Controller(Reader, ReadingFiles.Serialize(Import(Entry(Dune, Cfi, Now))));
         tooLarge.HttpContext.Request.ContentLength = ReadingDataController.MaxImportBytes + 1L;
 
         Assert.Equal("malformed", Refused.Reason((await Controller(Reader, "{\"format\":"u8.ToArray()).Import()).Result));
@@ -425,7 +435,7 @@ public sealed class ReadingDataTests : IDisposable
     {
         var (theme, regular, italic) = SetUp(Reader);
 
-        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+        var file = ReadingFiles.Parse(ReadingFiles.Serialize(Data(Dune).Export(Reader, Now)))!;
 
         Assert.Equal(6, file.Version);
         Assert.Equal([(theme, "Night Blue", "#0f1a2a", "#6c7f96")], file.Themes!.Select(entry => (entry!.Id, entry.Name, entry.Background, entry.Grayed)));
@@ -439,7 +449,7 @@ public sealed class ReadingDataTests : IDisposable
     public void ImportsThemesFontsAndChoicesOnceForAReaderWithNone()
     {
         var (theme, _, _) = SetUp(Reader);
-        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+        var file = ReadingFiles.Parse(ReadingFiles.Serialize(Data(Dune).Export(Reader, Now)))!;
 
         var result = Data(Dune).Import(OtherReader, file);
 
@@ -459,7 +469,7 @@ public sealed class ReadingDataTests : IDisposable
     public void ImportsEverythingButFontsWhileUploadsAreOff()
     {
         var (theme, _, _) = SetUp(Reader);
-        var file = ReadingData.Parse(ReadingData.Serialize(Data(Dune).Export(Reader, Now)))!;
+        var file = ReadingFiles.Parse(ReadingFiles.Serialize(Data(Dune).Export(Reader, Now)))!;
         _configuration.EnableFontUploads = false;
 
         var result = Data(Dune).Import(OtherReader, file);
@@ -504,7 +514,7 @@ public sealed class ReadingDataTests : IDisposable
     [InlineData("choices without a font", "\"choices\": {\"theme\": \"dark\"}")]
     public void RefusesAFileWithAMalformedThemeFontOrChoice(string what, string field)
     {
-        Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], {field}}}")) is null, what);
+        Assert.True(ReadingFiles.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], {field}}}")) is null, what);
     }
 
     [Theory]
@@ -513,14 +523,14 @@ public sealed class ReadingDataTests : IDisposable
     {
         var data = Convert.ToBase64String(FontsControllerTests.HostileWoff2(what));
 
-        Assert.True(ReadingData.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], \"fonts\": [{{\"family\": \"X\", \"data\": \"{data}\"}}]}}")) is null, what);
+        Assert.True(ReadingFiles.Parse(Encoding.UTF8.GetBytes($"{{\"format\": \"oriel-reading-data\", \"version\": 6, \"positions\": [], \"fonts\": [{{\"family\": \"X\", \"data\": \"{data}\"}}]}}")) is null, what);
         Assert.Empty(_store.Fonts.List(Reader));
     }
 
     [Fact]
     public void ImportsAVersion5FileWithTheKindsItHolds()
     {
-        var file = ReadingData.Parse(Encoding.UTF8.GetBytes(WithHighlighter("{\"id\": \"h1\", \"name\": \"Ideas\", \"colour\": \"#80cbc4\"}")))!;
+        var file = ReadingFiles.Parse(Encoding.UTF8.GetBytes(WithHighlighter("{\"id\": \"h1\", \"name\": \"Ideas\", \"colour\": \"#80cbc4\"}")))!;
 
         var result = Data(Dune).Import(Reader, file);
 
@@ -532,7 +542,7 @@ public sealed class ReadingDataTests : IDisposable
     public async Task ReturnsUnauthorizedWithoutACaller()
     {
         Assert.IsType<UnauthorizedResult>(await Controller(Guid.Empty).Export());
-        Assert.IsType<UnauthorizedResult>((await Controller(Guid.Empty, ReadingData.Serialize(Import())).Import()).Result);
+        Assert.IsType<UnauthorizedResult>((await Controller(Guid.Empty, ReadingFiles.Serialize(Import())).Import()).Result);
     }
 
     private static readonly IReadOnlyList<string> NightBlue =

@@ -201,7 +201,7 @@ public sealed class LimitsTests : IDisposable
         Assert.Throws<ImportRunningException>(() => data.Import(Reader, file));
         var controller = new ReadingDataController(data, new FakeAuthorization(Reader), new FixedTime(Now))
         {
-            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(ReadingData.Serialize(file)) } } },
+            ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(ReadingFiles.Serialize(file)) } } },
         };
         var refused = Assert.IsType<ConflictObjectResult>((await controller.Import()).Result);
         Assert.Equal("importRunning", Assert.IsType<ConflictReason>(refused.Value).Reason);
@@ -218,11 +218,11 @@ public sealed class LimitsTests : IDisposable
         var data = new ReadingData(_store.Database, _store.All, new FakeCatalog(Dune));
 
         var clock = Stopwatch.StartNew();
-        var bytes = ReadingData.Serialize(data.Export(Reader, Now));
+        var bytes = ReadingFiles.Serialize(data.Export(Reader, Now));
         var exporting = clock.Elapsed;
 
         clock.Restart();
-        var result = data.Import(OtherReader, ReadingData.Parse(bytes)!);
+        var result = data.Import(OtherReader, ReadingFiles.Parse(bytes)!);
         var importing = clock.Elapsed;
 
         Assert.Equal((1000, 5000), (result.Bookmarks, result.Highlights));
@@ -302,9 +302,9 @@ public sealed class LimitsTests : IDisposable
     [InlineData("fonts", ReadingRules.MaxFonts)]
     public void RefusesAFileHoldingMoreThanAnyUserCanHave(string list, int limit)
     {
-        Assert.NotNull(ReadingData.Parse(ReadingData.Serialize(Holding(list, limit))));
+        Assert.NotNull(ReadingFiles.Parse(ReadingFiles.Serialize(Holding(list, limit))));
 
-        Assert.Null(ReadingData.Parse(ReadingData.Serialize(Holding(list, limit + 1)), out var reason));
+        Assert.Null(ReadingFiles.Parse(ReadingFiles.Serialize(Holding(list, limit + 1)), out var reason));
         Assert.Equal("malformed", reason);
     }
 
