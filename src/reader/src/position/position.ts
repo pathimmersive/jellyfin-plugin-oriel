@@ -90,21 +90,25 @@ export const positionWriter = (
 }
 
 /**
- * Saves a position to Oriel's store and then to Jellyfin, stamping Jellyfin's
- * copy with the store's time so that Oriel's own save never looks newer than
- * itself, whatever the device clock says. When the store cannot be written,
- * Jellyfin's copy is stamped with the current time, so it wins on the next open.
+ * Saves a position to Oriel's store; the server writes Jellyfin's copy with
+ * the same time. When the server answers that the store cannot be written, the
+ * reader writes Jellyfin's copy itself, stamped with the current time, so it
+ * wins on the next open. With no answer nothing more is sent: a closing page
+ * never gets one, and the position is most likely stored. Whether the store is
+ * known to have the position.
  */
-export const saveBoth = async (
+export const savePlace = async (
     position: Moved,
     keepalive: boolean,
-    writeStored: (cfi: string, fraction: number, keepalive: boolean) => Promise<StoredPosition | null>,
+    writeStored: (cfi: string, fraction: number, keepalive: boolean) => Promise<StoredPosition | null | 'unanswered'>,
     writeJellyfin: (ticks: number, lastPlayed: string, keepalive: boolean) => Promise<boolean>,
     now: () => Date = () => new Date(),
 ): Promise<boolean> => {
     const stored = await writeStored(position.cfi, position.fraction, keepalive)
-    const mirrored = await writeJellyfin(ticksFromFraction(position.fraction), stored?.savedAt ?? now().toISOString(), keepalive)
-    return stored !== null && mirrored
+    if (stored === 'unanswered') return false
+    if (stored) return true
+    await writeJellyfin(ticksFromFraction(position.fraction), now().toISOString(), keepalive)
+    return false
 }
 
 /** Where the reader opened instead of a saved place that is not in the book. */

@@ -51,13 +51,14 @@ const api = async (path, init = {}) => {
     return text ? JSON.parse(text) : null
 }
 
-// Jellyfin's place an hour ago, then a newer saved place that is not in the book.
+// A saved place that is not in the book, then Jellyfin's place, an hour older: saving
+// Oriel's writes Jellyfin's too, so Jellyfin's own comes after it.
 const savePlaces = async (jellyfinTicks, savedFraction) => {
+    await api(`/Oriel/Positions/${itemId}`, { method: 'PUT', body: JSON.stringify({ cfi: MISSING_CFI, fraction: savedFraction }) })
     await api(`/UserItems/${itemId}/UserData?userId=${userId}`, {
         method: 'POST',
         body: JSON.stringify({ PlaybackPositionTicks: jellyfinTicks, LastPlayedDate: new Date(Date.now() - 3_600_000).toISOString() }),
     })
-    await api(`/Oriel/Positions/${itemId}`, { method: 'PUT', body: JSON.stringify({ cfi: MISSING_CFI, fraction: savedFraction }) })
 }
 
 const frameText = async page => {

@@ -324,6 +324,14 @@ check_fonts_in_browser() {
 
 # Custom themes: New theme from the theme in use, a theme saved, chosen and
 # kept, its colours across the reader, Edit theme, and Delete theme in use.
+check_leaving_in_browser() {
+    local browser
+    for browser in $(browsers webkit chromium); do
+        ORIEL_BASE="$1" ORIEL_SERVER_ID="$server_id" ORIEL_USER_ID="$user_id" ORIEL_TOKEN="$token" ORIEL_ITEM_ID="$item_id" \
+        ORIEL_BROWSER="$browser" node "$reader/e2e/leaving.e2e.mjs" || fail "the place in Jellyfin when the reader is left in $browser at $1"
+    done
+}
+
 check_book_scripts_in_browser() {
     local browser
     for browser in $(browsers webkit chromium); do
@@ -994,6 +1002,7 @@ check_highlighters_in_browser "$base"
 check_selection_actions_in_browser "$base"
 check_define_in_browser "$base"
 check_failures_in_browser "$base"
+check_leaving_in_browser "$base"
 check_book_scripts_in_browser "$base"
 check_branding_in_browser "$base"
 check_loading_in_browser "$base"

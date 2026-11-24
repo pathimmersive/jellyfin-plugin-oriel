@@ -250,7 +250,13 @@ try {
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 }).catch(() => fail('the reader did not render the book'))
     await context.route(`**/Oriel/Positions/${itemId}`, route => route.request().method() === 'PUT'
         ? route.fulfill({ status: 500, body: '' }) : route.continue())
+    // The place Oriel cannot keep goes to Jellyfin, stamped with the time now.
+    const toJellyfin = page.waitForRequest(request => request.method() === 'POST' && request.url().includes(`/UserItems/${itemId}/UserData`), { timeout: 15_000 })
+        .catch(() => fail('a place Oriel could not save was not written to Jellyfin'))
+    const refusedAt = Date.now()
     await turnPage(page, 'the turn whose save is refused')
+    const { PlaybackPositionTicks: kept503, LastPlayedDate: stamped } = JSON.parse((await toJellyfin).postData())
+    if (!(kept503 > 0) || Date.parse(stamped) < refusedAt) fail(`the place Oriel could not save went to Jellyfin as ${kept503} at ${stamped}`)
     await waitFor(() => noticeWith(page, NOT_SAVED), 10_000, 'the not-saved notice did not show')
     await context.unroute(`**/Oriel/Positions/${itemId}`)
     await turnPage(page, 'the turn whose save goes through')

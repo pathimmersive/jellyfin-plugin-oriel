@@ -63,6 +63,14 @@ const press = async (page, share) => {
 
 const shown = page => page.locator('#controls header').isVisible()
 
+// Whether the server wrote Jellyfin's copy of the place a save of the reader's stored.
+const mirrored = async (page, save) => {
+    const place = await (await save.response()).json()
+    const jellyfins = await page.evaluate(async ([url, authorization]) => (await fetch(url, { headers: { Authorization: authorization } })).json(),
+        [`${base}/UserItems/${itemId}/UserData`, (await save.allHeaders()).authorization])
+    return jellyfins.PlaybackPositionTicks === Math.round(place.fraction * 1e7)
+}
+
 const browser = await setup.engine.launch()
 let failed = false
 try {
@@ -149,14 +157,13 @@ try {
     // release on the page already shown is not a move and saves nothing.
     const [target, targetChapter] = parseInt(percent, 10) < 40 ? ['60', 'Chapter Three'] : ['10', 'Chapter One']
     const stored = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
-    const mirrored = page.waitForRequest(request => request.method() === 'POST' && request.url().includes(`/UserItems/${itemId}/UserData`), { timeout: 15_000 }).catch(() => null)
     await slider.fill(target)
     await slider.dispatchEvent('change')
     const chapterShown = async () => (await footer.locator('.chapter').innerText()).trim()
     await until(async () => await chapterShown() === targetChapter, async () => `the slider at ${target}% shows '${await chapterShown()}', expected ${targetChapter}`)
     if (!await shown(page)) fail('moving the slider hid the controls')
     if (!await stored) fail('the slider\'s move was not saved to /Oriel/Positions')
-    if (!await mirrored) fail('the slider\'s move was not mirrored to Jellyfin')
+    if (!await mirrored(page, await stored)) fail('the slider\'s move was not mirrored to Jellyfin')
     pass(`releasing the slider at ${target}% moves to ${targetChapter}, saved to Oriel and mirrored to Jellyfin, with the controls kept`)
 
     // A second tap in the middle hides them; a page turn hides them too.

@@ -95,6 +95,14 @@ const openContents = async page => {
     return panel
 }
 
+// Whether the server wrote Jellyfin's copy of the place a save of the reader's stored.
+const mirrored = async (page, save) => {
+    const place = await (await save.response()).json()
+    const jellyfins = await page.evaluate(async ([url, authorization]) => (await fetch(url, { headers: { Authorization: authorization } })).json(),
+        [`${base}/UserItems/${itemId}/UserData`, (await save.allHeaders()).authorization])
+    return jellyfins.PlaybackPositionTicks === Math.round(place.fraction * 1e7)
+}
+
 const browser = await setup.engine.launch()
 let failed = false
 try {
@@ -156,7 +164,6 @@ try {
     const chosen = current[0].label === 'Chapter Three' ? 'Chapter Four' : 'Chapter Three'
     panel = await openContents(page)
     const stored = page.waitForRequest(request => request.method() === 'PUT' && request.url().includes(`/Oriel/Positions/${itemId}`), { timeout: 15_000 }).catch(() => null)
-    const mirrored = page.waitForRequest(request => request.method() === 'POST' && request.url().includes(`/UserItems/${itemId}/UserData`), { timeout: 15_000 }).catch(() => null)
     const moved = await watchMove(page, `choosing ${chosen} did not move the book`)
     await panel.getByRole('link', { name: new RegExp(`^${chosen}`) }).click()
     await moved()
@@ -165,7 +172,7 @@ try {
     await until(async () => (await frameText(page)).includes(FIRST_LINES[chosen]), `choosing ${chosen} does not show '${FIRST_LINES[chosen]}'`)
     await until(async () => (await page.locator('#reading-footer .chapter').innerText()).trim() === chosen, `the reading footer does not show ${chosen}`)
     if (!await stored) fail(`the move to ${chosen} was not saved to /Oriel/Positions`)
-    if (!await mirrored) fail(`the move to ${chosen} was not mirrored to Jellyfin`)
+    if (!await mirrored(page, await stored)) fail(`the move to ${chosen} was not mirrored to Jellyfin`)
     pass(`choosing ${chosen} from '${current[0].label}' shows it, closes Contents and the controls, and saves and mirrors the place`)
     await page.close()
 

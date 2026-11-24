@@ -33,6 +33,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<IItemAccess, LibraryItemAccess>();
         serviceCollection.AddSingleton(services => new OrielDatabase(Path.Combine(DataFolder(services), DatabaseFileName)));
         serviceCollection.AddSingleton<PositionsStore>();
+        serviceCollection.AddSingleton<IProgressMirror, UserDataMirror>();
         serviceCollection.AddSingleton<BookmarksStore>();
         serviceCollection.AddSingleton<HighlightsStore>();
         serviceCollection.AddSingleton<HighlightersStore>();
