@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -124,23 +125,35 @@ public sealed class StoreUnavailableTests : IDisposable
     }
 
     [Fact]
-    public void AnswersASaveThatWaitsOutAnotherWritersLockWith503()
+    public async Task ASaveBlockedByAnotherWriterGivesUpInAboutFiveSecondsAndAnswers503()
     {
+        const string Cfi = "epubcfi(/6/4!/4/2/1:0)";
         var store = new StoreSet(DatabasePath);
-        store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/4!/4/2/1:0)", 0.1, DateTimeOffset.UtcNow));
+        store.Database.Migrate();
         using var writer = store.Database.OpenConnection();
         OrielDatabase.Execute(writer, "BEGIN IMMEDIATE");
 
-        var thrown = Record.Exception(() => store.Positions.Save(Reader, Book, new StoredPosition("epubcfi(/6/4!/4/2/1:9)", 0.2, DateTimeOffset.UtcNow)));
+        // Each on a thread of its own, so they wait side by side.
+        var blocked = await Task.WhenAll(
+            Blocked("place", () => store.Positions.Save(Reader, Book, new StoredPosition(Cfi, 0.2, DateTimeOffset.UtcNow))),
+            Blocked("bookmark", () => store.Bookmarks.Add(Reader, Book, Cfi, 0.2, "Text", DateTimeOffset.UtcNow)),
+            Blocked("highlight", () => store.Highlights.Add(Reader, Book, Cfi, 0.2, "yellow", "Text", DateTimeOffset.UtcNow)));
         OrielDatabase.Execute(writer, "ROLLBACK");
-        Assert.NotNull(thrown);
-        var context = Failed(thrown);
-        new StoreUnavailableAttribute().OnException(context);
 
-        Assert.True(context.ExceptionHandled, $"{thrown.GetType().Name} was not answered");
-        var result = Assert.IsType<ObjectResult>(context.Result);
-        Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
-        Assert.Equal("storeUnavailable", Assert.IsType<StoreUnavailableAttribute.Unavailable>(result.Value).Reason);
+        Assert.All(blocked, save =>
+        {
+            Assert.True(save.Thrown is not null, $"the {save.What} was saved");
+            Assert.True(save.Waited > TimeSpan.FromSeconds(4.5) && save.Waited < TimeSpan.FromSeconds(8), $"the {save.What} waited {save.Waited}");
+            var context = Failed(save.Thrown!);
+            new StoreUnavailableAttribute().OnException(context);
+            Assert.True(context.ExceptionHandled, $"{save.Thrown!.GetType().Name} was not answered for the {save.What}");
+            var result = Assert.IsType<ObjectResult>(context.Result);
+            Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
+            Assert.Equal("storeUnavailable", Assert.IsType<StoreUnavailableAttribute.Unavailable>(result.Value).Reason);
+        });
+        Assert.Null(store.Positions.Get(Reader, Book));
+        Assert.Empty(store.Bookmarks.List(Reader, Book));
+        Assert.Empty(store.Highlights.List(Reader, Book));
     }
 
     [Fact]
@@ -166,6 +179,18 @@ public sealed class StoreUnavailableTests : IDisposable
         Assert.Equal(8, usesStore.Count);
         Assert.All(usesStore, type => Assert.True(type.IsDefined(typeof(StoreUnavailableAttribute), inherit: true), $"{type.Name} has no [StoreUnavailable]"));
     }
+
+    private static Task<(string What, TimeSpan Waited, Exception? Thrown)> Blocked(string what, Action save) =>
+        Task.Factory.StartNew<(string What, TimeSpan Waited, Exception? Thrown)>(
+            () =>
+            {
+                var clock = Stopwatch.StartNew();
+                var thrown = Record.Exception(save);
+                return (what, clock.Elapsed, thrown);
+            },
+            CancellationToken.None,
+            TaskCreationOptions.LongRunning,
+            TaskScheduler.Default);
 
     private static ExceptionContext Failed(Exception exception) =>
         new(new ActionContext(new DefaultHttpContext(), new RouteData(), new ActionDescriptor()), new List<IFilterMetadata>())

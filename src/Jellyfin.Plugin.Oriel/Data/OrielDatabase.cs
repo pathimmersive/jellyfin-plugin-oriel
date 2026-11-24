@@ -368,12 +368,15 @@ public class OrielDatabase
     }
 
     // Connections are kept open between uses: opening one per use costs about ten times as much, and
-    // closing the last one checkpoints and deletes the write-ahead log every time.
+    // closing the last one checkpoints and deletes the write-ahead log every time. Once SQLite has waited
+    // out the busy timeout, the provider runs the statement again until its own timeout, 30 seconds unless
+    // set; one shorter than the busy timeout stops it after the first wait. 0 would never stop it.
     private static string ConnectionString(string databasePath) => new SqliteConnectionStringBuilder
     {
         DataSource = databasePath,
         Mode = SqliteOpenMode.ReadWriteCreate,
         Pooling = true,
+        DefaultTimeout = (BusyTimeoutMilliseconds / 1000) - 1,
     }.ToString();
 
     /// <summary>
