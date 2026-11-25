@@ -13,32 +13,32 @@ const sources = (stored: Highlight[] = [], overrides: Partial<HighlightSources> 
     const order = (cfi: string): number => Number(/^epubcfi\(\/6\/(\d+)/.exec(cfi)?.[1] ?? 0)
     const result: HighlightSources & { server: Highlight[] } = {
         server,
-        load: async () => [...server],
-        add: async (cfi, fraction, colour, text, note) => {
+        load: () => Promise.resolve([...server]),
+        add: (cfi, fraction, colour, text, note) => {
             const there = server.find(each => each.cfi === cfi)
             if (there) {
                 Object.assign(there, { colour, note })
-                return { ...there }
+                return Promise.resolve({ ...there })
             }
             const highlight: Highlight = { id: `h${next++}`, cfi, fraction, colour, text, note, createdAt: `2026-11-02T12:00:0${next}Z` }
             server.push(highlight)
-            return { ...highlight }
+            return Promise.resolve({ ...highlight })
         },
-        update: async (id, change) => {
+        update: (id, change) => {
             const there = server.find(each => each.id === id)
-            if (!there) return null
+            if (!there) return Promise.resolve(null)
             Object.assign(there, change)
-            return { ...there }
+            return Promise.resolve({ ...there })
         },
-        remove: async id => {
+        remove: id => {
             const at = server.findIndex(each => each.id === id)
             if (at >= 0) server.splice(at, 1)
-            return true
+            return Promise.resolve(true)
         },
         compare: (a, b) => order(a) - order(b),
         chapterOf: cfi => order(cfi) < 5 ? 'Chapter One' : 'Chapter Three',
         pageOf: () => null,
-        go: async () => {},
+        go: () => Promise.resolve(),
         ...overrides,
     }
     return result
@@ -52,7 +52,7 @@ describe('highlighters', () => {
 
     it('are the canvas\'s four built-ins until the server\'s list loads, Quotes for one the reader does not have', async () => {
         let resolve: (list: HighlighterRecord[]) => void = () => {}
-        const highlighters = createHighlighters({ load: () => new Promise(done => { resolve = done }), save: async () => null })
+        const highlighters = createHighlighters({ load: () => new Promise(done => { resolve = done }), save: () => Promise.resolve(null) })
         expect(highlighters.list().map(highlighter => highlighter.name)).toEqual(['Quotes', 'Green', 'Vocabulary', 'Pink'])
         let changes = 0
         highlighters.onChange(() => changes++)
@@ -64,7 +64,7 @@ describe('highlighters', () => {
     })
 
     it('fill text with their colour at their strength', () => {
-        const highlighters = createHighlighters({ load: async () => null, save: async () => null })
+        const highlighters = createHighlighters({ load: () => Promise.resolve(null), save: () => Promise.resolve(null) })
         expect(highlightFill(highlighters.find('yellow'))).toBe('rgba(255, 213, 79, 0.5)')
         expect(highlightFill(highlighters.find('pink'))).toBe('rgba(240, 98, 146, 0.38)')
     })
@@ -72,8 +72,8 @@ describe('highlighters', () => {
     it('keep a list the server takes, and keep theirs when it does not', async () => {
         let sent = 0
         const highlighters = createHighlighters({
-            load: async () => null,
-            save: async list => { sent++; return list.length > 4 ? [...BUILT_INS, own] : null },
+            load: () => Promise.resolve(null),
+            save: list => { sent++; return Promise.resolve(list.length > 4 ? [...BUILT_INS, own] : null) },
         })
         expect(await highlighters.save([...BUILT_INS.map(({ id, name, colour }) => ({ id, name, colour })), { name: 'Questions', colour: '#b39ddb' }])).not.toBeNull()
         expect(highlighters.list()).toHaveLength(5)
@@ -180,7 +180,7 @@ describe('createHighlights', () => {
 
     it('changes nothing when the server does not take a change', async () => {
         const highlights = createHighlights(sources([stored('z', 'epubcfi(/6/2)', 'yellow')], {
-            add: async () => null, update: async () => null, remove: async () => false,
+            add: () => Promise.resolve(null), update: () => Promise.resolve(null), remove: () => Promise.resolve(false),
         }))
         await settle()
 
@@ -192,7 +192,7 @@ describe('createHighlights', () => {
     })
 
     it('tells the limit from a failure', async () => {
-        const highlights = createHighlights(sources([], { add: async () => 'limitReached' }))
+        const highlights = createHighlights(sources([], { add: () => Promise.resolve('limitReached') }))
         await settle()
 
         expect(await highlights.add('epubcfi(/6/4)', 0.2, 'blue', 'a truth')).toBe('limitReached')
@@ -201,7 +201,7 @@ describe('createHighlights', () => {
 
     it('goes to a highlight by its id', async () => {
         const went: string[] = []
-        const highlights = createHighlights(sources([stored('x', 'epubcfi(/6/8)', 'pink')], { go: async cfi => { went.push(cfi) } }))
+        const highlights = createHighlights(sources([stored('x', 'epubcfi(/6/8)', 'pink')], { go: cfi => { went.push(cfi); return Promise.resolve() } }))
         await settle()
 
         await highlights.go('x')

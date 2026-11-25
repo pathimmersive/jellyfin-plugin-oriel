@@ -15,7 +15,7 @@ Security problems go through private reporting instead, never a public issue; se
 ## Making a change
 
 1. Fork the repository and branch from `main`.
-2. Build and test as the [README](README.md#building-and-testing) describes. A change to the plugin or the reader should pass `dotnet test`, `npm --prefix src/reader test` and `bash scripts/smoke-plugin.sh`.
+2. Build and test as the [README](README.md#building-and-testing) describes. A change to the plugin or the reader should pass `dotnet test`, `npm --prefix src/reader test`, `npm --prefix src/reader run lint` and `bash scripts/smoke-plugin.sh`. A .NET analyzer warning fails the build. A finding of the analyzers or ESLint that is a false positive is silenced on its own line with its reason; [.editorconfig](.editorconfig) and [eslint.config.mjs](src/reader/lint/eslint.config.mjs) show how.
 3. Write commit messages and the pull request title as [Conventional Commits](https://www.conventionalcommits.org/): `feat:`, `fix:`, `docs:`, `test:`, `ci:` or `chore:`, then what changed.
 4. If users will notice the change, add a line for it under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md), in the section that fits (`Added`, `Changed`, `Fixed`, `Security`). A release's section becomes its release notes and the changelog in Jellyfin's plugin catalog.
 5. Open a pull request against `main`. CI runs the build, the tests and the smoke test; they must pass before the change can merge. Pull requests are squash-merged.

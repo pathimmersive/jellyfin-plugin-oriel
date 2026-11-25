@@ -40,7 +40,7 @@ describe('turnPage', () => {
     it('fades out, moves, and fades back in', async () => {
         const view = book()
         const seen: string[] = []
-        turnPage(view, async () => { seen.push(view.style.opacity) }, true)
+        turnPage(view, () => { seen.push(view.style.opacity); return Promise.resolve() }, true)
         expect(seen).toEqual([])
         await later(400)
         expect(seen).toEqual(['0'])

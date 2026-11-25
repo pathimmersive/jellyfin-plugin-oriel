@@ -53,7 +53,7 @@ export const createContentsPanel = (options: ContentsPanelOptions): ContentsPane
     const bookmarks = createBookmarksTab(options.bookmarks, () => options.chosen())
     const highlights = createHighlightsTab(options.highlights, options.highlighters, () => options.chosen())
     const tabList = element('div', { role: 'tablist', class: 'tabs' })
-    const choices: { name: Tab, label: string, body: HTMLElement, fill(): void }[] = [
+    const choices: { name: Tab, label: string, body: HTMLElement, fill: () => void }[] = [
         { name: 'contents', label: 'Contents', ...contents },
         { name: 'bookmarks', label: 'Bookmarks', ...bookmarks },
     ]

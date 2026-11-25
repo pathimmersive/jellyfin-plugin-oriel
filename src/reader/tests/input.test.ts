@@ -131,7 +131,7 @@ const page = (selected = false, edges: Edges | null = null) => {
     let swipes = 0
     const time = clock()
     attachPageInput(
-        { defaultView: window as unknown as Window, getSelection: () => ({ isCollapsed: !selected }) },
+        { defaultView: window, getSelection: () => ({ isCollapsed: !selected }) },
         () => ({ left: 0, width: 1000, top: 0, height: 600 }),
         wheelGesture(time.now),
         turn => turns.push(turn),
@@ -150,7 +150,7 @@ const page = (selected = false, edges: Edges | null = null) => {
         return fire('click', { button: 0, clientX: x, clientY: y, target: null, ...fields })
     }
     // A finger down at `x`, `y`, then up at `upX`, `upY` after `ms`.
-    const tap = (x: number, { upX = x, ms = 80, target = null as unknown, y = 300, upY = y }: { upX?: number, ms?: number, target?: unknown, y?: number, upY?: number } = {}) => {
+    const tap = (x: number, { upX = x, ms = 80, target = null, y = 300, upY = y }: { upX?: number, ms?: number, target?: unknown, y?: number, upY?: number } = {}) => {
         fire('touchstart', { touches: [{ clientX: x, clientY: y }], timeStamp: 1000 })
         return fire('touchend', { touches: [], changedTouches: [{ clientX: upX, clientY: upY }], timeStamp: 1000 + ms, target })
     }

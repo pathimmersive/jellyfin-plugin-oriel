@@ -170,7 +170,9 @@ public partial class ReadingDataController : ControllerBase
             result.Highlighters,
             result.Themes,
             result.Fonts,
+#pragma warning disable CA1873 // Once an import, and at most a few words.
             string.Join(',', result.Limited ?? []));
+#pragma warning restore CA1873
         return result;
     }
 

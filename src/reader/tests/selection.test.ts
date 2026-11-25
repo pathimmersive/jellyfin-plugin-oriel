@@ -5,7 +5,7 @@ import { guardSelectionDrag } from '../src/engine/selection'
 // shows up as cancelBubble on the dispatched event.
 const section = (selection: { isCollapsed: boolean, rangeCount: number } | null) => {
     const window = new EventTarget()
-    guardSelectionDrag({ defaultView: window as unknown as Window, getSelection: () => selection })
+    guardSelectionDrag({ defaultView: window, getSelection: () => selection })
     return (type = 'touchmove') => {
         const event = new Event(type, { cancelable: true })
         window.dispatchEvent(event)

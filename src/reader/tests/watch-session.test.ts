@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { watchSession } from '../src/start/watch-session'
 
-const answering = (...statuses: number[]) => (async () => new Response(null, { status: statuses.shift() ?? 200 })) as unknown as typeof fetch
+const answering = (...statuses: number[]) => (() => Promise.resolve(new Response(null, { status: statuses.shift() ?? 200 }))) as unknown as typeof fetch
 
 describe('watchSession', () => {
     it('tells of the first 401, to any request, once', async () => {
@@ -26,10 +26,10 @@ describe('watchSession', () => {
 
     it('passes the request, its answer and its failure through', async () => {
         const calls: unknown[][] = []
-        const session = watchSession((async (...args: unknown[]) => {
+        const session = watchSession(((...args: unknown[]) => {
             calls.push(args)
-            throw new TypeError('Load failed')
-        }) as typeof fetch)
+            return Promise.reject(new TypeError('Load failed'))
+        }))
         await expect(session.fetch('/a', { method: 'PUT' })).rejects.toThrow('Load failed')
         expect(calls).toEqual([['/a', { method: 'PUT' }]])
     })

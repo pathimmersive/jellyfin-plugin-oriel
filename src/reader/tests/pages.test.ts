@@ -89,10 +89,11 @@ describe('countPages', () => {
             open(book: { sections: { unload?(): void }[] }) { this.book = book },
             book: null as { sections: { unload?(): void }[] } | null,
             setStyles(styles: string) { events.push(`styles ${styles}`) },
-            async goTo({ index }: { index: number }) {
+            goTo({ index }: { index: number }) {
                 if (shown >= 0) this.book!.sections[shown].unload?.()
                 shown = index
                 events.push(`show ${index}`)
+                return Promise.resolve()
             },
             getContents() { return docs[shown] ? [{ doc: docs[shown]!, index: shown }] : [] },
             destroy() { events.push('destroy') },

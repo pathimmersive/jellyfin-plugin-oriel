@@ -55,7 +55,7 @@ export interface ControlsOptions {
     /** True on a screen wider than a phone's, whose margins start wider. */
     wide(): boolean
     /** True when the reader reads by touch, whose reading gestures are taps and swipes: the last input, else the primary pointer. */
-    touch(): boolean
+    touch: () => boolean
     /** Where this device remembers the reading gestures hints it has dismissed. */
     storage: Pick<Storage, 'getItem' | 'setItem'>
     /** Applies and keeps settings chosen in Preferences. */

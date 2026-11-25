@@ -11,6 +11,7 @@ describe('sectionsOf', () => {
     // A foliate-js search over three sections, the first two without matches; counts what it searched.
     const book = () => {
         const searched = { sections: 0 }
+        // eslint-disable-next-line @typescript-eslint/require-await -- foliate-js's search is an async generator; this one has nothing to wait for
         async function* found(): AsyncGenerator<FoliateFound> {
             for (let index = 0; index < 3; index++) {
                 searched.sections++

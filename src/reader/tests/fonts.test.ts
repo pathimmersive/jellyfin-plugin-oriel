@@ -16,17 +16,17 @@ const sources = (stored: OwnFont[], overrides: Partial<OwnFontSources> = {}) => 
     const result: OwnFontSources & { server: OwnFont[], forgotten: string[] } = {
         server,
         forgotten,
-        load: async () => [...server],
-        add: async () => {
+        load: () => Promise.resolve([...server]),
+        add: () => {
             const added = font(`n${next++}`, 'Charter', 'Regular')
             server.splice(server.findIndex(each => each.family === added.family && each.weight === added.weight && each.italic === added.italic) >>> 0, 1)
             server.push(added)
-            return added
+            return Promise.resolve(added)
         },
-        file: async id => new Blob([id]),
-        remove: async family => {
+        file: id => Promise.resolve(new Blob([id])),
+        remove: family => {
             for (let at = server.length - 1; at >= 0; at--) if (server[at].family === family) server.splice(at, 1)
-            return true
+            return Promise.resolve(true)
         },
         url: blob => `blob:${blob.size}:${next++}`,
         forget: url => { forgotten.push(url) },
@@ -96,8 +96,8 @@ describe('createOwnFonts', () => {
     })
 
     it('says when the list could not be read, and leaves out a file that could not', async () => {
-        expect(await createOwnFonts(sources(CHARTER, { load: async () => null })).ready).toBe(false)
-        const fonts = createOwnFonts(sources(CHARTER, { file: async id => id === 'b' ? null : new Blob([id]) }))
+        expect(await createOwnFonts(sources(CHARTER, { load: () => Promise.resolve(null) })).ready).toBe(false)
+        const fonts = createOwnFonts(sources(CHARTER, { file: id => Promise.resolve(id === 'b' ? null : new Blob([id])) }))
         await fonts.ready
         expect(fonts.faces().split('\n')).toHaveLength(2)
         expect(fonts.faces()).not.toContain('italic;')
@@ -114,7 +114,7 @@ describe('createOwnFonts', () => {
 
     it('refuses a file over 5 MB without sending it, and says what the server refused', async () => {
         let sent = 0
-        const fonts = createOwnFonts(sources([], { add: async () => { sent++; return 'notAFont' } }))
+        const fonts = createOwnFonts(sources([], { add: () => { sent++; return Promise.resolve('notAFont') } }))
         await fonts.ready
         expect(await fonts.add(file('big.ttf', MAX_FONT_BYTES + 1))).toBe('big.ttf is larger than 5 MB.')
         expect(sent).toBe(0)
@@ -130,7 +130,7 @@ describe('createOwnFonts', () => {
         expect(fonts.families().map(family => family.name)).toEqual(['Zapf'])
         expect(from.forgotten).toHaveLength(3)
 
-        const failing = createOwnFonts(sources(CHARTER, { remove: async () => false }))
+        const failing = createOwnFonts(sources(CHARTER, { remove: () => Promise.resolve(false) }))
         await failing.ready
         expect(await failing.remove('Charter')).toBe(false)
         expect(failing.has('Charter')).toBe(true)
@@ -138,7 +138,7 @@ describe('createOwnFonts', () => {
 })
 
 describe('addFont', () => {
-    const answer = (status: number, body: unknown): typeof fetch => async () => new Response(body === null ? null : JSON.stringify(body), { status })
+    const answer = (status: number, body: unknown): typeof fetch => () => Promise.resolve(new Response(body === null ? null : JSON.stringify(body), { status }))
 
     it('gives the font kept, or why the server refused it', async () => {
         const kept = font('a', 'Charter', 'Regular')
@@ -149,12 +149,12 @@ describe('addFont', () => {
         expect(await addFont('', 'auth', new Blob(['x']), answer(400, { reason: 'quotaFull' }))).toBe('quotaFull')
         expect(await addFont('', 'auth', new Blob(['x']), answer(403, { reason: 'uploadsOff' }))).toBe('uploadsOff')
         expect(await addFont('', 'auth', new Blob(['x']), answer(500, null))).toBe('failed')
-        expect(await addFont('', 'auth', new Blob(['x']), async () => { throw new TypeError('offline') })).toBe('failed')
+        expect(await addFont('', 'auth', new Blob(['x']), () => Promise.reject(new TypeError('offline')))).toBe('failed')
     })
 })
 
 describe('readReaderSettings', () => {
-    const answer = (status: number, body: unknown): typeof fetch => async () => new Response(JSON.stringify(body), { status })
+    const answer = (status: number, body: unknown): typeof fetch => () => Promise.resolve(new Response(JSON.stringify(body), { status }))
 
     it('says whether font uploads are on, off when the server does not say', async () => {
         expect(await readReaderSettings('', 'auth', answer(200, { translateUrl: '', fontUploads: true }))).toEqual({ translateUrl: '', fontUploads: true })

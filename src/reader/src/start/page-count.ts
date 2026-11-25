@@ -31,7 +31,7 @@ export interface BookPages {
     /** The page a bookmark or highlight is on, or null while that is not known. */
     pageOf(cfi: string): number | null
     /** Counts again for bookmarks and highlights the count has not placed: ones loaded after it, or added on another device. */
-    placeMarked(): void
+    placeMarked: () => void
     /** Keeps the places found since the count was last kept, now, as when the page is hidden. */
     flush(): void
 }

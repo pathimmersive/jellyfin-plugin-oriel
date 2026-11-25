@@ -43,7 +43,7 @@ describe('stripSections', () => {
 
     it('strips each section of a book without a transformTarget as the book parses it', async () => {
         const { doc, asked } = recording()
-        const book = { createDocument: async (section: unknown) => (section === 7 ? doc : null) as Document }
+        const book = { createDocument: (section: unknown) => Promise.resolve((section === 7 ? doc : null) as Document) }
         stripSections(book)
         expect(await book.createDocument(7)).toBe(doc)
         expect(asked).toContain('script')
@@ -51,7 +51,7 @@ describe('stripSections', () => {
 
     it('leaves a book with a transformTarget to its data event', async () => {
         const { doc, asked } = recording()
-        const createDocument = async () => doc
+        const createDocument = () => Promise.resolve(doc)
         const book = { transformTarget: new EventTarget(), createDocument }
         stripSections(book)
         expect(book.createDocument).toBe(createDocument)

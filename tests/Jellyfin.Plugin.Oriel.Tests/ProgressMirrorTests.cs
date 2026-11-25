@@ -68,7 +68,9 @@ public sealed class ProgressMirrorTests
         }));
 
     // A stand-in for an interface, which answers each call by its name and arguments.
+#pragma warning disable CA1852 // DispatchProxy makes a subtype of it at run time.
     private class Stand : DispatchProxy
+#pragma warning restore CA1852
     {
         private Func<string, object?[], object?> _answer = (_, _) => null;
 

@@ -6,6 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
+    "lint": "npm --prefix lint ci --ignore-scripts --no-audit --no-fund && node lint/node_modules/eslint/bin/eslint.js -c lint/eslint.config.mjs --max-warnings 0 src tests vite.config.ts",
     "e2e": "node e2e/reader.e2e.mjs"
   },
   "devDependencies": {

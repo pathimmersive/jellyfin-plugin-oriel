@@ -62,7 +62,7 @@ describe('lastInput', () => {
     it('follows the primary pointer until the reader uses one', () => {
         let coarse = true
         const input = lastInput(() => coarse)
-        input.watch(fakeWindow() as unknown as Window)
+        input.watch(fakeWindow())
         expect(input.touch()).toBe(true)
         coarse = false
         expect(input.touch()).toBe(false)
@@ -72,8 +72,8 @@ describe('lastInput', () => {
         const input = lastInput(() => false)
         const page = fakeWindow()
         const section = fakeWindow()
-        input.watch(page as unknown as Window)
-        input.watch(section as unknown as Window)
+        input.watch(page)
+        input.watch(section)
         section.send('pointerdown', { pointerType: 'touch' })
         expect(input.touch()).toBe(true)
         page.send('pointerdown', { pointerType: 'mouse' })
@@ -90,7 +90,7 @@ describe('lastInput', () => {
     it('leaves the last input as it was for a pen', () => {
         const input = lastInput(() => false)
         const page = fakeWindow()
-        input.watch(page as unknown as Window)
+        input.watch(page)
         page.send('touchstart')
         page.send('pointerdown', { pointerType: 'pen' })
         expect(input.touch()).toBe(true)

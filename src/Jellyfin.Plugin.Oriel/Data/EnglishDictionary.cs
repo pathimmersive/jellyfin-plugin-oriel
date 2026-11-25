@@ -23,7 +23,9 @@ public sealed record DictionaryEntry(
 /// The English dictionary the plugin carries: Princeton's WordNet 3.1, built into
 /// wordnet.txt.gz by scripts/build-dictionary.py and read on first use.
 /// </summary>
+#pragma warning disable CA1711 // An English dictionary is what it is, not a collection.
 public sealed class EnglishDictionary
+#pragma warning restore CA1711
 {
     /// <summary>
     /// The longest word or phrase a lookup accepts.
@@ -196,7 +198,9 @@ public sealed class EnglishDictionary
         }
 
         // The definitions a word has as one part of speech, found by a binary search of the sorted words.
+#pragma warning disable CA1859 // Read-only on purpose: callers must not change the list.
         public IReadOnlyList<string> Senses(string word, char code)
+#pragma warning restore CA1859
         {
             var key = Encoding.UTF8.GetBytes(word);
             int low = 0, high = _words.Length - 1;

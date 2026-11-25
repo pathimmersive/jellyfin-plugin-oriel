@@ -83,7 +83,7 @@ describe('attachmentName', () => {
 })
 
 const respond = (status: number, body: unknown, headers: Record<string, string> = {}): typeof fetch =>
-    (async () => new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers })) as typeof fetch
+    (() => Promise.resolve(new Response(typeof body === 'string' ? body : JSON.stringify(body), { status, headers })))
 
 describe('downloadReadingData', () => {
     it('returns the file under the name the server gives it', async () => {

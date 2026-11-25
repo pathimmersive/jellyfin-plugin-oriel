@@ -28,7 +28,7 @@ export interface TextMarksOptions {
     /** The translation address; empty when Translate is off. */
     translateUrl: string
     wide(): boolean
-    touch(): boolean
+    touch: () => boolean
 }
 
 /**

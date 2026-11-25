@@ -129,7 +129,7 @@ public sealed class UserDeletionTests : IDisposable
     {
         public List<(LogLevel Level, string Text)> Lines { get; } = [];
 
-        public ILogger<T> For<T>() => new Logger<T>(this);
+        public Logger<T> For<T>() => new(this);
 
         public ILogger CreateLogger(string categoryName) => new Line(this);
 

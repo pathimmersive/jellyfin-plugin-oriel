@@ -20,7 +20,7 @@ public class ReaderAssetsTests
     public void EmbedsTheBuiltReaderIncludingNestedAssets()
     {
         Assert.Contains(ReaderAssets.IndexFile, _assets.FileNames);
-        Assert.Contains(_assets.FileNames, name => name.StartsWith("assets/") && name.EndsWith(".js"));
+        Assert.Contains(_assets.FileNames, name => name.StartsWith("assets/", StringComparison.Ordinal) && name.EndsWith(".js", StringComparison.Ordinal));
         Assert.DoesNotContain(_assets.FileNames, name => name.Contains('\\'));
     }
 
@@ -43,7 +43,7 @@ public class ReaderAssetsTests
     [InlineData("favicon.svg", "image/svg+xml")]
     public void ServesContentTypesByExtension(string suffix, string expected)
     {
-        var name = _assets.FileNames.First(n => n.EndsWith(suffix));
+        var name = _assets.FileNames.First(n => n.EndsWith(suffix, StringComparison.Ordinal));
         Assert.True(_assets.TryOpen(name, out var content, out var contentType));
         content.Dispose();
         Assert.StartsWith(expected, contentType);

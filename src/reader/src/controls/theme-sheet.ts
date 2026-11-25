@@ -85,8 +85,10 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
     // The preview and each colour's #rrggbb follow the pickers.
     const show = (): void => {
         const chosen = colours()
-        for (const { colour, hex } of roles) hex.textContent = chosen[colour]
-        for (const [colour, value] of Object.entries(chosen)) preview.style.setProperty(`--${colour}`, value)
+        for (const { colour, hex } of roles) {
+            hex.textContent = chosen[colour]
+            preview.style.setProperty(`--${colour}`, chosen[colour])
+        }
         preview.style.setProperty('--accent-ink', accentInk(chosen.accent))
     }
     name.addEventListener('input', () => { save.disabled = !name.value.trim() })
@@ -118,7 +120,7 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
         if (!saved) message.textContent = 'Your theme could not be saved. Try again.'
         return saved
     }
-    save.addEventListener('click', async () => {
+    const saveTheme = async (): Promise<void> => {
         const entry = { name: name.value.trim(), ...colours() }
         if (!entry.name) return
         const before = new Set(options.themes.list().map(theme => theme.id))
@@ -128,7 +130,8 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
         const id = target ?? saved.find(theme => !before.has(theme.id))?.id
         if (id) options.saved(id, !target)
         options.done()
-    })
+    }
+    save.addEventListener('click', () => { void saveTheme() })
     body.querySelector('.cancel')!.addEventListener('click', () => options.done())
     remove.addEventListener('click', () => {
         if (!editing) return
@@ -138,7 +141,7 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
         dialog.hidden = false
         dialogCancel.focus()
     })
-    dialog.querySelector('.confirm')!.addEventListener('click', async () => {
+    const deleteTheme = async (): Promise<void> => {
         if (!editing) return
         const gone = editing.id
         const wasInUse = options.inUse() === gone
@@ -146,7 +149,8 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
         if (!await keep(list => list.filter(theme => theme.id !== gone))) return
         if (wasInUse) options.deletedInUse()
         options.done()
-    })
+    }
+    dialog.querySelector('.confirm')!.addEventListener('click', () => { void deleteTheme() })
 
     return {
         body,

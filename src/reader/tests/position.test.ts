@@ -56,7 +56,7 @@ describe('positionWriter', () => {
     const moved = (cfi: string, fraction = 0.6) => ({ cfi, fraction })
     const setup = (openedAt: string | null, ok = true) => {
         vi.useFakeTimers()
-        const save = vi.fn(async (_position: { cfi: string, fraction: number }, _keepalive: boolean) => ok)
+        const save = vi.fn<(position: { cfi: string, fraction: number }, keepalive: boolean) => Promise<boolean>>(() => Promise.resolve(ok))
         return { save, writer: positionWriter(save, openedAt, 5000) }
     }
 
@@ -105,16 +105,16 @@ describe('positionWriter', () => {
 
 describe('savePlace', () => {
     it('saves through Oriel alone, which writes Jellyfin\'s copy itself', async () => {
-        const writeStored = vi.fn(async () => stored('2026-10-27T10:00:00.000Z'))
-        const writeJellyfin = vi.fn(async () => true)
+        const writeStored = vi.fn(() => Promise.resolve(stored('2026-10-27T10:00:00.000Z')))
+        const writeJellyfin = vi.fn(() => Promise.resolve(true))
         expect(await savePlace({ cfi: CFI, fraction: 0.6 }, true, writeStored, writeJellyfin)).toBe(true)
         expect(writeStored).toHaveBeenCalledWith(CFI, 0.6, true)
         expect(writeJellyfin).not.toHaveBeenCalled()
     })
 
     it("writes Jellyfin's copy with the current time when the store cannot be written, so it wins next time", async () => {
-        const writeJellyfin = vi.fn(async () => true)
-        const ok = await savePlace({ cfi: CFI, fraction: 0.6 }, true, async () => null, writeJellyfin, () => new Date('2026-10-27T10:00:05.000Z'))
+        const writeJellyfin = vi.fn(() => Promise.resolve(true))
+        const ok = await savePlace({ cfi: CFI, fraction: 0.6 }, true, () => Promise.resolve(null), writeJellyfin, () => new Date('2026-10-27T10:00:05.000Z'))
         expect(ok).toBe(false)
         expect(writeJellyfin).toHaveBeenCalledWith(6_000_000, '2026-10-27T10:00:05.000Z', true)
     })
@@ -122,15 +122,15 @@ describe('savePlace', () => {
 
 describe('savePlace without an answer', () => {
     it('leaves Jellyfin alone, since the place may be stored', async () => {
-        const writeJellyfin = vi.fn(async () => true)
-        expect(await savePlace({ cfi: CFI, fraction: 0.6 }, true, async () => 'unanswered', writeJellyfin)).toBe(false)
+        const writeJellyfin = vi.fn(() => Promise.resolve(true))
+        expect(await savePlace({ cfi: CFI, fraction: 0.6 }, true, () => Promise.resolve('unanswered'), writeJellyfin)).toBe(false)
         expect(writeJellyfin).not.toHaveBeenCalled()
     })
 })
 
 describe('position requests', () => {
-    const json = (body: unknown, status = 200) => vi.fn(async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
-    const failing = vi.fn(async () => { throw new TypeError('offline') }) as unknown as typeof fetch
+    const json = (body: unknown, status = 200) => vi.fn(() => Promise.resolve(new Response(JSON.stringify(body), { status }))) as unknown as typeof fetch
+    const failing = vi.fn(() => Promise.reject(new TypeError('offline'))) as unknown as typeof fetch
 
     it("reads Jellyfin's ticks and save time with the session", async () => {
         const fetchImpl = json({ PlaybackPositionTicks: 6_000_000, LastPlayedDate: '2026-10-27T10:00:00Z' })

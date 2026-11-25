@@ -42,7 +42,7 @@ export interface LastInput {
     /** Listens for input in `win`: this page, or a section document of the book. */
     watch(win: Pick<Window, 'addEventListener'>): void
     /** True when the reader last touched the screen; before any input, `coarse` (the primary pointer) decides. */
-    touch(): boolean
+    touch: () => boolean
 }
 
 /**

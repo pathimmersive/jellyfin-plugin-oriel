@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Serialization;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Plugin.Oriel.Configuration;
@@ -251,7 +252,8 @@ public sealed class FontsControllerTests : IDisposable
 
         const string Saved = "<?xml version=\"1.0\"?><PluginConfiguration><EnableWebIntegration>true</EnableWebIntegration>"
             + "<TranslateUrl>https://translate.google.com/?sl=auto&amp;op=translate&amp;text={text}</TranslateUrl></PluginConfiguration>";
-        using var reader = new StringReader(Saved);
+        using var text = new StringReader(Saved);
+        using var reader = XmlReader.Create(text);
         var loaded = (PluginConfiguration)new XmlSerializer(typeof(PluginConfiguration)).Deserialize(reader)!;
 
         Assert.True(loaded.EnableWebIntegration);

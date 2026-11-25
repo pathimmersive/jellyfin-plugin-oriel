@@ -13,7 +13,7 @@ export interface PanelParts {
     preferences: Preferences
     search: SearchPanel
     /** A panel beside the page (Contents, Preferences, Search) opened or closed. */
-    panel(open: boolean): void
+    panel: (open: boolean) => void
 }
 
 /** Which of the controls show. */

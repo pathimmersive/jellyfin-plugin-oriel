@@ -4,9 +4,9 @@ import { definable } from '../src/controls/dictionary'
 
 const respond = (status: number, body: unknown = null) => {
     const calls: { url: string, init?: RequestInit }[] = []
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const fetchImpl = ((url: string, init?: RequestInit) => {
         calls.push({ url, init })
-        return new Response(status === 200 ? JSON.stringify(body) : null, { status })
+        return Promise.resolve(new Response(status === 200 ? JSON.stringify(body) : null, { status }))
     }) as typeof fetch
     return { fetchImpl, calls }
 }
@@ -41,6 +41,6 @@ describe('lookUpWord', () => {
         expect(await lookUpWord('', 'h', 'qwxzt', respond(404).fetchImpl)).toEqual({ missing: true })
         expect(await lookUpWord('', 'h', 'word', respond(500).fetchImpl)).toEqual({ failed: true })
         expect(await lookUpWord('', 'h', 'word', respond(200, { word: 'word' }).fetchImpl)).toEqual({ failed: true })
-        expect(await lookUpWord('', 'h', 'word', (async () => { throw new TypeError('offline') }) as typeof fetch)).toEqual({ failed: true })
+        expect(await lookUpWord('', 'h', 'word', (() => Promise.reject(new TypeError('offline'))))).toEqual({ failed: true })
     })
 })

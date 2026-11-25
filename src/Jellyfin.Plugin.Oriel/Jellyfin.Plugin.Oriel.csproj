@@ -5,7 +5,6 @@
     <RootNamespace>Jellyfin.Plugin.Oriel</RootNamespace>
     <Version>0.1.0.0</Version>
     <Nullable>enable</Nullable>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <!-- The plugin ABI the build declares; Jellyfin refuses to load a plugin whose targetAbi is newer than the server. -->
     <JellyfinTargetAbi>12.2.0.0</JellyfinTargetAbi>
