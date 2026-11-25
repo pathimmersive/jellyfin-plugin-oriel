@@ -116,8 +116,9 @@ Questions and ideas are welcome in [Discussions](https://github.com/pathimmersiv
 You need the .NET 10 SDK, Node.js 24 with npm, bash and, for the smoke test, Docker.
 
 ```bash
-dotnet test                            # builds the reader and the plugin, runs the plugin tests
+dotnet test                            # builds the reader and the plugin, with the .NET analyzers, and runs the plugin tests
 npm --prefix src/reader test           # reader unit tests
+npm --prefix src/reader run lint       # ESLint over the reader
 bash scripts/smoke-plugin.sh           # loads the plugin into a throwaway Jellyfin container and checks it end to end
 bash scripts/check-community-files.sh  # community files and third-party notices
 bash scripts/test-package.sh           # release packaging: the zip and the repository manifest (needs Python 3)

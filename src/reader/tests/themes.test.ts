@@ -28,6 +28,7 @@ describe('startingColours', () => {
     })
 
     it('starts from a custom theme\'s own colours', () => {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named to leave them out of the colours
         const { id: _id, name: _name, ...colours } = NIGHT_BLUE
         expect(startingColours(NIGHT_BLUE)).toEqual(colours)
     })
@@ -89,12 +90,13 @@ describe('the Delete theme dialog', () => {
 describe('createOwnThemes', () => {
     it('has none until the server\'s list loads, and takes the list as kept', async () => {
         const kept: OwnTheme[] = []
-        const themes = createOwnThemes({ load: async () => [NIGHT_BLUE], save: async list => list.map((theme, at) => ({ id: theme.id ?? `new${at}`, ...theme }) as OwnTheme) })
+        const themes = createOwnThemes({ load: () => Promise.resolve([NIGHT_BLUE]), save: list => Promise.resolve(list.map((theme, at) => ({ id: theme.id ?? `new${at}`, ...theme }))) })
         expect(themes.list()).toEqual([])
         let changes = 0
         themes.onChange(() => { changes++ })
         expect(await themes.ready).toBe(true)
         expect(themes.list()).toEqual([NIGHT_BLUE])
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named to leave it out of the new theme
         const { id: _id, ...paper } = { ...NIGHT_BLUE, name: 'Paper' }
         kept.push(...(await themes.save([NIGHT_BLUE, paper]))!)
         expect(kept.map(theme => theme.id)).toEqual(['a1', 'new1'])
@@ -103,7 +105,7 @@ describe('createOwnThemes', () => {
     })
 
     it('keeps the list it has when the server does not take a change', async () => {
-        const themes = createOwnThemes({ load: async () => [NIGHT_BLUE], save: async () => null })
+        const themes = createOwnThemes({ load: () => Promise.resolve([NIGHT_BLUE]), save: () => Promise.resolve(null) })
         await themes.ready
         expect(await themes.save([])).toBeNull()
         expect(themes.list()).toEqual([NIGHT_BLUE])

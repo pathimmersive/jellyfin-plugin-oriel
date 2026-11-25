@@ -118,8 +118,10 @@ public static partial class ReadingRules
         "Default", "Literata", "Noto Serif", "Noto Sans", "Atkinson Hyperlegible",
     };
 
+#pragma warning disable CA1859 // Read-only on purpose, as the other rules are.
     private static readonly IReadOnlySet<string> BuiltInHighlighterIds =
         BuiltInHighlighters.Select(builtIn => builtIn.Id).ToHashSet(StringComparer.Ordinal);
+#pragma warning restore CA1859
 
     /// <summary>
     /// Whether a highlighter id is one of the built-ins.

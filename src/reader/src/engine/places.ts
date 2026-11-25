@@ -9,9 +9,18 @@ export interface CfiReader {
     compare(a: unknown, b: unknown): number
 }
 
+/** All of foliate-js's CFI functions this reader uses. */
+export interface Cfi extends CfiReader {
+    /** Matches a CFI written `epubcfi(...)`. */
+    isCFI: RegExp
+    /** The start of a CFI's range, or its end, as a CFI again. */
+    collapse(cfi: string, toEnd?: boolean): string
+    collapse(parsed: unknown, toEnd?: boolean): unknown
+}
+
 export interface Places {
     /** Book order of two places: negative when `a` comes first. One that cannot be read comes last. */
-    compare(a: string, b: string): number
+    compare: (a: string, b: string) => number
     /** Where a place is from the page `shown` (the CFI of its text): negative before it, 0 on it, positive after it or when either cannot be read. */
     fromPage(cfi: string, shown: string): number
 }

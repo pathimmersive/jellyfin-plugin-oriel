@@ -3,9 +3,9 @@ import { BookLoadError, downloadBook, DownloadStalledError } from '../src/api/cl
 
 const respond = (status: number, body = '') => {
     const calls: { url: string, init?: RequestInit }[] = []
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const fetchImpl = ((url: string, init?: RequestInit) => {
         calls.push({ url, init })
-        return new Response(status === 200 ? body : null, { status })
+        return Promise.resolve(new Response(status === 200 ? body : null, { status }))
     }) as typeof fetch
     return { fetchImpl, calls }
 }
@@ -23,9 +23,9 @@ describe('downloadBook', () => {
     })
 
     it('names the file as the server does, lower-cased, so foliate-js can tell a comic by its name', async () => {
-        const fetchImpl = (async () => new Response('PK', {
+        const fetchImpl = (() => Promise.resolve(new Response('PK', {
             headers: { 'Content-Disposition': "attachment; filename=Oriel-Comic.CBZ; filename*=UTF-8''Oriel-Comic.CBZ" },
-        })) as typeof fetch
+        }))) as typeof fetch
         expect((await downloadBook('', 'abc', 'h', fetchImpl)).name).toBe('oriel-comic.cbz')
     })
 
@@ -53,7 +53,7 @@ describe('a download that stalls', () => {
         const fetchImpl = ((_: string, init?: RequestInit) => {
             const signal = init?.signal ?? null
             state.signal = signal
-            if (!answers) return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason)))
+            if (!answers) return new Promise((_, reject) => signal?.addEventListener('abort', () => reject(signal.reason as Error)))
             const body = new ReadableStream<Uint8Array>({
                 start(controller) {
                     state.send = text => controller.enqueue(new TextEncoder().encode(text))
@@ -121,7 +121,7 @@ describe('a download that stalls', () => {
 
     it('passes on any other failure as it is', async () => {
         const lost = new TypeError('Load failed')
-        const error = await downloadBook('', 'abc', 'h', (async () => { throw lost }) as typeof fetch).catch((e: unknown) => e)
+        const error = await downloadBook('', 'abc', 'h', (() => Promise.reject(lost))).catch((e: unknown) => e)
         expect(error).toBe(lost)
     })
 })

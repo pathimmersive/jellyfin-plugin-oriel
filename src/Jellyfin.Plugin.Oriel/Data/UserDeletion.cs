@@ -47,7 +47,9 @@ public sealed partial class UserDeletion : IEventConsumer<UserDeletedEventArgs>
         try
         {
             var removed = database.DeleteUser(userId);
+#pragma warning disable CA1873 // Once a deleted user, over six counts.
             LogDeleted(logger, userId, why, removed.Values.Sum(), Describe(removed));
+#pragma warning restore CA1873
         }
         catch (StoreUnavailableException)
         {

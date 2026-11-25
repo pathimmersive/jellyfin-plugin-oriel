@@ -1,5 +1,5 @@
 // The only module that touches foliate-js.
-import * as CFI from '../../vendor/foliate-js/epubcfi.js'
+import * as untypedCfi from '../../vendor/foliate-js/epubcfi.js'
 import { Overlayer } from '../../vendor/foliate-js/overlayer.js'
 import { SectionProgress } from '../../vendor/foliate-js/progress.js'
 import { makeBook } from '../../vendor/foliate-js/view.js'
@@ -13,9 +13,12 @@ import type { Moved, StartAt } from '../position/position'
 import type { Margins, PageTurn } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { columnLayout, countPages } from './pages'
-import { createPlaces, createSectionOf } from './places'
+import { type Cfi, createPlaces, createSectionOf } from './places'
 import { guardSelectionDrag } from './selection'
 import { turnPage } from './turn'
+
+// The vendored module declares no types.
+const CFI: Cfi = untypedCfi
 
 interface FoliateView extends HTMLElement {
     // A file, or a book foliate-js's makeBook has made from one.
@@ -25,7 +28,7 @@ interface FoliateView extends HTMLElement {
     goToFraction(fraction: number): Promise<void>
     goToTextStart(): Promise<void>
     resolveNavigation(target: string): { index?: unknown, anchor?: (doc: Document) => Element | Range | null } | undefined
-    book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?(): Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
+    book: { dir?: string, sections: { load(): Promise<string>, unload?(): void, createDocument?: () => Promise<Document>, linear?: string }[], metadata?: { title?: unknown }, toc?: TocEntry[] }
     search(options: { query: string, draw?: unknown, drawOptions?: unknown }): AsyncGenerator<FoliateFound>
     getProgressOf(index: number, range?: Range): { tocItem?: { label?: string } } | undefined
     getCFI(index: number, range: Range): string
@@ -506,6 +509,7 @@ export const openBook = async (
         fixedLayout: view.isFixedLayout,
         searchable: !view.isFixedLayout && view.book.sections.some(section => section.createDocument),
         search(query) {
+            // eslint-disable-next-line @typescript-eslint/unbound-method -- a static function of foliate-js's that uses no `this`
             return sectionsOf(view.search({ query, draw: Overlayer.highlight, drawOptions: { color: SEARCH_MARK } }))
         },
         clearSearch() {
@@ -514,7 +518,7 @@ export const openBook = async (
         page() {
             const location = view.lastLocation
             if (!location?.cfi) return null
-            const cfi: string = CFI.collapse(location.cfi)
+            const cfi = CFI.collapse(location.cfi)
             const index = sectionOf(cfi)
             const text = view.isFixedLayout ? `Page ${(index ?? 0) + 1}` : location.range ? rangeText(location.range) : ''
             return { cfi, fraction: location.fraction ?? 0, text }

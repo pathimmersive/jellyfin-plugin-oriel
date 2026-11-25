@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { addBookmark, addHighlight, updateHighlight } from '../src/api/client'
 
-const answer = (status: number, body: unknown): typeof fetch => async () => new Response(JSON.stringify(body), { status })
+const answer = (status: number, body: unknown): typeof fetch => () => Promise.resolve(new Response(JSON.stringify(body), { status }))
 
 describe('the limits on bookmarks and highlights', () => {
     it('reports a bookmark or highlight past the limit as limitReached', async () => {

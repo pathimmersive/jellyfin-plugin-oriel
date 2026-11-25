@@ -25,6 +25,21 @@ updates:
         patterns:
           - "*"
 
+  # What lints the reader. typescript-eslint takes no TypeScript from 6.1 on.
+  - package-ecosystem: npm
+    directory: /src/reader/lint
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: build
+    ignore:
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
+    groups:
+      lint:
+        patterns:
+          - "*"
+
   # The plugin's and the tests' NuGet packages. The packages the Jellyfin server
   # provides to the plugin at runtime are left out: Jellyfin's own, which the
   # plugin builds against at the exact version the pinned image runs, and SQLite,

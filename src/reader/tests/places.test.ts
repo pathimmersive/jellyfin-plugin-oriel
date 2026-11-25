@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Highlight } from '../src/api/client'
 import { createHighlights } from '../src/controls/highlights'
-import { type CfiReader, createPlaces, createSectionOf } from '../src/engine/places'
-import * as CFI from '../vendor/foliate-js/epubcfi.js'
+import { type Cfi, type CfiReader, createPlaces, createSectionOf } from '../src/engine/places'
+import * as untypedCfi from '../vendor/foliate-js/epubcfi.js'
+
+const CFI: Cfi = untypedCfi
 
 // foliate-js's own CFI functions, counting the parses.
 const counting = () => {
@@ -84,14 +86,14 @@ describe('highlights kept in order', () => {
         const highlight = (id: string, cfi: string): Highlight => ({ id, cfi, fraction: 0.5, colour: 'yellow', text: id, note: '', createdAt: '2026-11-01T00:00:00Z' })
         const stored = Array.from({ length: 300 }, (_, i) => highlight(`s${i}`, range(40 - i % 40, i + 1, 0, 4)))
         const highlights = createHighlights({
-            load: async () => stored,
-            add: async cfi => highlight('new', cfi),
-            update: async (id, change) => ({ ...stored.find(each => each.id === id)!, ...change }),
-            remove: async () => true,
+            load: () => Promise.resolve(stored),
+            add: cfi => Promise.resolve(highlight('new', cfi)),
+            update: (id, change) => Promise.resolve({ ...stored.find(each => each.id === id)!, ...change }),
+            remove: () => Promise.resolve(true),
             compare: places.compare,
             chapterOf: () => '',
             pageOf: () => null,
-            go: async () => {},
+            go: () => Promise.resolve(),
         })
         await new Promise(resolve => setTimeout(resolve, 0))
         expect(parsed).toHaveLength(300)

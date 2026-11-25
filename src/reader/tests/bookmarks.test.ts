@@ -12,24 +12,24 @@ const sources = (stored: Bookmark[] = [], overrides: Partial<BookmarkSources> = 
     const result: BookmarkSources & { server: Bookmark[], book: typeof book } = {
         server,
         book,
-        load: async () => [...server],
-        add: async (cfi, fraction, text) => {
+        load: () => Promise.resolve([...server]),
+        add: (cfi, fraction, text) => {
             const bookmark = server.find(each => each.cfi === cfi)
                 ?? { id: `b${next++}`, cfi, fraction, text, createdAt: `2026-11-02T12:00:0${next}Z` }
             if (!server.includes(bookmark)) server.push(bookmark)
-            return bookmark
+            return Promise.resolve(bookmark)
         },
-        remove: async id => {
+        remove: id => {
             const at = server.findIndex(each => each.id === id)
             if (at >= 0) server.splice(at, 1)
-            return true
+            return Promise.resolve(true)
         },
         page: () => ({ cfi: book.shown, fraction: book.fraction, text: 'Chapter One  Oriel smoke chapter one opens here.' }),
         fromPage: cfi => cfi.localeCompare(book.shown),
         compare: (a, b) => a.localeCompare(b),
         chapterOf: cfi => cfi.includes('/6/2!') ? 'Chapter One' : 'Chapter Three',
         pageOf: () => null,
-        go: async () => {},
+        go: () => Promise.resolve(),
         ...overrides,
     }
     return result
@@ -134,14 +134,14 @@ describe('createBookmarks', () => {
     })
 
     it('changes nothing when the server does not take a change', async () => {
-        const from = sources([], { add: async () => null, remove: async () => false })
+        const from = sources([], { add: () => Promise.resolve(null), remove: () => Promise.resolve(false) })
         const bookmarks = createBookmarks(from)
         await settle()
 
         await bookmarks.toggle()
         expect(bookmarks.rows()).toEqual([])
 
-        const stored = createBookmarks(sources([{ id: 'z', cfi: 'epubcfi(/6/2!/4/2)', fraction: 0.1, text: 'Kept', createdAt: '2026-11-01T00:00:00Z' }], { remove: async () => false }))
+        const stored = createBookmarks(sources([{ id: 'z', cfi: 'epubcfi(/6/2!/4/2)', fraction: 0.1, text: 'Kept', createdAt: '2026-11-01T00:00:00Z' }], { remove: () => Promise.resolve(false) }))
         await settle()
         await stored.remove('z')
         expect(stored.rows().map(row => row.id)).toEqual(['z'])
@@ -149,7 +149,7 @@ describe('createBookmarks', () => {
 
     it('goes to a bookmark by its id', async () => {
         const went: string[] = []
-        const bookmarks = createBookmarks(sources([{ id: 'x', cfi: 'epubcfi(/6/8!/4/2)', fraction: 0.6, text: 'Later', createdAt: '2026-11-01T00:00:00Z' }], { go: async cfi => { went.push(cfi) } }))
+        const bookmarks = createBookmarks(sources([{ id: 'x', cfi: 'epubcfi(/6/8!/4/2)', fraction: 0.6, text: 'Later', createdAt: '2026-11-01T00:00:00Z' }], { go: cfi => { went.push(cfi); return Promise.resolve() } }))
         await settle()
 
         await bookmarks.go('x')

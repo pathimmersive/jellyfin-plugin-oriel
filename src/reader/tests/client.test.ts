@@ -21,16 +21,16 @@ import { type OwnTheme, THEME_ROLES } from '../src/settings/settings'
 // A fetch that answers every request with `status` and `body` (JSON unless a string), and records what it was asked.
 const server = (status: number, body?: unknown) => {
     const calls: { url: string, init?: RequestInit }[] = []
-    const fetchImpl = (async (url: string, init?: RequestInit) => {
+    const fetchImpl = ((url: string, init?: RequestInit) => {
         calls.push({ url, init })
         const text = body === undefined ? null : typeof body === 'string' ? body : JSON.stringify(body)
-        return new Response(status === 204 ? null : text, { status, headers: { 'Content-Type': 'application/json' } })
+        return Promise.resolve(new Response(status === 204 ? null : text, { status, headers: { 'Content-Type': 'application/json' } }))
     }) as typeof fetch
     return { fetchImpl, calls }
 }
 
 // A fetch that cannot reach the server.
-const offline = (async () => { throw new TypeError('Failed to fetch') }) as typeof fetch
+const offline = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof fetch
 
 const bookmark = { id: 'b1', cfi: 'epubcfi(/6/8!/4/2/1:0)', fraction: 0.25, text: 'A beginning', createdAt: '2026-11-15T09:30:00Z' }
 const highlight = { id: 'h1', cfi: 'epubcfi(/6/8!/4/2,/1:0,/1:5)', fraction: 0.25, colour: 'quotes', text: 'A beg', note: '', createdAt: '2026-11-15T09:30:00Z' }

@@ -20,8 +20,9 @@ public class WebIntegrationTests
     {
         var saved = new System.Xml.Serialization.XmlSerializer(typeof(PluginConfiguration));
         using var text = new System.IO.StringReader("<PluginConfiguration><EnableWebIntegration>false</EnableWebIntegration></PluginConfiguration>");
+        using var reader = System.Xml.XmlReader.Create(text);
 
-        Assert.False(((PluginConfiguration)saved.Deserialize(text)!).EnableWebIntegration);
+        Assert.False(((PluginConfiguration)saved.Deserialize(reader)!).EnableWebIntegration);
     }
 
     [Fact]

@@ -363,14 +363,15 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     })
     // The sheet stays until the note is kept, so one that is not is not lost.
     const save = sheet.querySelector<HTMLButtonElement>('.save')!
-    save.addEventListener('click', async () => {
+    const saveNote = async (): Promise<void> => {
         const chosen = noting
         if (!chosen) return
         save.disabled = true
         const kept = await keep(chosen, notePressed, field.value.trim())
         save.disabled = false
         if (kept && noting === chosen) closeNote()
-    })
+    }
+    save.addEventListener('click', () => { void saveNote() })
     for (const dismiss of [sheet.querySelector('.cancel')!, sheet.querySelector('.panel-header button')!, sheetBackdrop]) {
         dismiss.addEventListener('click', closeNote)
     }

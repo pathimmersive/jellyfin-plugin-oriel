@@ -44,7 +44,7 @@ describe('what follows the reader', () => {
 })
 
 describe('readChoices', () => {
-    const answering = (body: unknown, status = 200) => (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch
+    const answering = (body: unknown, status = 200) => (() => Promise.resolve(new Response(JSON.stringify(body), { status }))) as unknown as typeof fetch
 
     it('reads a choice not made yet, which the server leaves out, as none', async () => {
         expect(await readChoices('/jf', 'auth', answering({}))).toEqual({ theme: null, font: null })
@@ -58,7 +58,7 @@ describe('readChoices', () => {
 })
 
 describe('saveChoices', () => {
-    const answering = (status: number) => (async () => new Response(null, { status })) as unknown as typeof fetch
+    const answering = (status: number) => (() => Promise.resolve(new Response(null, { status }))) as unknown as typeof fetch
 
     it('tells a session that has ended from a server that cannot be reached', async () => {
         expect(await saveChoices('', 'h', { theme: 'dark', font: 'Default' }, answering(401))).toBe('signedOut')
@@ -68,26 +68,26 @@ describe('saveChoices', () => {
 })
 
 describe('createChoices', () => {
-    const sources = (save: (choices: Choices) => Promise<boolean | 'signedOut'>, load: () => Promise<KeptChoices | null> = async () => ({ theme: 'dark', font: 'Default' })) => {
+    const sources = (save: (choices: Choices) => Promise<boolean | 'signedOut'>, load: () => Promise<KeptChoices | null> = () => Promise.resolve({ theme: 'dark', font: 'Default' })) => {
         const storage = memory()
         const waits: number[] = []
         const sent: Choices[] = []
         return {
             storage, waits, sent,
             load,
-            save: async (choices: Choices) => { sent.push(choices); return save(choices) },
-            wait: async (ms: number) => { waits.push(ms) },
+            save: (choices: Choices) => { sent.push(choices); return save(choices) },
+            wait: (ms: number) => { waits.push(ms); return Promise.resolve() },
         }
     }
 
     it('opens with the server\'s choice', async () => {
-        const source = sources(async () => true)
+        const source = sources(() => Promise.resolve(true))
         expect(await createChoices(source, choicesOf(DEVICE)).ready).toEqual({ theme: 'dark', font: 'Default' })
         expect(source.sent).toEqual([])
     })
 
     it('sends a choice at once and forgets it once the server has it', async () => {
-        const source = sources(async () => true)
+        const source = sources(() => Promise.resolve(true))
         const chosen = createChoices(source, choicesOf(DEVICE))
         chosen.choose({ theme: 'own:a1', font: 'Default' })
         await settle()
@@ -97,7 +97,7 @@ describe('createChoices', () => {
 
     it('keeps a choice made offline and sends it, waiting longer each time, once the server answers', async () => {
         let up = false
-        const source = sources(async () => up)
+        const source = sources(() => Promise.resolve(up))
         const chosen = createChoices(source, choicesOf(DEVICE))
         chosen.choose({ theme: 'dark', font: 'Literata' })
         await settle()
@@ -110,7 +110,7 @@ describe('createChoices', () => {
     })
 
     it('stops sending once signed out, keeping the choice for the next open', async () => {
-        const source = sources(async () => 'signedOut')
+        const source = sources(() => Promise.resolve('signedOut'))
         const chosen = createChoices(source, choicesOf(DEVICE))
         chosen.choose({ theme: 'dark', font: 'Literata' })
         await settle()
@@ -122,7 +122,7 @@ describe('createChoices', () => {
         expect(source.sent).toHaveLength(1)
         expect(source.storage.items.size).toBe(1)
         // Signed in again, the reader opens anew and sends this device's choice.
-        const again = { ...sources(async () => true), storage: source.storage }
+        const again = { ...sources(() => Promise.resolve(true)), storage: source.storage }
         expect(await createChoices(again, choicesOf(DEVICE)).ready).toBeNull()
         await settle()
         expect(again.sent).toEqual([{ theme: 'sepia', font: 'Literata' }])
@@ -146,7 +146,7 @@ describe('createChoices', () => {
     })
 
     it('on the next open sends this device\'s choice not yet sent, instead of taking the server\'s', async () => {
-        const source = sources(async () => true)
+        const source = sources(() => Promise.resolve(true))
         source.storage.setItem('oriel-choices-unsent', '1')
         expect(await createChoices(source, choicesOf(DEVICE)).ready).toBeNull()
         await settle()
@@ -155,7 +155,7 @@ describe('createChoices', () => {
     })
 
     it('opens with this device\'s choice when the server cannot be reached', async () => {
-        const source = sources(async () => false, async () => null)
+        const source = sources(() => Promise.resolve(false), () => Promise.resolve(null))
         expect(withChoices(DEVICE, await createChoices(source, choicesOf(DEVICE)).ready)).toEqual(DEVICE)
     })
 })

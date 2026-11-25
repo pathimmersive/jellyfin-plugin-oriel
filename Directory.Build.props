@@ -5,6 +5,34 @@
          image scripts/smoke-plugin.sh runs; a plugin built against a newer Jellyfin is refused by an
          older server. Override with -p:JellyfinVersion=<version>. -->
     <JellyfinVersion Condition="'$(JellyfinVersion)' == ''">12.2.0</JellyfinVersion>
+
+    <!-- The .NET analyzers, whose warnings fail the build (TreatWarningsAsErrors). .editorconfig lists the levels. -->
+    <AnalysisLevel>latest-recommended</AnalysisLevel>
+    <EnableNETAnalyzers>true</EnableNETAnalyzers>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+
+  <!-- The analyzers at one exact version. The SDK's own copy is left out below, so a newer SDK
+       does not change what the build finds. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.402" PrivateAssets="all" />
+  </ItemGroup>
+
+  <!-- Leaves the SDK's copy of the .NET analyzers out, so the pinned package's is the one that runs. It goes
+       before the packages' files are resolved, because when both are there the build keeps whichever is newer. -->
+  <Target Name="LeaveOutSdkAnalyzers" BeforeTargets="ResolvePackageAssets">
+    <ItemGroup>
+      <_SdkNetAnalyzer Include="@(Analyzer)" Condition="'%(Analyzer.IsImplicitlyDefined)' == 'true' And $([System.String]::Copy('%(Analyzer.Filename)').EndsWith('NetAnalyzers'))" />
+      <Analyzer Remove="@(_SdkNetAnalyzer)" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CheckPinnedAnalyzers" BeforeTargets="CoreCompile">
+    <ItemGroup>
+      <_NetAnalyzer Include="@(Analyzer)" Condition="$([System.String]::Copy('%(Analyzer.Filename)').EndsWith('NetAnalyzers'))" />
+      <_OtherNetAnalyzer Include="@(_NetAnalyzer)" Condition="'%(_NetAnalyzer.NuGetPackageId)' != 'Microsoft.CodeAnalysis.NetAnalyzers'" />
+    </ItemGroup>
+    <Error Condition="'@(_NetAnalyzer)' == '' Or '@(_OtherNetAnalyzer)' != ''" Text="The .NET analyzers are not the pinned package's: @(_NetAnalyzer)" />
+  </Target>
 
 </Project>

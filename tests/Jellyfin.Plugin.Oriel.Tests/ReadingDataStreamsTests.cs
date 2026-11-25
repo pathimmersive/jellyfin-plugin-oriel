@@ -354,8 +354,10 @@ public sealed class ReadingDataStreamsTests : IDisposable
         }
     }
 
+    private static readonly JsonSerializerOptions Indented = new() { WriteIndented = true };
+
     // The export as it was when it was written whole.
-    private byte[] ExportedBefore() => JsonSerializer.SerializeToUtf8Bytes(Data().Export(Reader, Now), new JsonSerializerOptions { WriteIndented = true });
+    private byte[] ExportedBefore() => JsonSerializer.SerializeToUtf8Bytes(Data().Export(Reader, Now), Indented);
 
     private void AddFullFonts()
     {

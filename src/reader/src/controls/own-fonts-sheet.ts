@@ -22,13 +22,22 @@ export const createOwnFontsSheet = (context: PrefsContext, fonts: OwnFonts): Own
     const fontFile = body.querySelector<HTMLInputElement>('input[type="file"]')!
     const message = body.querySelector<HTMLElement>('.message')!
     const list = body.querySelector('.own-fonts ul')!
-    fontFile.addEventListener('change', async () => {
+    const add = async (): Promise<void> => {
         const [file] = fontFile.files ?? []
         fontFile.value = ''
         if (!file) return
         message.textContent = `Adding ${file.name}…`
         message.textContent = await fonts.add(file) ?? ''
-    })
+    }
+    fontFile.addEventListener('change', () => { void add() })
+    const removeFamily = async (name: string): Promise<void> => {
+        message.textContent = ''
+        if (!await fonts.remove(name)) {
+            message.textContent = `${name} could not be removed. Try again.`
+            return
+        }
+        if (ownFamilyOf(context.settings().font) === name) context.choose({ font: 'Default' })
+    }
     return {
         body,
         fill() {
@@ -41,14 +50,7 @@ export const createOwnFontsSheet = (context: PrefsContext, fonts: OwnFonts): Own
                 name.style.fontFamily = fontStack(ownFont(family.name))
                 row.querySelector('.styles')!.textContent = stylesOf(family)
                 const remove = element('button', { type: 'button', class: 'icon-button', 'aria-label': `Remove ${family.name}` }, icon(ICONS.trash))
-                remove.addEventListener('click', async () => {
-                    message.textContent = ''
-                    if (!await fonts.remove(family.name)) {
-                        message.textContent = `${family.name} could not be removed. Try again.`
-                        return
-                    }
-                    if (ownFamilyOf(context.settings().font) === family.name) context.choose({ font: 'Default' })
-                })
+                remove.addEventListener('click', () => { void removeFamily(family.name) })
                 row.append(remove)
                 return row
             }))

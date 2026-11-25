@@ -1,0 +1,300 @@
+root = true
+
+# The .NET analyzers' levels: every rule of 10.0's recommended set, as AnalysisLevel in Directory.Build.props
+# has it. A warning fails the build. A rule is never turned off here; a finding that is a false positive is
+# silenced on its own line, with its reason:
+#     #pragma warning disable CA1859 // Why it is not a problem here.
+#     the line
+#     #pragma warning restore CA1859
+# The reader's TypeScript has ESLint instead (src/reader/lint).
+[*.cs]
+# Do not declare static members on generic types
+dotnet_diagnostic.CA1000.severity = warning
+# Types that own disposable fields should be disposable
+dotnet_diagnostic.CA1001.severity = warning
+# Generic interface should also be implemented
+dotnet_diagnostic.CA1010.severity = warning
+# Mark assemblies with assembly version
+dotnet_diagnostic.CA1016.severity = warning
+# Mark attributes with AttributeUsageAttribute
+dotnet_diagnostic.CA1018.severity = warning
+# Override methods on comparable types
+dotnet_diagnostic.CA1036.severity = warning
+# Provide ObsoleteAttribute message
+dotnet_diagnostic.CA1041.severity = warning
+# Do not declare protected member in sealed type
+dotnet_diagnostic.CA1047.severity = warning
+# Declare types in namespaces
+dotnet_diagnostic.CA1050.severity = warning
+# Do not declare visible instance fields
+dotnet_diagnostic.CA1051.severity = warning
+# Do not hide base class methods
+dotnet_diagnostic.CA1061.severity = warning
+# Override Object.Equals(object) when implementing IEquatable<T>
+dotnet_diagnostic.CA1067.severity = warning
+# CancellationToken parameters must come last
+dotnet_diagnostic.CA1068.severity = warning
+# Enums values should not be duplicated
+dotnet_diagnostic.CA1069.severity = warning
+# Do not declare event fields as virtual
+dotnet_diagnostic.CA1070.severity = warning
+# Avoid using cref tags with a prefix
+dotnet_diagnostic.CA1200.severity = warning
+# Specify CultureInfo
+dotnet_diagnostic.CA1304.severity = warning
+# Specify IFormatProvider
+dotnet_diagnostic.CA1305.severity = warning
+# Use ordinal string comparison
+dotnet_diagnostic.CA1309.severity = warning
+# Specify StringComparison for correctness
+dotnet_diagnostic.CA1310.severity = warning
+# Specify a culture or use an invariant version
+dotnet_diagnostic.CA1311.severity = warning
+# P/Invokes should not be visible
+dotnet_diagnostic.CA1401.severity = warning
+# Provide a parameterless constructor that is as visible as the containing type for concrete types derived from 'System.Runtime.InteropServices.SafeHandle'
+dotnet_diagnostic.CA1419.severity = warning
+# This method uses runtime marshalling even when the 'DisableRuntimeMarshallingAttribute' is applied
+dotnet_diagnostic.CA1421.severity = warning
+# Use nameof to express symbol names
+dotnet_diagnostic.CA1507.severity = warning
+# Use ArgumentNullException throw helper
+dotnet_diagnostic.CA1510.severity = warning
+# Use ArgumentException throw helper
+dotnet_diagnostic.CA1511.severity = warning
+# Use ArgumentOutOfRangeException throw helper
+dotnet_diagnostic.CA1512.severity = warning
+# Use ObjectDisposedException throw helper
+dotnet_diagnostic.CA1513.severity = warning
+# Avoid redundant length argument
+dotnet_diagnostic.CA1514.severity = warning
+# Identifiers should not contain underscores
+dotnet_diagnostic.CA1707.severity = warning
+# Identifiers should differ by more than case
+dotnet_diagnostic.CA1708.severity = warning
+# Identifiers should have correct suffix
+dotnet_diagnostic.CA1710.severity = warning
+# Identifiers should not have incorrect suffix
+dotnet_diagnostic.CA1711.severity = warning
+# Do not prefix enum values with type name
+dotnet_diagnostic.CA1712.severity = warning
+# Identifiers should have correct prefix
+dotnet_diagnostic.CA1715.severity = warning
+# Identifiers should not match keywords
+dotnet_diagnostic.CA1716.severity = warning
+# Identifier contains type name
+dotnet_diagnostic.CA1720.severity = warning
+# Parameter names should match base declaration
+dotnet_diagnostic.CA1725.severity = warning
+# Use PascalCase for named placeholders
+dotnet_diagnostic.CA1727.severity = warning
+# Do not initialize unnecessarily
+dotnet_diagnostic.CA1805.severity = warning
+# Do not ignore method results
+dotnet_diagnostic.CA1806.severity = warning
+# Dispose methods should call SuppressFinalize
+dotnet_diagnostic.CA1816.severity = warning
+# Remove empty Finalizers
+dotnet_diagnostic.CA1821.severity = warning
+# Mark members as static
+dotnet_diagnostic.CA1822.severity = warning
+# Mark assemblies with NeutralResourcesLanguageAttribute
+dotnet_diagnostic.CA1824.severity = warning
+# Avoid zero-length array allocations
+dotnet_diagnostic.CA1825.severity = warning
+# Do not use Enumerable methods on indexable collections
+dotnet_diagnostic.CA1826.severity = warning
+# Do not use Count() or LongCount() when Any() can be used
+dotnet_diagnostic.CA1827.severity = warning
+# Do not use CountAsync() or LongCountAsync() when AnyAsync() can be used
+dotnet_diagnostic.CA1828.severity = warning
+# Use Length/Count property instead of Count() when available
+dotnet_diagnostic.CA1829.severity = warning
+# Prefer strongly-typed Append and Insert method overloads on StringBuilder
+dotnet_diagnostic.CA1830.severity = warning
+# Use AsSpan or AsMemory instead of Range-based indexers when appropriate
+dotnet_diagnostic.CA1832.severity = warning
+# Use AsSpan or AsMemory instead of Range-based indexers when appropriate
+dotnet_diagnostic.CA1833.severity = warning
+# Consider using 'StringBuilder.Append(char)' when applicable
+dotnet_diagnostic.CA1834.severity = warning
+# Prefer the 'Memory'-based overloads for 'ReadAsync' and 'WriteAsync'
+dotnet_diagnostic.CA1835.severity = warning
+# Prefer IsEmpty over Count
+dotnet_diagnostic.CA1836.severity = warning
+# Use 'Environment.ProcessId'
+dotnet_diagnostic.CA1837.severity = warning
+# Avoid 'StringBuilder' parameters for P/Invokes
+dotnet_diagnostic.CA1838.severity = warning
+# Use 'Environment.ProcessPath'
+dotnet_diagnostic.CA1839.severity = warning
+# Use 'Environment.CurrentManagedThreadId'
+dotnet_diagnostic.CA1840.severity = warning
+# Prefer Dictionary.Contains methods
+dotnet_diagnostic.CA1841.severity = warning
+# Do not use 'WhenAll' with a single task
+dotnet_diagnostic.CA1842.severity = warning
+# Do not use 'WaitAll' with a single task
+dotnet_diagnostic.CA1843.severity = warning
+# Provide memory-based overrides of async methods when subclassing 'Stream'
+dotnet_diagnostic.CA1844.severity = warning
+# Use span-based 'string.Concat'
+dotnet_diagnostic.CA1845.severity = warning
+# Prefer 'AsSpan' over 'Substring'
+dotnet_diagnostic.CA1846.severity = warning
+# Use char literal for a single character lookup
+dotnet_diagnostic.CA1847.severity = warning
+# Use the LoggerMessage delegates
+dotnet_diagnostic.CA1848.severity = warning
+# Prefer static 'HashData' method over 'ComputeHash'
+dotnet_diagnostic.CA1850.severity = warning
+# Seal internal types
+dotnet_diagnostic.CA1852.severity = warning
+# Unnecessary call to 'Dictionary.ContainsKey(key)'
+dotnet_diagnostic.CA1853.severity = warning
+# Prefer the 'IDictionary.TryGetValue(TKey, out TValue)' method
+dotnet_diagnostic.CA1854.severity = warning
+# Prefer 'Clear' over 'Fill'
+dotnet_diagnostic.CA1855.severity = warning
+# Incorrect usage of ConstantExpected attribute
+dotnet_diagnostic.CA1856.severity = warning
+# Use 'StartsWith' instead of 'IndexOf'
+dotnet_diagnostic.CA1858.severity = warning
+# Use concrete types when possible for improved performance
+dotnet_diagnostic.CA1859.severity = warning
+# Avoid using 'Enumerable.Any()' extension method
+dotnet_diagnostic.CA1860.severity = warning
+# Avoid constant arrays as arguments
+dotnet_diagnostic.CA1861.severity = warning
+# Use the 'StringComparison' method overloads to perform case-insensitive string comparisons
+dotnet_diagnostic.CA1862.severity = warning
+# Use 'CompositeFormat'
+dotnet_diagnostic.CA1863.severity = warning
+# Prefer the 'IDictionary.TryAdd(TKey, TValue)' method
+dotnet_diagnostic.CA1864.severity = warning
+# Use char overload
+dotnet_diagnostic.CA1865.severity = warning
+# Use char overload
+dotnet_diagnostic.CA1866.severity = warning
+# Unnecessary call to 'Contains(item)'
+dotnet_diagnostic.CA1868.severity = warning
+# Cache and reuse 'JsonSerializerOptions' instances
+dotnet_diagnostic.CA1869.severity = warning
+# Use a cached 'SearchValues' instance
+dotnet_diagnostic.CA1870.severity = warning
+# Do not pass a nullable struct to 'ArgumentNullException.ThrowIfNull'
+dotnet_diagnostic.CA1871.severity = warning
+# Prefer 'Convert.ToHexString' and 'Convert.ToHexStringLower' over call chains based on 'BitConverter.ToString'
+dotnet_diagnostic.CA1872.severity = warning
+# Avoid potentially expensive logging
+dotnet_diagnostic.CA1873.severity = warning
+# Use 'Regex.IsMatch'
+dotnet_diagnostic.CA1874.severity = warning
+# Use 'Regex.Count'
+dotnet_diagnostic.CA1875.severity = warning
+# Do not call ToImmutableCollection on an ImmutableCollection value
+dotnet_diagnostic.CA2009.severity = warning
+# Avoid infinite recursion
+dotnet_diagnostic.CA2011.severity = warning
+# Use ValueTasks correctly
+dotnet_diagnostic.CA2012.severity = warning
+# Forward the 'CancellationToken' parameter to methods
+dotnet_diagnostic.CA2016.severity = warning
+# Improper 'ThreadStatic' field initialization
+dotnet_diagnostic.CA2019.severity = warning
+# Prevent behavioral change
+dotnet_diagnostic.CA2020.severity = warning
+# Specify marshaling for P/Invoke string arguments
+dotnet_diagnostic.CA2101.severity = warning
+# Do not raise reserved exception types
+dotnet_diagnostic.CA2201.severity = warning
+# Instantiate argument exceptions correctly
+dotnet_diagnostic.CA2208.severity = warning
+# Non-constant fields should not be visible
+dotnet_diagnostic.CA2211.severity = warning
+# Dispose methods should call base class dispose
+dotnet_diagnostic.CA2215.severity = warning
+# Override GetHashCode on overriding Equals
+dotnet_diagnostic.CA2218.severity = warning
+# Do not raise exceptions in finally clauses
+dotnet_diagnostic.CA2219.severity = warning
+# Override Equals on overloading operator equals
+dotnet_diagnostic.CA2224.severity = warning
+# Overload operator equals on overriding value type Equals
+dotnet_diagnostic.CA2231.severity = warning
+# Provide correct arguments to formatting methods
+dotnet_diagnostic.CA2241.severity = warning
+# Test for NaN correctly
+dotnet_diagnostic.CA2242.severity = warning
+# Do not duplicate indexed element initializations
+dotnet_diagnostic.CA2244.severity = warning
+# Do not assign a property to itself
+dotnet_diagnostic.CA2245.severity = warning
+# Assigning symbol and its member in the same statement
+dotnet_diagnostic.CA2246.severity = warning
+# Provide correct 'enum' argument to 'Enum.HasFlag'
+dotnet_diagnostic.CA2248.severity = warning
+# Consider using 'string.Contains' instead of 'string.IndexOf'
+dotnet_diagnostic.CA2249.severity = warning
+# Use 'ThrowIfCancellationRequested'
+dotnet_diagnostic.CA2250.severity = warning
+# Use 'string.Equals'
+dotnet_diagnostic.CA2251.severity = warning
+# This API requires opting into preview features
+dotnet_diagnostic.CA2252.severity = warning
+# Named placeholders should not be numeric values
+dotnet_diagnostic.CA2253.severity = warning
+# Template should be a static expression
+dotnet_diagnostic.CA2254.severity = warning
+# Set 'MaxResponseHeadersLength' properly
+dotnet_diagnostic.CA2262.severity = warning
+# Prefer generic overload when type is known
+dotnet_diagnostic.CA2263.severity = warning
+# Do Not Add Schema By URL
+dotnet_diagnostic.CA3061.severity = warning
+# Insecure DTD processing in XML
+dotnet_diagnostic.CA3075.severity = warning
+# Insecure XSLT script processing
+dotnet_diagnostic.CA3076.severity = warning
+# Insecure Processing in API Design, XmlDocument and XmlTextReader
+dotnet_diagnostic.CA3077.severity = warning
+# Mark Verb Handlers With Validate Antiforgery Token
+dotnet_diagnostic.CA3147.severity = warning
+# Do Not Use Weak Cryptographic Algorithms
+dotnet_diagnostic.CA5350.severity = warning
+# Do Not Use Broken Cryptographic Algorithms
+dotnet_diagnostic.CA5351.severity = warning
+# Do Not Disable Certificate Validation
+dotnet_diagnostic.CA5359.severity = warning
+# Do Not Call Dangerous Methods In Deserialization
+dotnet_diagnostic.CA5360.severity = warning
+# Do Not Disable Request Validation
+dotnet_diagnostic.CA5363.severity = warning
+# Do Not Use Deprecated Security Protocols
+dotnet_diagnostic.CA5364.severity = warning
+# Do Not Disable HTTP Header Checking
+dotnet_diagnostic.CA5365.severity = warning
+# Use XmlReader for 'DataSet.ReadXml()'
+dotnet_diagnostic.CA5366.severity = warning
+# Set ViewStateUserKey For Classes Derived From Page
+dotnet_diagnostic.CA5368.severity = warning
+# Use XmlReader for 'XmlSerializer.Deserialize()'
+dotnet_diagnostic.CA5369.severity = warning
+# Use XmlReader for XmlValidatingReader constructor
+dotnet_diagnostic.CA5370.severity = warning
+# Use XmlReader for 'XmlSchema.Read()'
+dotnet_diagnostic.CA5371.severity = warning
+# Use XmlReader for XPathDocument constructor
+dotnet_diagnostic.CA5372.severity = warning
+# Do not use obsolete key derivation function
+dotnet_diagnostic.CA5373.severity = warning
+# Do Not Use XslTransform
+dotnet_diagnostic.CA5374.severity = warning
+# Ensure Key Derivation Function algorithm is sufficiently strong
+dotnet_diagnostic.CA5379.severity = warning
+# Do Not Use Digital Signature Algorithm (DSA)
+dotnet_diagnostic.CA5384.severity = warning
+# Use Rivest-Shamir-Adleman (RSA) Algorithm With Sufficient Key Size
+dotnet_diagnostic.CA5385.severity = warning
+# Do not use deprecated SslProtocols values
+dotnet_diagnostic.CA5397.severity = warning

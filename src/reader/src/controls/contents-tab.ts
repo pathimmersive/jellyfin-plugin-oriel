@@ -15,7 +15,7 @@ export interface ContentsTabOptions {
 /** A tab of the Contents panel: its body, and what fills it. */
 export interface PanelTab {
     body: HTMLElement
-    fill(): void
+    fill: () => void
 }
 
 /** The book's contents. */

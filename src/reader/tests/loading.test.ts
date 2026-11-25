@@ -3,7 +3,7 @@ import { downloadBook, readBookDetails } from '../src/api/client'
 import { downloadLine, downloadShare } from '../src/loading/loading'
 
 // A response whose body arrives in the given chunks.
-const streamed = (chunks: string[], headers: Record<string, string> = {}): typeof fetch => (async () => {
+const streamed = (chunks: string[], headers: Record<string, string> = {}): typeof fetch => (() => {
     const encoder = new TextEncoder()
     const body = new ReadableStream<Uint8Array>({
         start(controller) {
@@ -11,8 +11,8 @@ const streamed = (chunks: string[], headers: Record<string, string> = {}): typeo
             controller.close()
         },
     })
-    return new Response(body, { headers })
-}) as typeof fetch
+    return Promise.resolve(new Response(body, { headers }))
+})
 
 describe('downloadLine', () => {
     it('gives what has arrived of the size, in megabytes of 1,000,000 bytes to one decimal place', () => {
@@ -63,9 +63,9 @@ describe('downloadBook progress', () => {
 describe('readBookDetails', () => {
     it('reads the title and the cover from /Items/{id} under the base path', async () => {
         const calls: { url: string, init?: RequestInit }[] = []
-        const fetchImpl = (async (url: string, init?: RequestInit) => {
+        const fetchImpl = ((url: string, init?: RequestInit) => {
             calls.push({ url, init })
-            return Response.json({ Name: 'Pride and Prejudice', ImageTags: { Primary: 't1' } })
+            return Promise.resolve(Response.json({ Name: 'Pride and Prejudice', ImageTags: { Primary: 't1' } }))
         }) as typeof fetch
 
         expect(await readBookDetails('/jf', 'abc', 'u1', 'MediaBrowser Token="t"', fetchImpl)).toEqual({
@@ -77,12 +77,12 @@ describe('readBookDetails', () => {
     })
 
     it('gives no cover for a book without a primary image', async () => {
-        const fetchImpl = (async () => Response.json({ Name: 'Oriel', ImageTags: {} })) as typeof fetch
+        const fetchImpl = (() => Promise.resolve(Response.json({ Name: 'Oriel', ImageTags: {} }))) as typeof fetch
         expect(await readBookDetails('', 'abc', 'u1', 'h', fetchImpl)).toEqual({ title: 'Oriel', cover: null })
     })
 
     it('gives null when the details cannot be read', async () => {
-        expect(await readBookDetails('', 'abc', 'u1', 'h', (async () => new Response(null, { status: 500 })) as typeof fetch)).toBeNull()
-        expect(await readBookDetails('', 'abc', 'u1', 'h', (async () => { throw new TypeError('offline') }) as typeof fetch)).toBeNull()
+        expect(await readBookDetails('', 'abc', 'u1', 'h', (() => Promise.resolve(new Response(null, { status: 500 }))))).toBeNull()
+        expect(await readBookDetails('', 'abc', 'u1', 'h', (() => Promise.reject(new TypeError('offline'))))).toBeNull()
     })
 })

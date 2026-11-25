@@ -64,6 +64,7 @@ const BUILT_IN_SELECTION: Record<ThemeId, string> = { light: '#b8e6f5', sepia: '
 /** The colours New theme starts from: the custom theme in use, else the built-in one's page with Jellyfin's controls. */
 export const startingColours = (theme: ThemeId | OwnTheme): ThemeColours => {
     if (typeof theme !== 'string') {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- named to leave them out of the colours
         const { id: _id, name: _name, ...colours } = theme
         return colours
     }
