@@ -15,7 +15,7 @@
   <!-- The analyzers at one exact version. The SDK's own copy is left out below, so a newer SDK
        does not change what the build finds. -->
   <ItemGroup>
-    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="10.0.402" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.NetAnalyzers" Version="11.0.100" PrivateAssets="all" />
   </ItemGroup>
 
   <!-- Leaves the SDK's copy of the .NET analyzers out, so the pinned package's is the one that runs. It goes
