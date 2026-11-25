@@ -64,8 +64,10 @@ export interface BookmarkSources {
     remove(id: string): Promise<boolean>
     /** The page shown, or null before one is. */
     page(): PageMark | null
-    /** Whether a place is on the page shown. */
-    onPage(cfi: string): boolean
+    /** Where a place is from the page shown: negative before it, 0 on it, positive after it. */
+    fromPage(cfi: string): number
+    /** Book order of two places: negative when `a` comes first. */
+    compare(a: string, b: string): number
     /** The name of the chapter a place is in. */
     chapterOf(cfi: string): string
     /** The page a place is on, or null while progress shows the percent or the book is not counted. */
@@ -79,8 +81,11 @@ export interface BookmarkSources {
  */
 export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
     let kept: Bookmark[] = []
+    // The same, in the order of their places.
+    let placed: Bookmark[] = []
     const listeners: (() => void)[] = []
     const changed = (): void => {
+        placed = [...kept].sort((a, b) => sources.compare(a.cfi, b.cfi))
         kept.sort((a, b) => a.fraction - b.fraction || a.createdAt.localeCompare(b.createdAt))
         for (const listener of listeners) listener()
     }
@@ -91,6 +96,18 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
         kept = [...loaded, ...kept.filter(bookmark => !ids.has(bookmark.id))]
         changed()
     })
+    // The bookmarks on the page shown, found by halving: a page turn asks.
+    const here = (): Bookmark[] => {
+        let first = 0
+        let last = placed.length
+        while (first < last) {
+            const middle = (first + last) >> 1
+            if (sources.fromPage(placed[middle].cfi) < 0) first = middle + 1
+            else last = middle
+        }
+        while (last < placed.length && sources.fromPage(placed[last].cfi) === 0) last++
+        return placed.slice(first, last)
+    }
     const remove = async (id: string): Promise<void> => {
         if (!await sources.remove(id)) return
         kept = kept.filter(bookmark => bookmark.id !== id)
@@ -98,11 +115,11 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
     }
     return {
         rows: () => kept.map(({ id, cfi, fraction, text }) => ({ id, text, where: bookmarkWhere(sources.chapterOf(cfi), fraction, sources.pageOf(cfi)) })),
-        marked: () => kept.some(bookmark => sources.onPage(bookmark.cfi)),
+        marked: () => here().length > 0,
         async toggle() {
-            const here = kept.filter(bookmark => sources.onPage(bookmark.cfi))
-            if (here.length) {
-                for (const { id } of here) await remove(id)
+            const marked = here()
+            if (marked.length) {
+                for (const { id } of marked) await remove(id)
                 return
             }
             const page = sources.page()

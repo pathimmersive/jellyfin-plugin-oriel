@@ -132,7 +132,7 @@ describe('countPages', () => {
             'ch3.xhtml': { index: 2, anchor: () => null },
         })[href] ?? null
 
-        const count = await countPages(shownOnScreen, { sections: sections(3) }, 'styles here', ['ch2.xhtml', 'ch2.xhtml#half', 'ch3.xhtml', 'missing.xhtml'], resolve, () => 1, () => false)
+        const count = await countPages(shownOnScreen, { sections: sections(3) }, 'styles here', ['ch2.xhtml', 'ch2.xhtml#half', 'ch3.xhtml', 'missing.xhtml'], href => resolve(href)?.index ?? null, resolve, () => 1, () => false)
 
         expect(count).toEqual({ sections: [2, 3, 1], entries: { 'ch2.xhtml': 3, 'ch2.xhtml#half': 5, 'ch3.xhtml': 6 } })
         expect(counter.attributes.get('flow')).toBe('paginated')
@@ -143,11 +143,24 @@ describe('countPages', () => {
         expect(unloads).toEqual([0])
     })
 
+    it('resolves only the places of the sections it reaches, each as it reaches its section', async () => {
+        const docs = [sectionDoc({ contentRight: 340 }), sectionDoc({ contentRight: 340 })]
+        const { events, shownOnScreen } = setUp(docs)
+        const resolve: Resolve = href => {
+            events.push(`resolve ${href}`)
+            return { index: href === 'a' ? 0 : 1, anchor: () => element(0, 0) }
+        }
+
+        await countPages(shownOnScreen, { sections: sections(2) }, '', ['b', 'nowhere', 'a'], href => ({ a: 0, b: 1 })[href] ?? null, resolve, () => -1, () => false)
+
+        expect(events).toEqual(['styles ', 'show 0', 'resolve a', 'show 1', 'resolve b', 'destroy'])
+    })
+
     it('gives a section the reader pages past, or one that shows nothing, no pages', async () => {
         const docs = [sectionDoc({ contentRight: 680 }), sectionDoc({ contentRight: 3400 }), null]
         const { shownOnScreen } = setUp(docs)
 
-        const count = await countPages(shownOnScreen, { sections: sections(3, [1]) }, '', [], () => null, () => -1, () => false)
+        const count = await countPages(shownOnScreen, { sections: sections(3, [1]) }, '', [], () => null, () => null, () => -1, () => false)
 
         expect(count).toEqual({ sections: [2, 0, 0], entries: {} })
     })
@@ -157,7 +170,7 @@ describe('countPages', () => {
         const { counter, shownOnScreen } = setUp([doc], { flow: 'scrolled' })
         counter.size = 600
 
-        expect(await countPages(shownOnScreen, { sections: sections(1) }, '', [], () => null, () => -1, () => false)).toEqual({ sections: [3], entries: {} })
+        expect(await countPages(shownOnScreen, { sections: sections(1) }, '', [], () => null, () => null, () => -1, () => false)).toEqual({ sections: [3], entries: {} })
     })
 
     it('stops and gives nothing once cancelled, removing what it added', async () => {
@@ -165,7 +178,7 @@ describe('countPages', () => {
         const { events, added, shownOnScreen } = setUp(docs)
         let asked = 0
 
-        const count = await countPages(shownOnScreen, { sections: sections(2) }, '', [], () => null, () => -1, () => ++asked > 2)
+        const count = await countPages(shownOnScreen, { sections: sections(2) }, '', [], () => null, () => null, () => -1, () => ++asked > 2)
 
         expect(count).toBeNull()
         expect(events).toEqual(['styles ', 'show 0', 'destroy'])
@@ -175,7 +188,7 @@ describe('countPages', () => {
     it('destroys no paginator that never showed a section', async () => {
         const { events, added, shownOnScreen } = setUp([sectionDoc()])
 
-        expect(await countPages(shownOnScreen, { sections: sections(1) }, '', [], () => null, () => -1, () => true)).toBeNull()
+        expect(await countPages(shownOnScreen, { sections: sections(1) }, '', [], () => null, () => null, () => -1, () => true)).toBeNull()
         expect(events).toEqual(['styles '])
         expect(added.every(host => host.removed)).toBe(true)
     })

@@ -100,7 +100,8 @@ export const createBookBookmarks = (opened: OpenBook, { basePath, itemId, author
             return removed
         },
         page: () => opened.page(),
-        onPage: cfi => opened.onPage(cfi),
+        fromPage: cfi => opened.fromPage(cfi),
+        compare: (a, b) => opened.compare(a, b),
         chapterOf: cfi => opened.chapterOf(cfi),
         pageOf,
         go: cfi => opened.goTo(cfi),

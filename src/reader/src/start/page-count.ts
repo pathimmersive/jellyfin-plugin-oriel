@@ -12,7 +12,7 @@ export interface PageCountSources {
     marked(): string[]
     /** The count kept from before for a layout, or null. */
     read(layout: string): PageCount | null
-    /** Keeps a layout's count. */
+    /** Keeps a layout's count, marks placed and all, so it is not done for each one placed. */
     write(layout: string, count: PageCount): void
     /** The count changed, or may have: what shows pages shows them again. */
     changed(): void
@@ -32,7 +32,12 @@ export interface BookPages {
     pageOf(cfi: string): number | null
     /** Counts again for bookmarks and highlights the count has not placed: ones loaded after it, or added on another device. */
     placeMarked(): void
+    /** Keeps the places found since the count was last kept, now, as when the page is hidden. */
+    flush(): void
 }
+
+// How long the places found are gathered before they are kept, in one write.
+const KEEP_MS = 1000
 
 /**
  * Pages mode counts the book for its layout, in the background; a count kept
@@ -46,6 +51,17 @@ export const createPageCount = (sources: PageCountSources): BookPages => {
     let counting: { cancelled: boolean } | null = null
     let countedFor = ''
     const tried = new Set<string>()
+    // Set while places found since the count was last kept wait to be.
+    let keeping: ReturnType<typeof setTimeout> | undefined
+    const kept = (): void => {
+        clearTimeout(keeping)
+        keeping = undefined
+    }
+    const flush = (): void => {
+        if (keeping === undefined) return
+        kept()
+        if (count) sources.write(countedFor, count)
+    }
     const placeMarked = (): void => {
         if (!count || counting) return
         const counted = count
@@ -55,6 +71,7 @@ export const createPageCount = (sources: PageCountSources): BookPages => {
         if (sources.beside()) return
         const key = sources.pages() && !book.fixedLayout ? layoutKey(book.layout()) : ''
         if (!force && key === countedFor && (count || counting)) return
+        flush()
         if (counting) counting.cancelled = true
         counting = null
         if (!force || key !== countedFor) count = null
@@ -70,6 +87,7 @@ export const createPageCount = (sources: PageCountSources): BookPages => {
                     counting = null
                     count = result
                     for (const cfi of places) tried.add(cfi)
+                    kept()
                     sources.write(key, result)
                     sources.changed()
                     placeMarked()
@@ -86,15 +104,16 @@ export const createPageCount = (sources: PageCountSources): BookPages => {
         // From the count, or, for one made since on the section shown, from the layout on screen.
         pageOf(cfi) {
             if (!sources.pages() || !count) return null
-            const kept = count.entries[cfi]
-            if (kept) return kept
+            const counted = count.entries[cfi]
+            if (counted) return counted
             if (sources.beside()) return null
             const here = book.pageShown(cfi)
             if (!here || here.section >= count.sections.length) return null
             count.entries[cfi] = pageNumber(count, here.section, here.page)
-            sources.write(countedFor, count)
+            keeping ??= setTimeout(flush, KEEP_MS)
             return count.entries[cfi]
         },
         placeMarked,
+        flush,
     }
 }

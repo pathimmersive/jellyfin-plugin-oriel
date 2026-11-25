@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { layoutKey, type PageCount } from '../src/controls/progress'
 import { createPageCount } from '../src/start/page-count'
 
@@ -16,6 +16,7 @@ const reader = () => {
         shown: {} as Record<string, { section: number, page: number }>,
         kept: {} as Record<string, PageCount>,
         changed: 0,
+        writes: 0,
         runs: [] as { places: string[], cancelled: () => boolean, land: (entries?: Record<string, number>) => Promise<void> }[],
     }
     const count = createPageCount({
@@ -36,7 +37,10 @@ const reader = () => {
         beside: () => state.beside,
         marked: () => state.marked,
         read: key => state.kept[key] ?? null,
-        write: (key, kept) => { state.kept[key] = structuredClone(kept) },
+        write: (key, kept) => {
+            state.writes++
+            state.kept[key] = structuredClone(kept)
+        },
         changed: () => { state.changed++ },
     })
     return { state, count }
@@ -173,6 +177,7 @@ describe('pageOf', () => {
         await state.runs[0].land()
         state.shown = { here: { section: 1, page: 2 } }
         expect(count.pageOf('here')).toBe(6)
+        count.flush()
         expect(state.kept[layoutKey('wide')].entries).toEqual({ here: 6 })
         state.shown = {}
         expect(count.pageOf('here')).toBe(6)
@@ -187,5 +192,70 @@ describe('pageOf', () => {
         expect(count.pageOf('here')).toBeNull()
         state.beside = false
         expect(count.pageOf('past')).toBeNull()
+    })
+})
+
+describe('keeping the places found', () => {
+    beforeEach(() => { vi.useFakeTimers() })
+    afterEach(() => { vi.useRealTimers() })
+
+    const counted = async () => {
+        const { state, count } = reader()
+        count.recount()
+        await state.runs[0].land()
+        state.writes = 0
+        state.shown = { a: { section: 0, page: 0 }, b: { section: 0, page: 1 }, c: { section: 1, page: 0 } }
+        return { state, count }
+    }
+    const kept = (state: { kept: Record<string, PageCount> }, layout = 'wide') => state.kept[layoutKey(layout)].entries
+
+    it('writes the store once for all of them, a moment after the first', async () => {
+        const { state, count } = await counted()
+        for (const cfi of ['a', 'b', 'a']) count.pageOf(cfi)
+        vi.advanceTimersByTime(900)
+        count.pageOf('c')
+        expect(state.writes).toBe(0)
+        vi.advanceTimersByTime(100)
+        expect(state.writes).toBe(1)
+        expect(kept(state)).toEqual({ a: 1, b: 2, c: 4 })
+        vi.advanceTimersByTime(5000)
+        count.flush()
+        expect(state.writes).toBe(1)
+        state.shown = { d: { section: 1, page: 5 } }
+        count.pageOf('d')
+        vi.advanceTimersByTime(1000)
+        expect(state.writes).toBe(2)
+    })
+
+    it('writes at once when flushed, and not again after', async () => {
+        const { state, count } = await counted()
+        count.pageOf('a')
+        count.flush()
+        expect(state.writes).toBe(1)
+        vi.advanceTimersByTime(5000)
+        expect(state.writes).toBe(1)
+    })
+
+    it('writes them for the layout they were found in before another is counted', async () => {
+        const { state, count } = await counted()
+        count.pageOf('a')
+        state.layout = 'narrow'
+        count.recount()
+        expect(kept(state)).toEqual({ a: 1 })
+        vi.advanceTimersByTime(5000)
+        expect(state.writes).toBe(1)
+        expect(state.kept[layoutKey('narrow')]).toBeUndefined()
+    })
+
+    it('leaves them to the write of a new count that lands first', async () => {
+        const { state, count } = await counted()
+        state.marked = ['later']
+        count.placeMarked()
+        count.pageOf('a')
+        await state.runs[1].land({ later: 7 })
+        expect(state.writes).toBe(1)
+        vi.advanceTimersByTime(5000)
+        expect(state.writes).toBe(1)
+        expect(kept(state)).toEqual({ later: 7 })
     })
 })

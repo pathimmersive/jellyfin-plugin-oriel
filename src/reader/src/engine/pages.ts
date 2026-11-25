@@ -104,7 +104,8 @@ interface Paginator extends HTMLElement {
  * Counts every section's pages by laying the book out again in a hidden
  * paginator the size of `shown` (the paginator on screen), with the same gap
  * and `styles`, one section at a time. `hrefs` are the contents links and
- * any other places (CFIs), each given the page it starts on. `showing` is the section on screen, which the
+ * any other places (CFIs), each given the page it starts on; `sectionOf` gives
+ * the section each is in. `showing` is the section on screen, which the
  * count leaves loaded. Returns null when `cancelled` turns true first.
  */
 export const countPages = async (
@@ -112,6 +113,7 @@ export const countPages = async (
     book: { dir?: string, sections: Section[] },
     styles: string,
     hrefs: string[],
+    sectionOf: (href: string) => number | null,
     resolve: Resolve,
     showing: () => number,
     cancelled: () => boolean,
@@ -138,7 +140,14 @@ export const countPages = async (
     host.append(counter)
     document.body.append(host)
 
-    const links = hrefs.map(href => ({ href, target: resolve(href) }))
+    const links = new Map<number, string[]>()
+    for (const href of hrefs) {
+        const index = sectionOf(href)
+        if (index === null) continue
+        const there = links.get(index)
+        if (there) there.push(href)
+        else links.set(index, [href])
+    }
     const pages: number[] = []
     const entries: Record<string, number> = {}
     let before = 0
@@ -160,9 +169,8 @@ export const countPages = async (
             await new Promise(resolve => requestAnimationFrame(resolve))
             if (cancelled()) return null
             const layout = columnLayout(doc, counter.size, counter.getAttribute('flow') === 'scrolled')
-            for (const { href, target } of links) {
-                if (target?.index !== index) continue
-                const node = target.anchor?.(doc)
+            for (const href of links.get(index) ?? []) {
+                const node = resolve(href)?.anchor?.(doc)
                 entries[href] = before + (node ? layout.place(node).column : 0) + 1
             }
             pages.push(layout.columns)
