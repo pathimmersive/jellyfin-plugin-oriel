@@ -25,7 +25,8 @@ const sources = (stored: Bookmark[] = [], overrides: Partial<BookmarkSources> = 
             return true
         },
         page: () => ({ cfi: book.shown, fraction: book.fraction, text: 'Chapter One  Oriel smoke chapter one opens here.' }),
-        onPage: cfi => cfi === book.shown,
+        fromPage: cfi => cfi.localeCompare(book.shown),
+        compare: (a, b) => a.localeCompare(b),
         chapterOf: cfi => cfi.includes('/6/2!') ? 'Chapter One' : 'Chapter Three',
         pageOf: () => null,
         go: async () => {},
@@ -102,6 +103,34 @@ describe('createBookmarks', () => {
         expect(changes).toBe(1)
         expect(bookmarks.rows().map(row => row.id)).toEqual(['y', 'x'])
         expect(bookmarks.marked()).toBe(true)
+    })
+
+    it('finds the bookmarks on the page wherever they are in the list, asking about few of them', async () => {
+        const at = (n: number): string => `epubcfi(/6/2!/4/${1000 + n})`
+        let asked = 0
+        // Their fractions run the other way, so the rows' order is not the places' order; two are on the same page.
+        const all = Array.from({ length: 500 }, (_, i) => ({ id: `b${i}`, cfi: at(i * 2), fraction: 1 - i / 500, text: `${i}`, createdAt: '2026-11-01T00:00:00Z' }))
+        let page = [0, 0]
+        const from = sources(all, {
+            fromPage: cfi => {
+                asked++
+                const n = Number(/(\d+)\)$/.exec(cfi)![1]) - 1000
+                return n < page[0] ? -1 : n > page[1] ? 1 : 0
+            },
+        })
+        const bookmarks = createBookmarks(from)
+        await settle()
+        for (const [first, last, on] of [[0, 0, true], [998, 998, true], [500, 501, true], [501, 501, false], [999, 2000, false], [-5, -1, false]] as [number, number, boolean][]) {
+            page = [first, last]
+            asked = 0
+            expect(bookmarks.marked(), `page ${first}-${last}`).toBe(on)
+            expect(asked).toBeLessThanOrEqual(12)
+        }
+
+        page = [10, 13]
+        await bookmarks.toggle()
+        expect(from.server.map(each => each.id).filter(id => ['b4', 'b5', 'b6', 'b7'].includes(id))).toEqual(['b4', 'b7'])
+        expect(from.server).toHaveLength(498)
     })
 
     it('changes nothing when the server does not take a change', async () => {

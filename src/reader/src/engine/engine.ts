@@ -13,6 +13,7 @@ import type { Moved, StartAt } from '../position/position'
 import type { Margins, PageTurn } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { columnLayout, countPages } from './pages'
+import { createPlaces, createSectionOf } from './places'
 import { guardSelectionDrag } from './selection'
 import { turnPage } from './turn'
 
@@ -90,6 +91,8 @@ export interface OpenBook {
      * updated and nothing is saved.
      */
     reopen(fraction: number | null): Promise<void>
+    /** Lays the book out at its size on screen, once: it opens while hidden, laid out at none. */
+    shown(): void
     /**
      * Calls `onMoved` with the position now shown (its CFI and the fraction of
      * the book) whenever the reader moves: a page turn, a swipe or a link.
@@ -132,11 +135,11 @@ export interface OpenBook {
      * or PDF); null before a page is shown.
      */
     page(): PageMark | null
-    /** Whether a place (a CFI) is on the page shown, from its first character to its last. */
-    onPage(cfi: string): boolean
+    /** Where a place (a CFI) is from the page shown, from its first character to its last: negative before it, 0 on it, positive after it or when there is no telling. */
+    fromPage(cfi: string): number
     /** The name of the contents entry a place's section starts in; empty for none. */
     chapterOf(cfi: string): string
-    /** Book order of two places (CFIs): negative when `a` comes first. */
+    /** Book order of two places (CFIs): negative when `a` comes first. One that cannot be read comes last. */
     compare(a: string, b: string): number
     /**
      * Draws highlights behind their text, each in its highlighter's colour at
@@ -418,17 +421,29 @@ export const openBook = async (
             return null
         }
     }
+    const places = createPlaces(CFI)
+    const sectionOfCfi = createSectionOf(cfi => resolve(cfi)?.index ?? null)
+    // The section a contents link or a place (a CFI) is in.
+    const sectionOf = (target: string): number | null => CFI.isCFI.test(target) ? sectionOfCfi(target) : resolve(target)?.index ?? null
+    // The size the section shown is laid out for: the paginator reports a
+    // place as soon as it has. While its size is another, as just after a
+    // resize, measuring the section would have the browser lay it out as it
+    // was, for nothing.
+    let laidOutFor = view.renderer.size
+    view.addEventListener('relocate', () => { laidOutFor = view.renderer.size })
+    // The paginator's size when the section is laid out for it, else 0.
+    const sizeLaidOut = (): number => view.renderer.size === laidOutFor ? laidOutFor ?? 0 : 0
     // The section shown in pages: the pages on screen and the pages left
     // before the next contents entry in the section, or else its end.
     const pagesShown = (): PagesShown | null => {
         const contents = view.isFixedLayout ? undefined : view.renderer.getContents?.()[0]
-        if (!contents?.doc || !view.renderer.size) return null
-        const layout = columnLayout(contents.doc, view.renderer.size, scrolling())
+        const size = sizeLaidOut()
+        if (!contents?.doc || !size) return null
+        const layout = columnLayout(contents.doc, size, scrolling())
         // Scrolled, a page is a screen, and the screens shown run from the one
         // at the top to the one at the bottom; paged, there is a blank page
         // before the text.
         const start = view.renderer.start ?? 0
-        const size = view.renderer.size
         const page = scrolling() ? Math.floor((start + 1) / size) : ((view.renderer.page ?? 1) - 1) * layout.perScreen
         const first = Math.min(layout.columns - 1, Math.max(0, page))
         const last = Math.min(layout.columns - 1, scrolling() ? Math.floor((start + size - 1) / size) : first + layout.perScreen - 1)
@@ -460,7 +475,7 @@ export const openBook = async (
     })
     view.addEventListener('create-overlay', event => {
         const { index } = (event as CustomEvent<{ index: number }>).detail
-        for (const cfi of drawn.keys()) if (resolve(cfi)?.index === index) void view.addAnnotation(annotation(cfi))
+        for (const cfi of drawn.keys()) if (sectionOf(cfi) === index) void view.addAnnotation(annotation(cfi))
     })
     // Where each section starts, as foliate-js measures progress through the book.
     const sectionStarts: number[] = new SectionProgress(view.book.sections, 1500, 1600).sectionFractions
@@ -469,6 +484,11 @@ export const openBook = async (
         placed,
         title: bookTitle(view.book.metadata?.title) || file.name.replace(/\.[^.]+$/, ''),
         place,
+        shown() {
+            if (view.isFixedLayout) return
+            layOut()
+            if (!sizeLaidOut()) view.renderer.render?.()
+        },
         onPlace(onPlace) {
             view.addEventListener('relocate', () => onPlace(place()))
         },
@@ -495,35 +515,25 @@ export const openBook = async (
             const location = view.lastLocation
             if (!location?.cfi) return null
             const cfi: string = CFI.collapse(location.cfi)
-            const index = resolve(cfi)?.index
+            const index = sectionOf(cfi)
             const text = view.isFixedLayout ? `Page ${(index ?? 0) + 1}` : location.range ? rangeText(location.range) : ''
             return { cfi, fraction: location.fraction ?? 0, text }
         },
-        onPage(cfi) {
+        fromPage(cfi) {
             const shown = view.lastLocation?.cfi
-            if (!shown) return false
+            if (!shown) return 1
+            if (!view.isFixedLayout) return places.fromPage(cfi, shown)
             // A comic's or PDF's page is a section; a spread shows two.
-            if (view.isFixedLayout) {
-                const index = resolve(cfi)?.index
-                return (view.renderer.getContents?.() ?? []).some(contents => contents.index === index)
-            }
-            try {
-                return CFI.compare(cfi, CFI.collapse(shown)) >= 0 && CFI.compare(cfi, CFI.collapse(shown, true)) <= 0
-            } catch {
-                return false
-            }
+            const index = sectionOf(cfi)
+            const sections = (view.renderer.getContents?.() ?? []).map(contents => contents.index).filter(Number.isInteger)
+            if (index === null || !sections.length || index > Math.max(...sections)) return 1
+            return index < Math.min(...sections) ? -1 : 0
         },
         chapterOf(cfi) {
-            const index = resolve(cfi)?.index
-            return index === undefined ? '' : view.getProgressOf(index)?.tocItem?.label?.trim() ?? ''
+            const index = sectionOf(cfi)
+            return index === null ? '' : view.getProgressOf(index)?.tocItem?.label?.trim() ?? ''
         },
-        compare(a, b) {
-            try {
-                return CFI.compare(a, b)
-            } catch {
-                return 0
-            }
-        },
+        compare: (a, b) => places.compare(a, b),
         showHighlights(highlights, ring) {
             if (view.isFixedLayout) return
             const next = new Map(highlights.map(({ cfi, colour, solid, fill }) => [cfi, { colour, solid, fill }]))
@@ -531,10 +541,13 @@ export const openBook = async (
             const ringedBefore = ringed
             drawn = next
             ringed = ring
-            for (const cfi of before.keys()) if (!next.has(cfi)) void view.deleteAnnotation(annotation(cfi))
+            // Only the sections loaded draw theirs now; the others do as they load.
+            const loaded = new Set(view.renderer.getContents?.().map(contents => contents.index))
+            const here = (cfi: string): boolean => loaded.has(sectionOf(cfi) ?? -1)
+            for (const cfi of before.keys()) if (!next.has(cfi) && here(cfi)) void view.deleteAnnotation(annotation(cfi))
             const same = (a?: HighlightStyle, b?: HighlightStyle): boolean => !!a && !!b && a.colour === b.colour && a.solid === b.solid && a.fill === b.fill
             for (const [cfi, style] of next) {
-                if (!same(before.get(cfi), style) || cfi === ring || cfi === ringedBefore) void view.addAnnotation(annotation(cfi))
+                if ((!same(before.get(cfi), style) || cfi === ring || cfi === ringedBefore) && here(cfi)) void view.addAnnotation(annotation(cfi))
             }
         },
         onSelect(onSelected) {
@@ -585,18 +598,18 @@ export const openBook = async (
             const styles = shownStyles.replace(/blob:[^)"'\s]+/g, 'blob:')
             return `${Math.round(width)}x${Math.round(height)}|${view.renderer.getAttribute('flow') ?? ''}|${view.renderer.getAttribute('gap') ?? ''}|${view.renderer.getAttribute('max-column-count') ?? ''}|${styles}`
         },
-        async count(cancelled, places = []) {
+        async count(cancelled, marked = []) {
             if (view.isFixedLayout) return null
             layOut()
-            return countPages(view.renderer, view.book, shownStyles, [...hrefs, ...places], resolve,
+            return countPages(view.renderer, view.book, shownStyles, [...hrefs, ...marked], sectionOf, resolve,
                 () => view.renderer.getContents?.()[0]?.index ?? -1, cancelled)
         },
         pageShown(cfi) {
             const contents = view.isFixedLayout ? undefined : view.renderer.getContents?.()[0]
-            const target = resolve(cfi)
-            if (!contents?.doc || !view.renderer.size || target?.index !== contents.index) return null
-            const node = target.anchor?.(contents.doc)
-            return node ? { section: contents.index, page: columnLayout(contents.doc, view.renderer.size, scrolling()).place(node).column } : null
+            const size = sizeLaidOut()
+            if (!contents?.doc || !size || sectionOf(cfi) !== contents.index) return null
+            const node = resolve(cfi)?.anchor?.(contents.doc)
+            return node ? { section: contents.index, page: columnLayout(contents.doc, size, scrolling()).place(node).column } : null
         },
         async reopen(fraction) {
             if (fraction === null) await view.goToTextStart()

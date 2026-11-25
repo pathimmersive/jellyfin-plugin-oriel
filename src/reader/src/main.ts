@@ -90,6 +90,7 @@ const start = async (): Promise<void> => {
         const missing = await placeMissing(opened, fetched)
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
+        opened.shown()
         // Saving starts first, so an error in the rest of the set-up leaves a book whose place is kept.
         const notices = createSaveNotices(itemId)
         watch.onEnded(notices.signedOut)
@@ -196,6 +197,8 @@ const start = async (): Promise<void> => {
         bookmarks.onChange(pages.placeMarked)
         highlights?.onChange(pages.placeMarked)
         pages.recount()
+        document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') pages.flush() })
+        window.addEventListener('pagehide', () => pages.flush())
         let resized = 0
         window.addEventListener('resize', () => {
             clearTimeout(resized)

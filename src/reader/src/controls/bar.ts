@@ -111,6 +111,8 @@ export const createBar = (options: BarOptions): Bar => {
     bar.append(header, footer, previous, next)
 
     const rows = [reading, place]
+    // What the bookmarks show, so a page turn that leaves it as it was changes nothing.
+    let markedShown = false
     for (const { bookmark } of rows) bookmark.addEventListener('click', () => { void options.bookmarks.toggle() })
     return {
         reading: reading.row,
@@ -128,6 +130,8 @@ export const createBar = (options: BarOptions): Bar => {
         },
         showBookmark() {
             const marked = options.bookmarks.marked()
+            if (marked === markedShown) return
+            markedShown = marked
             for (const { bookmark } of rows) {
                 bookmark.setAttribute('aria-pressed', String(marked))
                 bookmark.setAttribute('aria-label', marked ? 'Remove the bookmark on this page' : 'Bookmark this page')
