@@ -270,7 +270,10 @@ export const readStoredPosition = async (
     }
 }
 
-/** Stores the exact position for a book; returns it as stored (with the server's time), or null when that failed. */
+/**
+ * Stores the exact position for a book; returns it as stored (with the server's time), null when the server
+ * answered that it did not, or 'unanswered' when no answer came, as when the page is closing: it may be stored.
+ */
 export const writeStoredPosition = async (
     basePath: string,
     itemId: string,
@@ -279,7 +282,7 @@ export const writeStoredPosition = async (
     fraction: number,
     keepalive = false,
     fetchImpl: typeof fetch = fetch,
-): Promise<StoredPosition | null> => {
+): Promise<StoredPosition | null | 'unanswered'> => {
     try {
         const response = await fetchImpl(positionUrl(basePath, itemId), {
             method: 'PUT',
@@ -291,7 +294,7 @@ export const writeStoredPosition = async (
         const data: unknown = await response.json()
         return isStoredPosition(data) ? data : null
     } catch {
-        return null
+        return 'unanswered'
     }
 }
 

@@ -7,6 +7,8 @@ using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Jellyfin.Plugin.Oriel.Controllers;
 
@@ -18,12 +20,14 @@ namespace Jellyfin.Plugin.Oriel.Controllers;
 [Route("Oriel/Positions")]
 [Authorize]
 [StoreUnavailable]
-public class PositionsController : ControllerBase
+public partial class PositionsController : ControllerBase
 {
     private readonly PositionsStore _positions;
     private readonly IAuthorizationContext _authorizationContext;
     private readonly IItemAccess _itemAccess;
     private readonly TimeProvider _time;
+    private readonly IProgressMirror _mirror;
+    private readonly ILogger<PositionsController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="PositionsController"/> class.
@@ -32,8 +36,12 @@ public class PositionsController : ControllerBase
     /// <param name="authorizationContext">The host authorization context.</param>
     /// <param name="itemAccess">Whether the caller can see a book.</param>
     /// <param name="time">The clock positions are stamped with.</param>
-    public PositionsController(PositionsStore positions, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time)
+    /// <param name="mirror">Jellyfin's copy of each position.</param>
+    /// <param name="logger">Where a copy that cannot be written is logged; nowhere when null.</param>
+    public PositionsController(PositionsStore positions, IAuthorizationContext authorizationContext, IItemAccess itemAccess, TimeProvider time, IProgressMirror mirror, ILogger<PositionsController>? logger = null)
     {
+        _mirror = mirror;
+        _logger = logger ?? NullLogger<PositionsController>.Instance;
         _positions = positions;
         _authorizationContext = authorizationContext;
         _itemAccess = itemAccess;
@@ -70,12 +78,12 @@ public class PositionsController : ControllerBase
     }
 
     /// <summary>
-    /// Saves the caller's position in a book, replacing the previous one.
+    /// Saves the caller's position in a book, replacing the previous one, and Jellyfin's copy of it.
     /// </summary>
     /// <param name="itemId">The book.</param>
     /// <param name="request">The position.</param>
     /// <returns>
-    /// The stored position with the server's time, which the reader copies to Jellyfin's own record;
+    /// The stored position with the server's time, which Jellyfin's copy carries too;
     /// 400 for a malformed position; 404 when the book is not visible to the caller.
     /// </returns>
     [HttpPut("{itemId:guid}")]
@@ -111,8 +119,21 @@ public class PositionsController : ControllerBase
 
         var position = new StoredPosition(cfi, fraction, _time.GetUtcNow());
         _positions.Save(userId.Value, itemId, position);
+        try
+        {
+            _mirror.Write(userId.Value, itemId, fraction, position.SavedAt);
+        }
+        catch (Exception exception)
+        {
+            // The place is kept either way; only Resume and Continue Reading lag behind.
+            LogNotMirrored(_logger, userId.Value, itemId, exception.GetType().Name);
+        }
+
         return new PositionResponse(position.Cfi, position.Fraction, position.SavedAt);
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel saved user {UserId}'s place in {ItemId} but could not write Jellyfin's copy ({Failure})")]
+    private static partial void LogNotMirrored(ILogger logger, Guid userId, Guid itemId, string failure);
 
     /// <summary>
     /// The body of <see cref="PutPosition"/>.

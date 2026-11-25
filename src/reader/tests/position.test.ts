@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readJellyfinPosition, readStoredPosition, writeJellyfinPosition, writeStoredPosition } from '../src/api/client'
 import type { JellyfinPosition, StoredPosition } from '../src/api/client'
-import { chooseStart, fallbackStart, fractionFromTicks, missingPlaceNotice, positionWriter, saveBoth, ticksFromFraction } from '../src/position/position'
+import { chooseStart, fallbackStart, fractionFromTicks, missingPlaceNotice, positionWriter, savePlace, ticksFromFraction } from '../src/position/position'
 
 const CFI = 'epubcfi(/6/8!/4/2/1:0)'
 const stored = (savedAt: string) => ({ cfi: CFI, fraction: 0.6, savedAt })
@@ -103,21 +103,28 @@ describe('positionWriter', () => {
     })
 })
 
-describe('saveBoth', () => {
-    it("stamps Jellyfin's copy with the store's time, not the device clock", async () => {
+describe('savePlace', () => {
+    it('saves through Oriel alone, which writes Jellyfin\'s copy itself', async () => {
         const writeStored = vi.fn(async () => stored('2026-10-27T10:00:00.000Z'))
         const writeJellyfin = vi.fn(async () => true)
-        const ok = await saveBoth({ cfi: CFI, fraction: 0.6 }, false, writeStored, writeJellyfin, () => new Date('2030-01-01T00:00:00Z'))
-        expect(ok).toBe(true)
-        expect(writeStored).toHaveBeenCalledWith(CFI, 0.6, false)
-        expect(writeJellyfin).toHaveBeenCalledWith(6_000_000, '2026-10-27T10:00:00.000Z', false)
+        expect(await savePlace({ cfi: CFI, fraction: 0.6 }, true, writeStored, writeJellyfin)).toBe(true)
+        expect(writeStored).toHaveBeenCalledWith(CFI, 0.6, true)
+        expect(writeJellyfin).not.toHaveBeenCalled()
     })
 
-    it("stamps Jellyfin's copy with the current time when the store cannot be written, so it wins next time", async () => {
+    it("writes Jellyfin's copy with the current time when the store cannot be written, so it wins next time", async () => {
         const writeJellyfin = vi.fn(async () => true)
-        const ok = await saveBoth({ cfi: CFI, fraction: 0.6 }, true, async () => null, writeJellyfin, () => new Date('2026-10-27T10:00:05.000Z'))
+        const ok = await savePlace({ cfi: CFI, fraction: 0.6 }, true, async () => null, writeJellyfin, () => new Date('2026-10-27T10:00:05.000Z'))
         expect(ok).toBe(false)
         expect(writeJellyfin).toHaveBeenCalledWith(6_000_000, '2026-10-27T10:00:05.000Z', true)
+    })
+})
+
+describe('savePlace without an answer', () => {
+    it('leaves Jellyfin alone, since the place may be stored', async () => {
+        const writeJellyfin = vi.fn(async () => true)
+        expect(await savePlace({ cfi: CFI, fraction: 0.6 }, true, async () => 'unanswered', writeJellyfin)).toBe(false)
+        expect(writeJellyfin).not.toHaveBeenCalled()
     })
 })
 
@@ -162,6 +169,7 @@ describe('position requests', () => {
             keepalive: false,
         })
         expect(await writeStoredPosition('', 'abc', 'auth', CFI, 0.6, false, json(null, 400))).toBeNull()
+        expect(await writeStoredPosition('', 'abc', 'auth', CFI, 0.6, false, failing)).toBe('unanswered')
     })
 })
 

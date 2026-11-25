@@ -8,6 +8,7 @@ using Jellyfin.Plugin.Oriel.Data;
 using MediaBrowser.Controller.Net;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace Jellyfin.Plugin.Oriel.Tests;
@@ -21,6 +22,8 @@ public sealed class PositionsControllerTests : IDisposable
 
     private readonly string _folder = Path.Combine(Path.GetTempPath(), "oriel-api-" + Guid.NewGuid().ToString("N"));
     private readonly StoreSet _store;
+    private readonly FakeMirror _mirror = new();
+    private readonly Recorder _log = new();
 
     public PositionsControllerTests()
     {
@@ -103,11 +106,79 @@ public sealed class PositionsControllerTests : IDisposable
         Assert.NotNull((await controller.PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 1))).Value);
     }
 
-    private PositionsController Controller(Guid caller) =>
-        new(_store.Positions, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now))
+    [Fact]
+    public async Task WritesJellyfinsCopyWithTheStoresTimeOnceThePlaceIsStored()
+    {
+        _mirror.OnWrite = () => Assert.Equal("epubcfi(/6/8!/4/2/1:0)", _store.Positions.Get(Reader, Book)!.Cfi);
+
+        await Controller(Reader).PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6));
+
+        Assert.Equal([(Reader, Book, 0.6, Now)], _mirror.Written);
+    }
+
+    [Fact]
+    public async Task WritesNoCopyForAPlaceThatIsNotStored()
+    {
+        await Controller(Reader).PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 1.5));
+        await Controller(Reader).PutPosition(HiddenBook, new("epubcfi(/6/8!/4/2/1:0)", 0.5));
+        await Controller(Guid.Empty).PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.5));
+        var unavailable = new StoreSet(Path.Combine(_folder, "oriel.db", "not-a-folder", "oriel.db"));
+        Directory.CreateDirectory(_folder);
+        File.WriteAllText(Path.Combine(_folder, "oriel.db"), "a file where a folder should be");
+        await Assert.ThrowsAsync<StoreUnavailableException>(() => Controller(Reader, unavailable).PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.5)));
+
+        Assert.Empty(_mirror.Written);
+    }
+
+    [Fact]
+    public async Task KeepsThePlaceAndLogsIdsOnlyWhenJellyfinsCopyCannotBeWritten()
+    {
+        _mirror.OnWrite = () => throw new InvalidOperationException("marker-in-the-error");
+
+        var saved = (await Controller(Reader).PutPosition(Book, new("epubcfi(/6/8!/4/2/1:0)", 0.6))).Value;
+
+        Assert.Equal(Now, saved!.SavedAt);
+        Assert.Equal("epubcfi(/6/8!/4/2/1:0)", _store.Positions.Get(Reader, Book)!.Cfi);
+        var (level, text) = Assert.Single(_log.Lines);
+        Assert.Equal(LogLevel.Warning, level);
+        Assert.Contains(Reader.ToString(), text, StringComparison.Ordinal);
+        Assert.Contains(Book.ToString(), text, StringComparison.Ordinal);
+        Assert.Contains(nameof(InvalidOperationException), text, StringComparison.Ordinal);
+        Assert.DoesNotContain("marker", text, StringComparison.Ordinal);
+        Assert.DoesNotContain("epubcfi", text, StringComparison.Ordinal);
+    }
+
+    private PositionsController Controller(Guid caller, StoreSet? store = null) =>
+        new((store ?? _store).Positions, new FakeAuthorization(caller), new FakeItemAccess([Book]), new FixedTime(Now), _mirror, _log)
         {
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() },
         };
+
+    private sealed class FakeMirror : IProgressMirror
+    {
+        public List<(Guid User, Guid Item, double Fraction, DateTimeOffset SavedAt)> Written { get; } = [];
+
+        public Action? OnWrite { get; set; }
+
+        public void Write(Guid userId, Guid itemId, double fraction, DateTimeOffset savedAt)
+        {
+            OnWrite?.Invoke();
+            Written.Add((userId, itemId, fraction, savedAt));
+        }
+    }
+
+    private sealed class Recorder : ILogger<PositionsController>
+    {
+        public List<(LogLevel Level, string Text)> Lines { get; } = [];
+
+        public IDisposable? BeginScope<TState>(TState state)
+            where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) =>
+            Lines.Add((logLevel, formatter(state, exception) + exception));
+    }
 
     // AuthorizationInfo.UserId comes from its User; no user means an anonymous caller.
     private sealed class FakeAuthorization(Guid userId) : IAuthorizationContext
