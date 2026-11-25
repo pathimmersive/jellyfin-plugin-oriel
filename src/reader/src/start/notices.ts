@@ -18,11 +18,12 @@ export const showNotice = (text: string, icon = INFO, action?: { label: string, 
     return notice
 }
 
-/** A notice that goes by itself after a few seconds, replacing one with the same text. */
+/** A notice that goes by itself after a few seconds, replacing one with the same text: at the top of the page, over a sheet and the controls, and clear of their buttons. */
 export const showBriefly = (text: string): void => {
     for (const shown of document.querySelectorAll('.notice')) {
         if (shown.querySelector('span')?.textContent === text) shown.remove()
     }
     const notice = showNotice(text)
+    notice.classList.add('brief')
     setTimeout(() => notice.remove(), 8000)
 }

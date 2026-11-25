@@ -37,32 +37,40 @@ export interface TextMarksOptions {
  * reader's highlighters, kept on the server, and Define's sheet. Null for a
  * book without text.
  */
-export const createTextMarks = (opened: OpenBook, { basePath, itemId, authorization }: ReaderServer, options: TextMarksOptions): TextMarks | null => {
+export const createTextMarks = (opened: OpenBook, { basePath, itemId, authorization, fetch }: ReaderServer, options: TextMarksOptions): TextMarks | null => {
     if (opened.fixedLayout) return null
     const highlights = createHighlights({
-        load: () => readHighlights(basePath, itemId, authorization),
+        load: () => readHighlights(basePath, itemId, authorization, fetch),
         add: async (cfi, fraction, colour, text, note) => {
-            const added = await addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note)
-            if (added !== 'limitReached') return added
-            showBriefly(NOTICE_TEXT.highlightsFull)
-            return null
+            const added = await addHighlight(basePath, itemId, authorization, cfi, fraction, colour, text, note, fetch)
+            if (added === 'limitReached') showBriefly(NOTICE_TEXT.highlightsFull)
+            else if (!added) showBriefly(NOTICE_TEXT.highlightNotSaved)
+            return added
         },
-        update: (id, change) => updateHighlight(basePath, itemId, authorization, id, change),
-        remove: id => removeHighlight(basePath, itemId, authorization, id),
+        update: async (id, change) => {
+            const changed = await updateHighlight(basePath, itemId, authorization, id, change, fetch)
+            if (!changed) showBriefly(NOTICE_TEXT.highlightNotSaved)
+            return changed
+        },
+        remove: async id => {
+            const removed = await removeHighlight(basePath, itemId, authorization, id, fetch)
+            if (!removed) showBriefly(NOTICE_TEXT.highlightNotRemoved)
+            return removed
+        },
         compare: (a, b) => opened.compare(a, b),
         chapterOf: cfi => opened.chapterOf(cfi),
         pageOf: cfi => options.pageOf(cfi),
         go: cfi => opened.goTo(cfi),
     })
     const highlighters = createHighlighters({
-        load: () => readHighlighters(basePath, authorization),
-        save: list => saveHighlighters(basePath, authorization, list),
+        load: () => readHighlighters(basePath, authorization, fetch),
+        save: list => saveHighlighters(basePath, authorization, list, fetch),
     })
     const highlighterSheet = createHighlighterSheet(document.body, highlighters)
     const search = opened.searchable ? (query: string) => options.search(query) : null
     const copy = createCopy(document.body)
     const dictionary = createDictionarySheet(document.body, {
-        lookUp: word => lookUpWord(basePath, authorization, word),
+        lookUp: word => lookUpWord(basePath, authorization, word, fetch),
         search,
         copy,
     })
@@ -77,16 +85,20 @@ export const createTextMarks = (opened: OpenBook, { basePath, itemId, authorizat
 }
 
 /** The book's bookmarks; `pageOf` gives the page one is on, or null while that is not known. */
-export const createBookBookmarks = (opened: OpenBook, { basePath, itemId, authorization }: ReaderServer, pageOf: (cfi: string) => number | null): Bookmarks =>
+export const createBookBookmarks = (opened: OpenBook, { basePath, itemId, authorization, fetch }: ReaderServer, pageOf: (cfi: string) => number | null): Bookmarks =>
     createBookmarks({
-        load: () => readBookmarks(basePath, itemId, authorization),
+        load: () => readBookmarks(basePath, itemId, authorization, fetch),
         add: async (cfi, fraction, text) => {
-            const added = await addBookmark(basePath, itemId, authorization, cfi, fraction, text)
-            if (added !== 'limitReached') return added
-            showBriefly(NOTICE_TEXT.bookmarksFull)
+            const added = await addBookmark(basePath, itemId, authorization, cfi, fraction, text, fetch)
+            if (added && added !== 'limitReached') return added
+            showBriefly(added ? NOTICE_TEXT.bookmarksFull : NOTICE_TEXT.bookmarkNotSaved)
             return null
         },
-        remove: id => removeBookmark(basePath, itemId, authorization, id),
+        remove: async id => {
+            const removed = await removeBookmark(basePath, itemId, authorization, id, fetch)
+            if (!removed) showBriefly(NOTICE_TEXT.bookmarkNotRemoved)
+            return removed
+        },
         page: () => opened.page(),
         onPage: cfi => opened.onPage(cfi),
         chapterOf: cfi => opened.chapterOf(cfi),

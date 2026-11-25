@@ -15,8 +15,8 @@ export interface ChosenOnServer {
 /** What the choices need: the server, this device's storage, and a wait between tries. */
 export interface ChoicesSources {
     load(): Promise<KeptChoices | null>
-    /** True once the server has the choice, or has refused it for good; false while it cannot be reached. */
-    save(choices: Choices): Promise<boolean>
+    /** True once the server has the choice, or has refused it for good; false while it cannot be reached; 'signedOut' when the session has ended. */
+    save(choices: Choices): Promise<boolean | 'signedOut'>
     storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
     wait(ms: number): Promise<void>
 }
@@ -32,6 +32,7 @@ const LAST_RETRY = 60000
 export const createChoices = (sources: ChoicesSources, device: Choices): ChosenOnServer => {
     let latest: Choices | null = null
     let sending = false
+    let signedOut = false
     // This device marks a choice it has not sent yet; the choice itself is in its settings.
     const unsent = (): boolean => {
         try {
@@ -48,14 +49,20 @@ export const createChoices = (sources: ChoicesSources, device: Choices): ChosenO
             // Private browsing or a full store: sent this visit only.
         }
     }
-    // Sends the latest choice until the server has it, waiting longer after each failure.
+    // Sends the latest choice until the server has it, waiting longer after each failure. Once the
+    // session has ended nothing more is sent: the next open, signed in, sends the choice.
     const send = async (): Promise<void> => {
-        if (sending) return
+        if (sending || signedOut) return
         sending = true
         let retry = FIRST_RETRY
         while (latest) {
             const choices = latest
-            if (await sources.save(choices)) {
+            const saved = await sources.save(choices)
+            if (saved === 'signedOut') {
+                signedOut = true
+                break
+            }
+            if (saved) {
                 if (latest === choices) {
                     latest = null
                     remember(false)

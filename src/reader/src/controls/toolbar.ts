@@ -251,6 +251,8 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     // What the toolbar is for: the text selected, or a highlight tapped.
     type Target = { selection: TextSelection } | { highlight: Highlight }
     let target: Target | null = null
+    const sameTarget = (a: Target, b: Target): boolean => a === b
+        || ('selection' in a && 'selection' in b && a.selection.cfi === b.selection.cfi)
     const ringed = (): string | null => target && 'highlight' in target ? target.highlight.cfi : null
     const draw = (): void => book.showHighlights(highlights.all().map(({ cfi, colour }) => {
         const { id, solid, fill } = highlighters.find(colour)
@@ -258,7 +260,7 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
     }), ringed())
     // The highlighter pressed while the toolbar shows: the highlight's, or none for a selection.
     let pressed: string | null = null
-    const fillBar = (): void => fillHighlighters(group, highlighters, pressed ?? undefined, id => choose(id), addFromBar)
+    const fillBar = (): void => fillHighlighters(group, highlighters, pressed ?? undefined, id => void choose(id), addFromBar)
     const show = (around: Box, text: string, pressedNow: string | null, noted = false): void => {
         pressed = pressedNow
         fillBar()
@@ -281,23 +283,36 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         bar.hidden = true
         if (wasRinged) draw()
     }
-    const choose = (colour: string, chosen = target): void => {
-        if (chosen === target) close()
-        if (!chosen) return
-        if ('selection' in chosen) {
-            const { cfi, fraction, text } = chosen.selection
-            book.clearSelection()
-            void highlights.add(cfi, fraction, colour, highlightText(text))
-        } else {
-            void highlights.update(chosen.highlight.id, { colour })
+    // Keeps a highlight in a colour; false when it could not be kept, and not because of the limit.
+    const keep = async (chosen: Target, colour: string, note?: string): Promise<boolean> => {
+        if ('highlight' in chosen) return highlights.update(chosen.highlight.id, note === undefined ? { colour } : { colour, note })
+        const { cfi, fraction, text } = chosen.selection
+        return await highlights.add(cfi, fraction, colour, highlightText(text), note) !== false
+    }
+    // The toolbar stays until the highlight is kept, so one that is not can be tried again.
+    let choosing = false
+    const choose = async (colour: string, chosen = target, reopen = false): Promise<void> => {
+        if (!chosen || choosing) return
+        choosing = true
+        const kept = await keep(chosen, colour)
+        choosing = false
+        if (!kept) {
+            // Closed for the New highlighter sheet, it comes back for its selection or highlight.
+            if (reopen && !target) showFor(chosen)
+            return
         }
+        // Text selected since, or another highlight tapped, is left as it is.
+        const replaced = target !== null && !sameTarget(target, chosen)
+        if (replaced) return
+        if (target) close()
+        if ('selection' in chosen) book.clearSelection()
     }
     // A new highlighter from the toolbar highlights the selection, or recolours the highlight, in it.
     const addFromBar = (): void => {
         const chosen = target
         close()
         sheetOf.open(null, added => {
-            if (added && chosen) choose(added, chosen)
+            if (added && chosen) void choose(added, chosen, true)
             else if (chosen && 'selection' in chosen) book.clearSelection()
         })
     }
@@ -346,17 +361,15 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
         sheetBackdrop.hidden = false
         field.focus()
     })
-    sheet.querySelector('.save')!.addEventListener('click', () => {
+    // The sheet stays until the note is kept, so one that is not is not lost.
+    const save = sheet.querySelector<HTMLButtonElement>('.save')!
+    save.addEventListener('click', async () => {
         const chosen = noting
-        closeNote()
         if (!chosen) return
-        const note = field.value.trim()
-        if ('selection' in chosen) {
-            const { cfi, fraction, text } = chosen.selection
-            void highlights.add(cfi, fraction, notePressed, highlightText(text), note)
-        } else {
-            void highlights.update(chosen.highlight.id, { colour: notePressed, note })
-        }
+        save.disabled = true
+        const kept = await keep(chosen, notePressed, field.value.trim())
+        save.disabled = false
+        if (kept && noting === chosen) closeNote()
     })
     for (const dismiss of [sheet.querySelector('.cancel')!, sheet.querySelector('.panel-header button')!, sheetBackdrop]) {
         dismiss.addEventListener('click', closeNote)
@@ -378,15 +391,24 @@ export const createHighlighting = (root: HTMLElement, book: HighlightingBook, hi
             close()
         }
     })
-    book.onTap(cfi => {
-        const highlight = cfi ? highlights.at(cfi) : null
-        const box = highlight && book.boxOf(highlight.cfi)
-        if (highlight && box) {
-            target = { highlight }
-            draw()
-            show(box, highlight.text, highlighters.find(highlight.colour).id, highlight.note !== '')
+    // Shows the toolbar for text selected, or a highlight on the page; false for a highlight that is not.
+    const showFor = (chosen: Target): boolean => {
+        if ('selection' in chosen) {
+            target = chosen
+            show(chosen.selection.box, chosen.selection.text, null)
             return true
         }
+        const { highlight } = chosen
+        const box = book.boxOf(highlight.cfi)
+        if (!box) return false
+        target = chosen
+        draw()
+        show(box, highlight.text, highlighters.find(highlight.colour).id, highlight.note !== '')
+        return true
+    }
+    book.onTap(cfi => {
+        const highlight = cfi ? highlights.at(cfi) : null
+        if (highlight && showFor({ highlight })) return true
         if (bar.hidden) return false
         close()
         return true

@@ -1,4 +1,4 @@
-import { BookLoadError } from '../api/client'
+import { BookLoadError, DownloadStalledError } from '../api/client'
 
 /** Why a book did not open, as the failure page says it. */
 export interface Failure {
@@ -47,14 +47,11 @@ export const failureFor = (error: unknown, stage: string): Failure | 'signIn' =>
         if (error.status !== undefined && UNREACHABLE.has(error.status)) return OFFLINE
         return { kind: 'other', title: error.message, body: `The server answered HTTP ${error.status ?? 'with an error'} while the book was ${stage}.`, retry: true }
     }
+    if (error instanceof DownloadStalledError) return OFFLINE
     // fetch rejects with a TypeError when no answer comes back at all.
     if (stage === 'downloaded' && error instanceof TypeError) return OFFLINE
     return { kind: 'other', title: `The book could not be ${stage}.`, body: describe(error), retry: false }
 }
-
-/** What a save's outcome says to the reader: signed out, not saved, or nothing once a save goes through. */
-export const saveNotice = (saved: boolean, status: number | null): 'signedOut' | 'notSaved' | null =>
-    saved ? null : status === 401 ? 'signedOut' : 'notSaved'
 
 export const NOTICE_TEXT = {
     signedOut: 'You are signed out of Jellyfin, so your place is not being saved.',
@@ -62,6 +59,10 @@ export const NOTICE_TEXT = {
     unavailable: 'Your reading data is unavailable on this server, so your place and notes will not be saved.',
     bookmarksFull: 'You have 5,000 bookmarks, the most Oriel keeps. Remove one to add another.',
     highlightsFull: 'You have 20,000 highlights, the most Oriel keeps. Remove one to add another.',
+    highlightNotSaved: 'Your highlight could not be saved. Try again.',
+    highlightNotRemoved: 'Your highlight could not be removed. Try again.',
+    bookmarkNotSaved: 'Your bookmark could not be saved. Try again.',
+    bookmarkNotRemoved: 'Your bookmark could not be removed. Try again.',
 }
 
 export const ICONS = {

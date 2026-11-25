@@ -22,13 +22,13 @@ export interface FetchedBook {
  * the server cannot be reached the failure page says so, and the book and its
  * saved places are asked for again until it answers.
  */
-export const fetchBook = async ({ basePath, itemId, userId, authorization }: ReaderServer): Promise<FetchedBook> => {
+export const fetchBook = async ({ basePath, itemId, userId, authorization, fetch }: ReaderServer): Promise<FetchedBook> => {
     const screen = loadingScreen(document.getElementById('loading')!)
-    void readBookDetails(basePath, itemId, userId, authorization).then(screen.details)
+    void readBookDetails(basePath, itemId, userId, authorization, fetch).then(screen.details)
     const [file, stored, jellyfin] = await untilReached(() => Promise.all([
         downloadBook(basePath, itemId, authorization, fetch, screen.progress),
-        readStoredPosition(basePath, itemId, authorization),
-        readJellyfinPosition(basePath, itemId, userId, authorization),
+        readStoredPosition(basePath, itemId, authorization, fetch),
+        readJellyfinPosition(basePath, itemId, userId, authorization, fetch),
     ]), showFailed)
     clearFailure(status)
     show('loading', 'Opening the book…')

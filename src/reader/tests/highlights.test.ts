@@ -185,9 +185,18 @@ describe('createHighlights', () => {
         await settle()
 
         expect(await highlights.add('epubcfi(/6/4)', 0.2, 'blue', 'a truth')).toBe(false)
+        expect(await highlights.update('h1', { colour: 'pink' })).toBe(false)
         await highlights.update('z', { colour: 'pink', note: 'Lost' })
         await highlights.remove('z')
         expect(highlights.rows(null)).toEqual([{ id: 'z', text: 'Text z', colour: 'yellow', note: '', where: 'Chapter One · 10%' }])
+    })
+
+    it('tells the limit from a failure', async () => {
+        const highlights = createHighlights(sources([], { add: async () => 'limitReached' }))
+        await settle()
+
+        expect(await highlights.add('epubcfi(/6/4)', 0.2, 'blue', 'a truth')).toBe('limitReached')
+        expect(highlights.all()).toEqual([])
     })
 
     it('goes to a highlight by its id', async () => {

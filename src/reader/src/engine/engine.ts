@@ -14,6 +14,7 @@ import type { Margins, PageTurn } from '../settings/settings'
 import { attachPageInput, type Turn, wheelGesture } from './input'
 import { columnLayout, countPages } from './pages'
 import { guardSelectionDrag } from './selection'
+import { turnPage } from './turn'
 
 interface FoliateView extends HTMLElement {
     // A file, or a book foliate-js's makeBook has made from one.
@@ -257,8 +258,7 @@ export const openBook = async (
     const turn = (turn: Turn, hide = true): void => {
         if (hide) onTurn()
         const go = { next: () => view.next(), prev: () => view.prev(), left: () => view.goLeft(), right: () => view.goRight() }[turn]
-        if (turning !== 'fade' || view.isFixedLayout) void go()
-        else void fade(view, go)
+        turnPage(view, go, turning === 'fade' && !view.isFixedLayout)
     }
     // In Scroll mode: whether the book is at the start or the end of its section.
     const scroll = {
@@ -626,21 +626,6 @@ export const openBook = async (
         },
     }
     return opened
-}
-
-// How long a Fade turn takes to fade out, and again to fade back in.
-const FADE_MS = 150
-
-// Fades the book out, turns with `go`, and fades it back in.
-const fade = async (view: HTMLElement, go: () => Promise<unknown>): Promise<void> => {
-    view.style.transition = `opacity ${FADE_MS}ms ease`
-    view.style.opacity = '0'
-    await new Promise(resolve => setTimeout(resolve, FADE_MS))
-    try {
-        await go()
-    } finally {
-        view.style.opacity = '1'
-    }
 }
 
 // A box in a section's document, as it is on screen in this page.

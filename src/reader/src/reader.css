@@ -2484,6 +2484,15 @@ foliate-view {
   line-height: 1.45;
 }
 
+/* A notice that goes by itself answers what was just done, in a sheet or the controls:
+   over them, clear of their buttons, and never in the way of one. */
+.notice.brief {
+  z-index: 8;
+  top: calc(16px + env(safe-area-inset-top));
+  bottom: auto;
+  pointer-events: none;
+}
+
 .notice svg {
   flex: none;
 }

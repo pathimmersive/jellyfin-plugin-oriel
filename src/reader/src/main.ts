@@ -21,12 +21,14 @@ import { chosenOn, ownFontsOn, ownThemesOn } from './start/own'
 import { book, show, showFailed } from './start/page'
 import { createPageCount } from './start/page-count'
 import { createPlaceShown } from './start/place'
+import { createSaveNotices } from './start/save-notices'
 import { savePlaces } from './start/saving'
 import { createScreens } from './start/screens'
 import { createSections } from './start/sections'
 import type { ReaderServer } from './start/server'
 import { createSidePanel } from './start/side-panel'
 import { signIn } from './start/sign-in'
+import { watchSession } from './start/watch-session'
 
 declare const __ORIEL_VERSION__: string
 
@@ -52,7 +54,8 @@ const start = async (): Promise<void> => {
     try {
         const authorization = authorizationHeader(session, deviceId(localStorage), __ORIEL_VERSION__)
         const basePath = serverBasePath(location.pathname)
-        const server: ReaderServer = { basePath, authorization, userId: session.userId, itemId }
+        const watch = watchSession()
+        const server: ReaderServer = { basePath, authorization, userId: session.userId, itemId, fetch: watch.fetch }
         const started = performance.now()
         // The theme and font chosen on any device, asked for beside the book;
         // until they arrive the page shows this device's.
@@ -62,7 +65,7 @@ const start = async (): Promise<void> => {
         if (await drmProtected(file)) throw new DrmError()
 
         // What the admin has set for every reader: the translation address and whether readers may add fonts.
-        const readerSettings = readReaderSettings(basePath, authorization)
+        const readerSettings = readReaderSettings(basePath, authorization, watch.fetch)
         // The reader's own fonts, declared like the bundled ones, and own
         // themes, applied, before the first page shows.
         const fonts = ownFontsOn(server)
@@ -87,6 +90,10 @@ const start = async (): Promise<void> => {
         const missing = await placeMissing(opened, fetched)
         overlay?.set('open', `first page ${Math.round(performance.now() - downloaded)} ms after download`)
         show('rendered')
+        // Saving starts first, so an error in the rest of the set-up leaves a book whose place is kept.
+        const notices = createSaveNotices(itemId)
+        watch.onEnded(notices.signedOut)
+        savePlaces(opened, server, fetched.storeUnavailable, missing, notices)
 
         const pages = createPageCount({
             book: opened,
@@ -194,9 +201,10 @@ const start = async (): Promise<void> => {
             clearTimeout(resized)
             resized = window.setTimeout(() => pages.recount(), 500)
         })
-        savePlaces(opened, server, fetched.storeUnavailable, missing)
     } catch (error) {
         console.error(error)
+        // A book on screen stays there, whatever the rest of the set-up came to.
+        if (document.body.dataset.state === 'rendered') return
         // The failure page names what failed; for one it cannot name, the step
         // and the browser's own error, so a failure on a device without
         // developer tools can still be diagnosed. An expired session signs in.

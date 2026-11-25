@@ -4,4 +4,6 @@ export interface ReaderServer {
     authorization: string
     userId: string
     itemId: string
+    /** Every request goes through this, so a session that ends is noticed. */
+    fetch: typeof fetch
 }

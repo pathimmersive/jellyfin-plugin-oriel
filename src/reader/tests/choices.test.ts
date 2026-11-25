@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { readChoices } from '../src/api/client'
+import { readChoices, saveChoices } from '../src/api/client'
 import { createChoices } from '../src/controls/choices'
 import { type Choices, choicesOf, DEFAULTS, type KeptChoices, type Settings, withChoices } from '../src/settings/settings'
 
@@ -57,8 +57,18 @@ describe('readChoices', () => {
     })
 })
 
+describe('saveChoices', () => {
+    const answering = (status: number) => (async () => new Response(null, { status })) as unknown as typeof fetch
+
+    it('tells a session that has ended from a server that cannot be reached', async () => {
+        expect(await saveChoices('', 'h', { theme: 'dark', font: 'Default' }, answering(401))).toBe('signedOut')
+        for (const status of [500, 503, 408, 429]) expect(await saveChoices('', 'h', { theme: 'dark', font: 'Default' }, answering(status))).toBe(false)
+        for (const status of [200, 400]) expect(await saveChoices('', 'h', { theme: 'dark', font: 'Default' }, answering(status))).toBe(true)
+    })
+})
+
 describe('createChoices', () => {
-    const sources = (save: (choices: Choices) => Promise<boolean>, load: () => Promise<KeptChoices | null> = async () => ({ theme: 'dark', font: 'Default' })) => {
+    const sources = (save: (choices: Choices) => Promise<boolean | 'signedOut'>, load: () => Promise<KeptChoices | null> = async () => ({ theme: 'dark', font: 'Default' })) => {
         const storage = memory()
         const waits: number[] = []
         const sent: Choices[] = []
@@ -96,6 +106,26 @@ describe('createChoices', () => {
         up = true
         await settle()
         expect(source.sent.at(-1)).toEqual({ theme: 'dark', font: 'Literata' })
+        expect(source.storage.items.size).toBe(0)
+    })
+
+    it('stops sending once signed out, keeping the choice for the next open', async () => {
+        const source = sources(async () => 'signedOut')
+        const chosen = createChoices(source, choicesOf(DEVICE))
+        chosen.choose({ theme: 'dark', font: 'Literata' })
+        await settle()
+        expect(source.sent).toHaveLength(1)
+        expect(source.waits).toEqual([])
+        expect(source.storage.items.size).toBe(1)
+        chosen.choose({ theme: 'light', font: 'Literata' })
+        await settle()
+        expect(source.sent).toHaveLength(1)
+        expect(source.storage.items.size).toBe(1)
+        // Signed in again, the reader opens anew and sends this device's choice.
+        const again = { ...sources(async () => true), storage: source.storage }
+        expect(await createChoices(again, choicesOf(DEVICE)).ready).toBeNull()
+        await settle()
+        expect(again.sent).toEqual([{ theme: 'sepia', font: 'Literata' }])
         expect(source.storage.items.size).toBe(0)
     })
 
