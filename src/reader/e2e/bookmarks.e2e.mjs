@@ -359,10 +359,17 @@ try {
     if (!addedElsewhere.ok) fail(`POST /Oriel/Bookmarks returned ${addedElsewhere.status}`)
     await page.reload()
     await page.waitForSelector('body[data-state="rendered"]', { timeout: 30_000 })
-    const reloaded = await counted(page, 5000)
-    listed = await pagedRows(page, 30_000)
-    const wanted = [`Chapter One · page 1`, `Chapter Three · page ${reloaded.page}`]
-    if (listed.map(row => row.where).join('|') !== wanted.join('|')) fail(`after a reload with a bookmark added elsewhere the Bookmarks tab lists ${JSON.stringify(listed)}, expected ${wanted.join(', ')}`)
+    // The footer can show a page before the reader has settled on its place, so both are
+    // read again until the tab names the page the footer shows.
+    const first = await counted(page, 5000)
+    let reloaded = first
+    const wanted = () => [`Chapter One · page 1`, `Chapter Three · page ${reloaded.page}`]
+    await until(async () => {
+        reloaded = await counted(page, 5000)
+        listed = await pagedRows(page, 5000)
+        return listed.map(row => row.where).join('|') === wanted().join('|')
+    }, () => `after a reload with a bookmark added elsewhere the Bookmarks tab lists ${JSON.stringify(listed)}, expected ${wanted().join(', ')}, the footer showing page ${reloaded.page} (page ${first.page} at first)`, 30_000)
+    if (first.page !== reloaded.page) console.log(`INFO: ${browserName}: after the reload the footer showed page ${first.page} before page ${reloaded.page}`)
     pass(`after a reload a bookmark added elsewhere is placed too: ${listed.map(row => `'${row.where}'`).join(', ')}`)
     await page.close()
 
