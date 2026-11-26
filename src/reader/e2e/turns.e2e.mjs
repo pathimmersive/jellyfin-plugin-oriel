@@ -1,13 +1,16 @@
 // Checks that a page turn costs the same however much is marked, in the browser
 // named by ORIEL_BROWSER: webkit at iPhone size with touch, or chromium at
 // desktop size. In the long book, as a user made for the run, it turns the same
-// 20 pages with nothing marked and with 5,000 bookmarks and 20,000 highlights
-// (the most a user keeps), and the median turn with marks takes at most 1.5
-// times as long. The bookmarks are in the chapters before the ones turned
+// 40 pages with nothing marked and with 5,000 bookmarks and 20,000 highlights
+// (the most a user keeps), and the turns with marks take at most 1.5 times as
+// long by the mean of the middle half of their times. WebKit's clock counts
+// whole milliseconds and a turn there can take 1 to 3 ms, so a single turn, or
+// a median, moves by a tick; the mean of 20 averages the ticks out, and leaving
+// out the quickest and slowest quarters leaves out a stray pause. The bookmarks are in the chapters before the ones turned
 // through, so no turn finds one on its page and stops looking early; every
 // chapter has its 500 highlights. A turn is timed from the key to the end of
 // what the reader does when the new page shows, with Page turn at None: the 300 ms
-// a slide takes would hide the work. Both medians are from one run,
+// a slide takes would hide the work. Both means are from one run,
 // so the machine's speed cancels. The marks must be there to count: the
 // highlights are drawn, and a page with a bookmark says so. In Chromium, from
 // the browser's own trace, opening the book and turning into a chapter lay each
@@ -44,11 +47,12 @@ if (!setup) {
 
 const BOOKMARKS = 5_000
 const HIGHLIGHTS = 20_000
-const TURNS = 20
+const TURNS = 40
 const BOUND = 1.5
-// The chapter the turns start in, and how many chapters from the first have bookmarks.
-const START = 36
-const BOOKMARKED = 35
+// The chapter the turns start in, and how many chapters from the first have bookmarks. The
+// ten chapters from START hold more than 40 pages at desktop size.
+const START = 31
+const BOOKMARKED = 30
 
 const fail = message => { throw new Error(message) }
 const pass = message => console.log(`PASS: ${browserName}: ${message}`)
@@ -157,6 +161,13 @@ const median = times => {
     return (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2
 }
 
+// The mean of the middle half: the quickest and slowest quarters left out.
+const middleMean = times => {
+    const sorted = [...times].sort((a, b) => a - b)
+    const middle = sorted.slice(times.length / 4, times.length - times.length / 4)
+    return middle.reduce((sum, time) => sum + time, 0) / middle.length
+}
+
 // Times the turns from the start of a chapter, after some to warm up.
 const measure = async page => {
     await goTo(page, START)
@@ -229,9 +240,10 @@ try {
     if (await bookmarkShown(page)) fail('a page in a chapter with no bookmarks shows one')
     await allDrawn()
 
-    const [bareMedian, markedMedian] = [median(bare), median(marked)]
-    const ratio = markedMedian / bareMedian
-    const said = `the median of ${TURNS} turns takes ${bareMedian.toFixed(1)} ms with nothing marked (the longest ${Math.max(...bare).toFixed(1)} ms) and ${markedMedian.toFixed(1)} ms with ${BOOKMARKS} bookmarks and ${HIGHLIGHTS} highlights (the longest ${Math.max(...marked).toFixed(1)} ms): ${ratio.toFixed(2)} times as long`
+    const [bareMean, markedMean] = [middleMean(bare), middleMean(marked)]
+    const ratio = markedMean / bareMean
+    const times = all => `mean of the middle half ${middleMean(all).toFixed(2)} ms, median ${median(all).toFixed(1)}, longest ${Math.max(...all).toFixed(1)}`
+    const said = `of ${TURNS} turns, with nothing marked the ${times(bare)}; with ${BOOKMARKS} bookmarks and ${HIGHLIGHTS} highlights the ${times(marked)}: ${ratio.toFixed(2)} times as long`
     if (!(ratio <= BOUND)) fail(`${said}, expected at most ${BOUND}`)
     pass(`${said}, at most ${BOUND}`)
 } catch (error) {
