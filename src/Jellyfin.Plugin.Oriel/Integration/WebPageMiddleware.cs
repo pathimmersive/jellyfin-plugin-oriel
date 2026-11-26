@@ -69,11 +69,7 @@ public sealed partial class WebPageMiddleware
     /// <returns>The file, or <see cref="WebFile.None"/>.</returns>
     public static WebFile FileOf(PathString path, string? baseUrl)
     {
-        var root = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
-        if (root.Length > 0 && root[0] != '/')
-        {
-            root = "/" + root;
-        }
+        var root = BaseUrl.Root(baseUrl);
 
         var value = path.Value ?? string.Empty;
         bool Is(string end) => string.Equals(value, root + end, StringComparison.OrdinalIgnoreCase);

@@ -54,9 +54,8 @@ public sealed partial class RefusalsAttribute : ResultFilterAttribute
         base.OnResultExecuting(context);
     }
 
-    // The reason of any of Oriel's refusal bodies: a record with a string Reason.
-    private static string? ReasonOf(object? body) =>
-        body?.GetType().GetProperty("Reason")?.GetValue(body) as string;
+    // The reason of a refusal's body.
+    private static string? ReasonOf(object? body) => (body as RequestRefusal)?.Reason;
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel refused {Method} /{Route} with {Status}: {Reason}")]
     private static partial void LogRefusedWarning(ILogger logger, string method, string route, int status, string reason);

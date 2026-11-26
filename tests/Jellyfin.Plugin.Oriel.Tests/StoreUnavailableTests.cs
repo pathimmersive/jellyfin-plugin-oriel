@@ -121,7 +121,7 @@ public sealed class StoreUnavailableTests : IDisposable
         Assert.True(context.ExceptionHandled);
         var result = Assert.IsType<ObjectResult>(context.Result);
         Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
-        Assert.Equal("storeUnavailable", Assert.IsType<StoreUnavailableAttribute.Unavailable>(result.Value).Reason);
+        Assert.Equal("storeUnavailable", Assert.IsType<RequestRefusal>(result.Value).Reason);
     }
 
     [Fact]
@@ -149,7 +149,7 @@ public sealed class StoreUnavailableTests : IDisposable
             Assert.True(context.ExceptionHandled, $"{save.Thrown!.GetType().Name} was not answered for the {save.What}");
             var result = Assert.IsType<ObjectResult>(context.Result);
             Assert.Equal(StatusCodes.Status503ServiceUnavailable, result.StatusCode);
-            Assert.Equal("storeUnavailable", Assert.IsType<StoreUnavailableAttribute.Unavailable>(result.Value).Reason);
+            Assert.Equal("storeUnavailable", Assert.IsType<RequestRefusal>(result.Value).Reason);
         });
         Assert.Null(store.Positions.Get(Reader, Book));
         Assert.Empty(store.Bookmarks.List(Reader, Book));

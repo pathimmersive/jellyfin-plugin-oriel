@@ -95,7 +95,7 @@ public class BookmarksController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
+        if (request?.Cfi is not { } cfi || !ReadingRules.IsCfi(cfi))
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
@@ -105,7 +105,7 @@ public class BookmarksController : ControllerBase
             return BadRequest(new RequestRefusal("invalidFraction"));
         }
 
-        if (request.Text is not { Length: <= ReadingRules.MaxBookmarkTextLength } text)
+        if (request.Text is not { } text || !ReadingRules.IsBookmarkText(text))
         {
             return BadRequest(new RequestRefusal("invalidText"));
         }
@@ -122,7 +122,7 @@ public class BookmarksController : ControllerBase
         }
         catch (LimitReachedException)
         {
-            return Conflict(new ConflictReason("limitReached"));
+            return Conflict(new RequestRefusal("limitReached"));
         }
     }
 

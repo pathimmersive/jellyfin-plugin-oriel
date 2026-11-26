@@ -98,7 +98,7 @@ public class HighlightsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
+        if (request?.Cfi is not { } cfi || !ReadingRules.IsCfi(cfi))
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }
@@ -113,12 +113,12 @@ public class HighlightsController : ControllerBase
             return BadRequest(new RequestRefusal("unknownHighlighter"));
         }
 
-        if (request.Text is not { Length: <= ReadingRules.MaxHighlightTextLength } text)
+        if (request.Text is not { } text || !ReadingRules.IsHighlightText(text))
         {
             return BadRequest(new RequestRefusal("invalidText"));
         }
 
-        if (request.Note is { Length: > ReadingRules.MaxNoteLength })
+        if (!ReadingRules.IsNote(request.Note))
         {
             return BadRequest(new RequestRefusal("noteTooLong"));
         }
@@ -135,7 +135,7 @@ public class HighlightsController : ControllerBase
         }
         catch (LimitReachedException)
         {
-            return Conflict(new ConflictReason("limitReached"));
+            return Conflict(new RequestRefusal("limitReached"));
         }
 
         if (highlight.Colour != colour || (request.Note is { } note && highlight.Note != note))
@@ -182,7 +182,7 @@ public class HighlightsController : ControllerBase
             return BadRequest(new RequestRefusal("unknownHighlighter"));
         }
 
-        if (request.Note is { Length: > ReadingRules.MaxNoteLength })
+        if (!ReadingRules.IsNote(request.Note))
         {
             return BadRequest(new RequestRefusal("noteTooLong"));
         }

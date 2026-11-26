@@ -49,11 +49,7 @@ public sealed class ReaderHeadersMiddleware
     /// <returns>True for <c>{base}/Oriel</c> and anything under it.</returns>
     public static bool IsOriel(PathString path, string? baseUrl)
     {
-        var root = (baseUrl ?? string.Empty).Trim().TrimEnd('/');
-        if (root.Length > 0 && root[0] != '/')
-        {
-            root = "/" + root;
-        }
+        var root = BaseUrl.Root(baseUrl);
 
         var value = path.Value ?? string.Empty;
         var prefix = root + "/Oriel";
