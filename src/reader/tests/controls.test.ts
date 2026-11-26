@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { HIDDEN, nextControls } from '../src/controls/state'
+import { createListeners } from '../src/controls/listeners'
+import { detailOf } from '../src/engine/events'
 
 describe('nextControls', () => {
     it('shows the controls on a tap in the middle and hides them on the next', () => {
@@ -61,5 +63,23 @@ describe('nextControls', () => {
         expect(nextControls(open, 'outside')).toEqual(HIDDEN)
         expect(nextControls({ shown: true, more: true, contents: false, prefs: false, search: false }, 'find'))
             .toEqual({ shown: true, more: false, contents: false, prefs: false, search: true })
+    })
+})
+
+describe('what the stores and the events share', () => {
+    it('tells every listener, in the order added, each time', () => {
+        const listeners = createListeners()
+        const told: string[] = []
+        listeners.on(() => told.push('a'))
+        listeners.on(() => told.push('b'))
+        listeners.tell()
+        listeners.tell()
+        expect(told).toEqual(['a', 'b', 'a', 'b'])
+    })
+
+    it("reads an event's detail", () => {
+        const doc = { title: 'a section' } as Document
+        expect(detailOf<{ doc: Document }>(new CustomEvent('load', { detail: { doc } })).doc).toBe(doc)
+        expect(detailOf<null>(new Event('load'))).toBeUndefined()
     })
 })

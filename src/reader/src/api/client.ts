@@ -30,6 +30,70 @@ export const downloadErrorMessage = (status: number): string => {
     }
 }
 
+/** What a request sends besides the session's authorization. */
+interface Sent {
+    method?: string
+    /** A body sent as JSON. */
+    json?: unknown
+    /** A file sent as it is, with its type. */
+    file?: { body: Blob, type: string }
+    /** Lets the request finish while the page is closing. */
+    keepalive?: boolean
+    signal?: AbortSignal
+}
+
+/**
+ * The server's answer to a request to `url` with `authorization` (none when
+ * null), or, when no answer came, why: the error's message. Every request to
+ * the server but the book's download goes through here.
+ */
+export const ask = async (fetchImpl: typeof fetch, url: string, authorization: string | null, sent: Sent = {}): Promise<Response | string> => {
+    const headers: Record<string, string> = authorization === null ? {} : { Authorization: authorization }
+    const init: RequestInit = {}
+    if (sent.method) init.method = sent.method
+    if (sent.json !== undefined) {
+        headers['Content-Type'] = 'application/json'
+        init.body = JSON.stringify(sent.json)
+    } else if (sent.file) {
+        headers['Content-Type'] = sent.file.type
+        init.body = sent.file.body
+    }
+    if (Object.keys(headers).length) init.headers = headers
+    if (sent.keepalive !== undefined) init.keepalive = sent.keepalive
+    if (sent.signal) init.signal = sent.signal
+    try {
+        return await fetchImpl(url, init)
+    } catch (error) {
+        return error instanceof Error ? error.message : String(error)
+    }
+}
+
+/** What an answer's body is when it is not JSON, or stopped arriving. */
+export const NOT_JSON = Symbol('not JSON')
+
+/** An answer's body as JSON, or NOT_JSON. */
+export const bodyOf = (response: Response): Promise<unknown> => response.json().catch(() => NOT_JSON)
+
+/** The JSON of a successful answer when `guard` accepts it; null for no answer, a refusal or anything else. */
+export const accepted = async <T>(response: Response | string, guard: (value: unknown) => value is T): Promise<T | null> => {
+    if (typeof response === 'string' || !response.ok) return null
+    const data = await bodyOf(response)
+    return guard(data) ? data : null
+}
+
+/** A guard for a list whose every item `guard` accepts. */
+export const listOf = <T>(guard: (value: unknown) => value is T) => (value: unknown): value is T[] =>
+    Array.isArray(value) && value.every(guard)
+
+/** The reason a refusal's body gives, if any. */
+const reasonOf = async (response: Response): Promise<unknown> => {
+    const data = await bodyOf(response.clone())
+    return typeof data === 'object' && data !== null ? (data as { reason?: unknown }).reason : undefined
+}
+
+/** Whether a delete left the thing gone: true too when the server had it no longer. */
+const gone = (response: Response | string): boolean => typeof response !== 'string' && (response.ok || response.status === 404)
+
 /** Bytes received so far, and the file's size when the server says it. */
 export type DownloadProgress = (done: number, total: number | null) => void
 
@@ -125,22 +189,17 @@ export const readBookDetails = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<BookDetails | null> => {
-    try {
-        const id = encodeURIComponent(itemId)
-        const response = await fetchImpl(`${basePath}/Items/${id}?userId=${encodeURIComponent(userId)}`, {
-            headers: { Authorization: authorization },
-        })
-        if (!response.ok) return null
-        const item = await response.json() as { Name?: unknown, ImageTags?: { Primary?: unknown } }
-        const tag = item.ImageTags?.Primary
-        return {
-            title: typeof item.Name === 'string' ? item.Name : '',
-            cover: typeof tag === 'string' && tag
-                ? `${basePath}/Items/${id}/Images/Primary?tag=${encodeURIComponent(tag)}&maxWidth=360`
-                : null,
-        }
-    } catch {
-        return null
+    const id = encodeURIComponent(itemId)
+    const response = await ask(fetchImpl, `${basePath}/Items/${id}?userId=${encodeURIComponent(userId)}`, authorization)
+    if (typeof response === 'string' || !response.ok) return null
+    const item = await bodyOf(response) as { Name?: unknown, ImageTags?: { Primary?: unknown } } | null | typeof NOT_JSON
+    if (item === NOT_JSON || item === null) return null
+    const tag = item.ImageTags?.Primary
+    return {
+        title: typeof item.Name === 'string' ? item.Name : '',
+        cover: typeof tag === 'string' && tag
+            ? `${basePath}/Items/${id}/Images/Primary?tag=${encodeURIComponent(tag)}&maxWidth=360`
+            : null,
     }
 }
 
@@ -156,12 +215,9 @@ export const publicServerId = async (
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), timeoutMs)
     try {
-        const response = await fetchImpl(`${basePath}/System/Info/Public`, { signal: controller.signal })
-        if (!response.ok) return null
-        const info = await response.json() as { Id?: unknown }
-        return typeof info.Id === 'string' && info.Id ? info.Id : null
-    } catch {
-        return null
+        const info = await accepted(await ask(fetchImpl, `${basePath}/System/Info/Public`, null, { signal: controller.signal }),
+            (value): value is { Id: string } => typeof (value as { Id?: unknown } | null)?.Id === 'string')
+        return info?.Id || null
     } finally {
         clearTimeout(timer)
     }
@@ -200,16 +256,13 @@ export const readJellyfinPosition = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<JellyfinPosition | null> => {
-    try {
-        const response = await fetchImpl(userDataUrl(basePath, itemId, userId), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data = await response.json() as { PlaybackPositionTicks?: unknown, LastPlayedDate?: unknown }
-        return {
-            ticks: typeof data.PlaybackPositionTicks === 'number' ? data.PlaybackPositionTicks : null,
-            lastPlayed: typeof data.LastPlayedDate === 'string' ? data.LastPlayedDate : null,
-        }
-    } catch {
-        return null
+    const response = await ask(fetchImpl, userDataUrl(basePath, itemId, userId), authorization)
+    if (typeof response === 'string' || !response.ok) return null
+    const data = await bodyOf(response) as { PlaybackPositionTicks?: unknown, LastPlayedDate?: unknown } | null | typeof NOT_JSON
+    if (data === NOT_JSON || data === null) return null
+    return {
+        ticks: typeof data.PlaybackPositionTicks === 'number' ? data.PlaybackPositionTicks : null,
+        lastPlayed: typeof data.LastPlayedDate === 'string' ? data.LastPlayedDate : null,
     }
 }
 
@@ -228,17 +281,9 @@ export const writeJellyfinPosition = async (
     keepalive = false,
     fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> => {
-    try {
-        const response = await fetchImpl(userDataUrl(basePath, itemId, userId), {
-            method: 'POST',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ PlaybackPositionTicks: ticks, LastPlayedDate: lastPlayed }),
-            keepalive,
-        })
-        return response.ok
-    } catch {
-        return false
-    }
+    const response = await ask(fetchImpl, userDataUrl(basePath, itemId, userId), authorization,
+        { method: 'POST', json: { PlaybackPositionTicks: ticks, LastPlayedDate: lastPlayed }, keepalive })
+    return typeof response !== 'string' && response.ok
 }
 
 const isStoredPosition = (value: unknown): value is StoredPosition => {
@@ -256,18 +301,9 @@ export const readStoredPosition = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<StoredPosition | null | 'unavailable'> => {
-    try {
-        const response = await fetchImpl(positionUrl(basePath, itemId), { headers: { Authorization: authorization } })
-        if (response.status === 503) {
-            const reason = (await response.json().catch(() => null) as { reason?: unknown } | null)?.reason
-            return reason === 'storeUnavailable' ? 'unavailable' : null
-        }
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return isStoredPosition(data) ? data : null
-    } catch {
-        return null
-    }
+    const response = await ask(fetchImpl, positionUrl(basePath, itemId), authorization)
+    if (typeof response !== 'string' && response.status === 503) return await reasonOf(response) === 'storeUnavailable' ? 'unavailable' : null
+    return accepted(response, isStoredPosition)
 }
 
 /**
@@ -283,19 +319,13 @@ export const writeStoredPosition = async (
     keepalive = false,
     fetchImpl: typeof fetch = fetch,
 ): Promise<StoredPosition | null | 'unanswered'> => {
-    try {
-        const response = await fetchImpl(positionUrl(basePath, itemId), {
-            method: 'PUT',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cfi, fraction }),
-            keepalive,
-        })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return isStoredPosition(data) ? data : null
-    } catch {
-        return 'unanswered'
-    }
+    const response = await ask(fetchImpl, positionUrl(basePath, itemId), authorization, { method: 'PUT', json: { cfi, fraction }, keepalive })
+    if (typeof response === 'string') return 'unanswered'
+    if (!response.ok) return null
+    const data = await bodyOf(response)
+    // A body that stopped arriving is no answer either.
+    if (data === NOT_JSON) return 'unanswered'
+    return isStoredPosition(data) ? data : null
 }
 
 /** A bookmark as Oriel's store keeps it: where its page starts, the text the page opens with, and when it was made. */
@@ -320,14 +350,7 @@ export const readBookmarks = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<Bookmark[] | null> => {
-    try {
-        const response = await fetchImpl(bookmarksUrl(basePath, itemId), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isBookmark) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, bookmarksUrl(basePath, itemId), authorization), listOf(isBookmark))
 }
 
 /** Bookmarks a page; returns the bookmark as stored (or the one already there), or null when that failed. */
@@ -340,19 +363,9 @@ export const addBookmark = async (
     text: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<Bookmark | null | 'limitReached'> => {
-    try {
-        const response = await fetchImpl(bookmarksUrl(basePath, itemId), {
-            method: 'POST',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ cfi, fraction, text }),
-        })
-        if (await limitReached(response)) return 'limitReached'
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return isBookmark(data) ? data : null
-    } catch {
-        return null
-    }
+    const response = await ask(fetchImpl, bookmarksUrl(basePath, itemId), authorization, { method: 'POST', json: { cfi, fraction, text } })
+    if (await limitReached(response)) return 'limitReached'
+    return accepted(response, isBookmark)
 }
 
 /** Removes a bookmark; returns whether it is gone (true too when the server had it no longer). */
@@ -363,12 +376,7 @@ export const removeBookmark = async (
     id: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> => {
-    try {
-        const response = await fetchImpl(bookmarksUrl(basePath, itemId, id), { method: 'DELETE', headers: { Authorization: authorization } })
-        return response.ok || response.status === 404
-    } catch {
-        return false
-    }
+    return gone(await ask(fetchImpl, bookmarksUrl(basePath, itemId, id), authorization, { method: 'DELETE' }))
 }
 
 /** A highlight as Oriel's store keeps it: the text it covers, its highlighter's colour, its note (empty for none), and when it was made. */
@@ -396,35 +404,18 @@ export const readHighlights = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<Highlight[] | null> => {
-    try {
-        const response = await fetchImpl(highlightsUrl(basePath, itemId), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isHighlight) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, highlightsUrl(basePath, itemId), authorization), listOf(isHighlight))
 }
 
-// Sends a highlight change; the highlight as stored, or null when that failed.
 // True for the server's answer that the user already keeps the most bookmarks or highlights it allows.
-const limitReached = async (response: Response): Promise<boolean> =>
-    response.status === 409 && (await response.clone().json().catch(() => null) as { reason?: unknown } | null)?.reason === 'limitReached'
+const limitReached = async (response: Response | string): Promise<boolean> =>
+    typeof response !== 'string' && response.status === 409 && await reasonOf(response) === 'limitReached'
 
+// Sends a highlight change; the highlight as stored, or null when that failed.
 const sendHighlight = async (url: string, method: string, authorization: string, body: object, fetchImpl: typeof fetch): Promise<Highlight | null | 'limitReached'> => {
-    try {
-        const response = await fetchImpl(url, {
-            method,
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        })
-        if (await limitReached(response)) return 'limitReached'
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return isHighlight(data) ? data : null
-    } catch {
-        return null
-    }
+    const response = await ask(fetchImpl, url, authorization, { method, json: body })
+    if (await limitReached(response)) return 'limitReached'
+    return accepted(response, isHighlight)
 }
 
 /**
@@ -463,12 +454,7 @@ export const removeHighlight = async (
     id: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> => {
-    try {
-        const response = await fetchImpl(highlightsUrl(basePath, itemId, id), { method: 'DELETE', headers: { Authorization: authorization } })
-        return response.ok || response.status === 404
-    } catch {
-        return false
-    }
+    return gone(await ask(fetchImpl, highlightsUrl(basePath, itemId, id), authorization, { method: 'DELETE' }))
 }
 
 /** A highlighter as Oriel's store keeps it: its id, name and colour (#rrggbb), whether it is built in, and how many of the user's highlights use it. */
@@ -494,14 +480,7 @@ export const readHighlighters = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<HighlighterRecord[] | null> => {
-    try {
-        const response = await fetchImpl(highlightersUrl(basePath), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, highlightersUrl(basePath), authorization), listOf(isHighlighterRecord))
 }
 
 /** Keeps the user's whole list of highlighters (a new one without an id); returns them as kept, or null when that failed. */
@@ -511,18 +490,7 @@ export const saveHighlighters = async (
     list: { id?: string, name: string, colour: string }[],
     fetchImpl: typeof fetch = fetch,
 ): Promise<HighlighterRecord[] | null> => {
-    try {
-        const response = await fetchImpl(highlightersUrl(basePath), {
-            method: 'PUT',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify(list),
-        })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isHighlighterRecord) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, highlightersUrl(basePath), authorization, { method: 'PUT', json: list }), listOf(isHighlighterRecord))
 }
 
 /** One of the user's own themes as Oriel's store keeps it: its id, name and ten colours, each #rrggbb. */
@@ -547,15 +515,9 @@ export const readChoices = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<KeptChoices | null> => {
-    try {
-        const response = await fetchImpl(choicesUrl(basePath), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        // The server leaves out a choice not made yet.
-        return isKeptChoices(data) ? { theme: data.theme ?? null, font: data.font ?? null } : null
-    } catch {
-        return null
-    }
+    const data = await accepted(await ask(fetchImpl, choicesUrl(basePath), authorization), isKeptChoices)
+    // The server leaves out a choice not made yet.
+    return data && { theme: data.theme ?? null, font: data.font ?? null }
 }
 
 /**
@@ -569,17 +531,10 @@ export const saveChoices = async (
     choices: Choices,
     fetchImpl: typeof fetch = fetch,
 ): Promise<boolean | 'signedOut'> => {
-    try {
-        const response = await fetchImpl(choicesUrl(basePath), {
-            method: 'PUT',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify(choices),
-        })
-        if (response.status === 401) return 'signedOut'
-        return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429)
-    } catch {
-        return false
-    }
+    const response = await ask(fetchImpl, choicesUrl(basePath), authorization, { method: 'PUT', json: choices })
+    if (typeof response === 'string') return false
+    if (response.status === 401) return 'signedOut'
+    return response.ok || (response.status >= 400 && response.status < 500 && response.status !== 408 && response.status !== 429)
 }
 
 /** The user's own themes in their order, or null when they cannot be read. */
@@ -588,14 +543,7 @@ export const readThemes = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<OwnTheme[] | null> => {
-    try {
-        const response = await fetchImpl(themesUrl(basePath), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, themesUrl(basePath), authorization), listOf(isThemeRecord))
 }
 
 /** Keeps the user's whole list of themes (a new one without an id); returns them as kept, or null when that failed. */
@@ -605,18 +553,7 @@ export const saveThemes = async (
     list: (Omit<OwnTheme, 'id'> & { id?: string })[],
     fetchImpl: typeof fetch = fetch,
 ): Promise<OwnTheme[] | null> => {
-    try {
-        const response = await fetchImpl(themesUrl(basePath), {
-            method: 'PUT',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: JSON.stringify(list),
-        })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isThemeRecord) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, themesUrl(basePath), authorization, { method: 'PUT', json: list }), listOf(isThemeRecord))
 }
 
 /** One of the user's own font files, as Oriel's store keeps it: one style of a family. */
@@ -643,14 +580,7 @@ export const readFonts = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<OwnFont[] | null> => {
-    try {
-        const response = await fetchImpl(fontsUrl(basePath), { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data: unknown = await response.json()
-        return Array.isArray(data) && data.every(isOwnFont) ? data : null
-    } catch {
-        return null
-    }
+    return accepted(await ask(fetchImpl, fontsUrl(basePath), authorization), listOf(isOwnFont))
 }
 
 /** Why a font file was not added: too large, not a font, one too many, past the user's 100 MB, uploads off on the server, or anything else. */
@@ -663,23 +593,15 @@ export const addFont = async (
     file: Blob,
     fetchImpl: typeof fetch = fetch,
 ): Promise<OwnFont | FontRefusal> => {
-    try {
-        const response = await fetchImpl(fontsUrl(basePath), {
-            method: 'POST',
-            headers: { Authorization: authorization, 'Content-Type': 'application/octet-stream' },
-            body: file,
-        })
-        if (response.status === 413) return 'tooLarge'
-        if (response.status === 403) return 'uploadsOff'
-        const data: unknown = await response.json().catch(() => null)
-        if (response.status === 400) {
-            const reason = (data as { reason?: unknown } | null)?.reason
-            return reason === 'tooMany' || reason === 'notAFont' || reason === 'quotaFull' ? reason : 'failed'
-        }
-        return response.ok && isOwnFont(data) ? data : 'failed'
-    } catch {
-        return 'failed'
+    const response = await ask(fetchImpl, fontsUrl(basePath), authorization, { method: 'POST', file: { body: file, type: 'application/octet-stream' } })
+    if (typeof response === 'string') return 'failed'
+    if (response.status === 413) return 'tooLarge'
+    if (response.status === 403) return 'uploadsOff'
+    if (response.status === 400) {
+        const reason = await reasonOf(response)
+        return reason === 'tooMany' || reason === 'notAFont' || reason === 'quotaFull' ? reason : 'failed'
     }
+    return await accepted(response, isOwnFont) ?? 'failed'
 }
 
 /** One of the user's font files, or null when it cannot be read. */
@@ -689,12 +611,8 @@ export const readFontFile = async (
     id: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<Blob | null> => {
-    try {
-        const response = await fetchImpl(`${fontsUrl(basePath)}/${encodeURIComponent(id)}`, { headers: { Authorization: authorization } })
-        return response.ok ? await response.blob() : null
-    } catch {
-        return null
-    }
+    const response = await ask(fetchImpl, `${fontsUrl(basePath)}/${encodeURIComponent(id)}`, authorization)
+    return typeof response !== 'string' && response.ok ? response.blob().catch(() => null) : null
 }
 
 /** Removes every file of one of the user's font families; false when that failed. */
@@ -704,12 +622,7 @@ export const removeFontFamily = async (
     family: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<boolean> => {
-    try {
-        const response = await fetchImpl(`${fontsUrl(basePath)}?family=${encodeURIComponent(family)}`, { method: 'DELETE', headers: { Authorization: authorization } })
-        return response.ok || response.status === 404
-    } catch {
-        return false
-    }
+    return gone(await ask(fetchImpl, `${fontsUrl(basePath)}?family=${encodeURIComponent(family)}`, authorization, { method: 'DELETE' }))
 }
 
 /** What the admin has set for every reader: the translation address, with {text} where the text goes, empty when Translate is off, and whether readers may add fonts. */
@@ -724,14 +637,9 @@ export const readReaderSettings = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<ReaderSettings | null> => {
-    try {
-        const response = await fetchImpl(`${basePath}/Oriel/ReaderSettings`, { headers: { Authorization: authorization } })
-        if (!response.ok) return null
-        const data = await response.json() as Partial<ReaderSettings> | null
-        return typeof data?.translateUrl === 'string' ? { translateUrl: data.translateUrl, fontUploads: data.fontUploads === true } : null
-    } catch {
-        return null
-    }
+    const data = await accepted(await ask(fetchImpl, `${basePath}/Oriel/ReaderSettings`, authorization),
+        (value): value is Partial<ReaderSettings> & { translateUrl: string } => typeof (value as Partial<ReaderSettings> | null)?.translateUrl === 'string')
+    return data && { translateUrl: data.translateUrl, fontUploads: data.fontUploads === true }
 }
 
 /** A word's senses as one part of speech: noun, verb, adjective or adverb. */
@@ -763,17 +671,13 @@ export const lookUpWord = async (
     word: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<WordLookup> => {
-    try {
-        const response = await fetchImpl(`${basePath}/Oriel/Dictionary?word=${encodeURIComponent(word)}`, { headers: { Authorization: authorization } })
-        if (response.status === 404) return { missing: true }
-        if (!response.ok) return { failed: true }
-        const data = await response.json() as Partial<Definition> | null
-        return typeof data?.word === 'string' && Array.isArray(data.entries) && data.entries.length > 0 && data.entries.every(isDictionaryEntry)
-            ? { found: { word: data.word, entries: data.entries } }
-            : { failed: true }
-    } catch {
-        return { failed: true }
-    }
+    const response = await ask(fetchImpl, `${basePath}/Oriel/Dictionary?word=${encodeURIComponent(word)}`, authorization)
+    if (typeof response !== 'string' && response.status === 404) return { missing: true }
+    const data = await accepted(response, (value): value is Definition => {
+        const definition = value as Partial<Definition> | null
+        return typeof definition?.word === 'string' && Array.isArray(definition.entries) && definition.entries.length > 0 && definition.entries.every(isDictionaryEntry)
+    })
+    return data ? { found: { word: data.word, entries: data.entries } } : { failed: true }
 }
 
 /** The reading data file from /Oriel/Export and the name the server gives it, or why it could not be had. */
@@ -800,14 +704,13 @@ export const downloadReadingData = async (
     authorization: string,
     fetchImpl: typeof fetch = fetch,
 ): Promise<ReadingDataFile> => {
-    try {
-        const response = await fetchImpl(`${basePath}/Oriel/Export`, { headers: { Authorization: authorization } })
-        if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` }
-        const fileName = attachmentName(response.headers.get('Content-Disposition')) ?? DEFAULT_EXPORT_NAME
-        return { ok: true, blob: await response.blob(), fileName }
-    } catch (error) {
-        return { ok: false, reason: error instanceof Error ? error.message : String(error) }
-    }
+    const response = await ask(fetchImpl, `${basePath}/Oriel/Export`, authorization)
+    if (typeof response === 'string') return { ok: false, reason: response }
+    if (!response.ok) return { ok: false, reason: `HTTP ${response.status}` }
+    const fileName = attachmentName(response.headers.get('Content-Disposition')) ?? DEFAULT_EXPORT_NAME
+    return response.blob().then(
+        (blob): ReadingDataFile => ({ ok: true, blob, fileName }),
+        (error: unknown): ReadingDataFile => ({ ok: false, reason: error instanceof Error ? error.message : String(error) }))
 }
 
 /**
@@ -827,17 +730,11 @@ export const importReadingData = async (
     file: Blob,
     fetchImpl: typeof fetch = fetch,
 ): Promise<ImportOutcome> => {
-    try {
-        const response = await fetchImpl(`${basePath}/Oriel/Import`, {
-            method: 'POST',
-            headers: { Authorization: authorization, 'Content-Type': 'application/json' },
-            body: file,
-        })
-        if (response.status === 400) return { kind: 'rejected' }
-        if (!response.ok) return { kind: 'failed', reason: `HTTP ${response.status}` }
-        const result: unknown = await response.json()
-        return isImportResult(result) ? { kind: 'done', result } : { kind: 'failed', reason: 'an unexpected reply' }
-    } catch (error) {
-        return { kind: 'failed', reason: error instanceof Error ? error.message : String(error) }
-    }
+    const response = await ask(fetchImpl, `${basePath}/Oriel/Import`, authorization, { method: 'POST', file: { body: file, type: 'application/json' } })
+    if (typeof response === 'string') return { kind: 'failed', reason: response }
+    if (response.status === 400) return { kind: 'rejected' }
+    if (!response.ok) return { kind: 'failed', reason: `HTTP ${response.status}` }
+    return response.json().then(
+        (result: unknown): ImportOutcome => isImportResult(result) ? { kind: 'done', result } : { kind: 'failed', reason: 'an unexpected reply' },
+        (error: unknown): ImportOutcome => ({ kind: 'failed', reason: error instanceof Error ? error.message : String(error) }))
 }

@@ -1,5 +1,6 @@
 import type { Highlight } from '../api/client'
 import { bookmarkWhere, cutAtWord } from './bookmarks'
+import { createListeners } from './listeners'
 
 /** The longest text a highlight keeps, as the server takes it. */
 export const HIGHLIGHT_TEXT = 1000
@@ -68,10 +69,10 @@ export interface HighlightSources {
  */
 export const createHighlights = (sources: HighlightSources): Highlights => {
     let kept: Highlight[] = []
-    const listeners: (() => void)[] = []
+    const listeners = createListeners()
     const changed = (): void => {
         kept.sort((a, b) => sources.compare(a.cfi, b.cfi) || a.createdAt.localeCompare(b.createdAt))
-        for (const listener of listeners) listener()
+        listeners.tell()
     }
     // A highlight the server returns replaces the one with its id.
     const keep = (highlight: Highlight): void => {
@@ -116,8 +117,6 @@ export const createHighlights = (sources: HighlightSources): Highlights => {
             const highlight = kept.find(candidate => candidate.id === id)
             if (highlight) await sources.go(highlight.cfi)
         },
-        onChange(listener) {
-            listeners.push(listener)
-        },
+        onChange: listeners.on,
     }
 }

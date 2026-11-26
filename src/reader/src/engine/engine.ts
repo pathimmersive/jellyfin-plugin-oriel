@@ -16,6 +16,7 @@ import { columnLayout, countPages } from './pages'
 import { type Cfi, createPlaces, createSectionOf } from './places'
 import { guardSelectionDrag } from './selection'
 import { turnPage } from './turn'
+import { detailOf } from './events'
 
 // The vendored module declares no types.
 const CFI: Cfi = untypedCfi
@@ -302,7 +303,7 @@ export const openBook = async (
         return { cfi: view.getCFI(index, range), fraction: view.lastLocation?.fraction ?? 0, text, box: boxOn(doc, range.getBoundingClientRect()) }
     }
     view.addEventListener('load', event => {
-        const doc = (event as CustomEvent<{ doc: Document }>).detail.doc
+        const doc = detailOf<{ doc: Document }>(event).doc
         guardSelectionDrag(doc)
         let pressed = false
         let settling = 0
@@ -336,7 +337,7 @@ export const openBook = async (
     // A link out of the book opens in a new tab that cannot reach back to the reader, and only to a web or mail address.
     view.addEventListener('external-link', event => {
         event.preventDefault()
-        const href = (event as CustomEvent<{ href_: string }>).detail.href_
+        const href = detailOf<{ href_: string }>(event).href_
         if (isOpenableLink(href)) window.open(href, '_blank', 'noopener,noreferrer')
     })
     onView?.(view)
@@ -471,13 +472,13 @@ export const openBook = async (
     })
     const annotation = (cfi: string): { value: string } => ({ value: cfi })
     view.addEventListener('draw-annotation', event => {
-        const { draw, annotation } = (event as CustomEvent<{ draw: (draw: unknown, options: unknown) => void, annotation: { value: string } }>).detail
+        const { draw, annotation } = detailOf<{ draw: (draw: unknown, options: unknown) => void, annotation: { value: string } }>(event)
         const style = drawn.get(annotation.value)
         if (!style) return
         draw(drawHighlight, { ...style, ring: annotation.value === ringed ? HIGHLIGHT_RING : null })
     })
     view.addEventListener('create-overlay', event => {
-        const { index } = (event as CustomEvent<{ index: number }>).detail
+        const { index } = detailOf<{ index: number }>(event)
         for (const cfi of drawn.keys()) if (sectionOf(cfi) === index) void view.addAnnotation(annotation(cfi))
     })
     // Where each section starts, as foliate-js measures progress through the book.
@@ -626,7 +627,7 @@ export const openBook = async (
             let shown = view.lastLocation?.cfi
             let shownIndex = view.renderer.getContents?.()[0]?.index
             view.renderer.addEventListener('relocate', event => {
-                const { reason = '', index } = (event as CustomEvent<{ reason?: string, index?: number }>).detail ?? {}
+                const { reason = '', index } = detailOf<{ reason?: string, index?: number } | null>(event) ?? {}
                 const move = !NOT_MOVES.has(reason)
                 // Going to another section, the paginator first lays out the
                 // section it has loaded, at a place left from the one before,

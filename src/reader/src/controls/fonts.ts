@@ -1,5 +1,6 @@
 import type { FontRefusal, OwnFont } from '../api/client'
 import { ownFontFace } from '../settings/settings'
+import { createListeners } from './listeners'
 
 /** The largest font file the server keeps: 5 MB. */
 export const MAX_FONT_BYTES = 5 * 1024 * 1024
@@ -64,9 +65,9 @@ export interface OwnFontSources {
 export const createOwnFonts = (sources: OwnFontSources): OwnFonts & { ready: Promise<boolean> } => {
     let fonts: OwnFont[] = []
     const urls = new Map<string, string>()
-    const listeners: (() => void)[] = []
+    const listeners = createListeners()
     const changed = (): void => {
-        for (const listener of listeners) listener()
+        listeners.tell()
     }
     const drop = (gone: OwnFont[]): void => {
         for (const { id } of gone) {
@@ -112,8 +113,6 @@ export const createOwnFonts = (sources: OwnFontSources): OwnFonts & { ready: Pro
             changed()
             return true
         },
-        onChange(listener) {
-            listeners.push(listener)
-        },
+        onChange: listeners.on,
     }
 }

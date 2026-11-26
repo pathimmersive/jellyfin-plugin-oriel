@@ -1,4 +1,5 @@
 import { frameStats, LONG_FRAME_MS } from './frames'
+import { detailOf } from '../engine/events'
 
 // How long to keep sampling frames after a page turn settles, to catch late layout work.
 const SETTLE_MS = 300
@@ -48,7 +49,7 @@ export class DebugOverlay {
 
         view.addEventListener('touchend', onTouchEnd)
         view.addEventListener('load', event => {
-            const { doc } = (event as CustomEvent<{ doc: Document }>).detail
+            const { doc } = detailOf<{ doc: Document }>(event)
             doc.addEventListener('touchend', onTouchEnd)
         })
         view.addEventListener('relocate', () => {

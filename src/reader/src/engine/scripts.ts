@@ -1,3 +1,5 @@
+import { detailOf } from './events'
+
 // No script inside a book runs. The reader's Content-Security-Policy already
 // refuses them; this removes them as each section is prepared, so a section
 // never carries one into its frame at all.
@@ -61,7 +63,7 @@ export const stripSections = (book: object): void => {
         })
     }
     target?.addEventListener('data', event => {
-        const detail = (event as CustomEvent<{ data: unknown, type: unknown }>).detail
+        const detail = detailOf<{ data: unknown, type: unknown }>(event)
         const { data, type } = detail
         detail.data = Promise.all([data, type]).then(([text, mediaType]) =>
             typeof text === 'string' && typeof mediaType === 'string' ? withoutScripts(text, mediaType) : text)
