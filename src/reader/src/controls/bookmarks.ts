@@ -1,5 +1,6 @@
 import type { Bookmark } from '../api/client'
 import { percent } from './progress'
+import { createListeners } from './listeners'
 
 /** The longest text a bookmark keeps, as the server takes it. */
 export const BOOKMARK_TEXT = 200
@@ -83,11 +84,11 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
     let kept: Bookmark[] = []
     // The same, in the order of their places.
     let placed: Bookmark[] = []
-    const listeners: (() => void)[] = []
+    const listeners = createListeners()
     const changed = (): void => {
         placed = [...kept].sort((a, b) => sources.compare(a.cfi, b.cfi))
         kept.sort((a, b) => a.fraction - b.fraction || a.createdAt.localeCompare(b.createdAt))
-        for (const listener of listeners) listener()
+        listeners.tell()
     }
     void sources.load().then(loaded => {
         if (!loaded) return
@@ -134,9 +135,7 @@ export const createBookmarks = (sources: BookmarkSources): Bookmarks => {
             const bookmark = kept.find(candidate => candidate.id === id)
             if (bookmark) await sources.go(bookmark.cfi)
         },
-        onChange(listener) {
-            listeners.push(listener)
-        },
+        onChange: listeners.on,
         places: () => kept.map(bookmark => bookmark.cfi),
     }
 }

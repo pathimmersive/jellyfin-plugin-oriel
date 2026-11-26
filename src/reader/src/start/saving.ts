@@ -1,5 +1,6 @@
 import { writeJellyfinPosition, writeStoredPosition } from '../api/client'
-import { ICONS, NOTICE_TEXT } from '../controls/failure'
+import { NOTICE_TEXT } from '../controls/failure'
+import { ICONS } from '../controls/icons'
 import type { OpenBook } from '../engine/engine'
 import { positionWriter, savePlace } from '../position/position'
 import { showNotice } from './notices'

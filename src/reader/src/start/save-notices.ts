@@ -1,4 +1,5 @@
-import { ICONS, NOTICE_TEXT } from '../controls/failure'
+import { NOTICE_TEXT } from '../controls/failure'
+import { ICONS } from '../controls/icons'
 import { showNotice } from './notices'
 import { signIn } from './sign-in'
 

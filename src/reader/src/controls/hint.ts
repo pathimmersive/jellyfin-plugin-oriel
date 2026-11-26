@@ -1,4 +1,5 @@
 import type { PageTurn } from '../settings/settings'
+import { icon, ICONS } from './icons'
 
 /** Which hint shows: tap zones on a touch screen, the Turning pages dialog on a desktop, or the Scroll zones. */
 export type HintKind = 'touch' | 'desktop' | 'scroll'
@@ -75,16 +76,8 @@ export const hintDue = (seen: HintsSeen, moment: 'open' | 'scroll'): boolean =>
     moment === 'open' ? !seen.first : !seen.scroll
 
 // Material icons, as the canvas draws them.
-const ICONS = {
-    prev: 'M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z',
-    next: 'M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z',
-    menu: 'M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z',
-    up: 'M7.41 15.41L12 10.83l4.59 4.58L18 14l-6-6-6 6 1.41 1.41z',
-    down: 'M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z',
-}
-
 const ZONES: Record<'touch' | 'scroll', [string, string][]> = {
-    touch: [['Previous page', ICONS.prev], ['Show the controls', ICONS.menu], ['Next page', ICONS.next]],
+    touch: [['Previous page', ICONS.previous], ['Show the controls', ICONS.menu], ['Next page', ICONS.next]],
     scroll: [['Scroll up a screen', ICONS.up], ['Show the controls', ICONS.menu], ['Scroll down a screen', ICONS.down]],
 }
 
@@ -147,7 +140,7 @@ export const createHint = (root: HTMLElement, coarse: () => boolean, dismissed: 
         for (const [name, path] of ZONES[kind]) {
             const zone = document.createElement('div')
             zone.className = 'zone'
-            zone.innerHTML = `<svg aria-hidden="true" width="32" height="32" viewBox="0 0 24 24" fill="#fff"><path d="${path}"/></svg><span></span>`
+            zone.innerHTML = `${icon(path, 32, '#fff')}<span></span>`
             zone.querySelector('span')!.textContent = name
             grid.append(zone)
         }

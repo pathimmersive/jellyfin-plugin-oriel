@@ -1,4 +1,5 @@
 import { accentInk, type OwnTheme, type ThemeColours, THEME_NAME_LENGTH, THEME_ROLES } from '../settings/settings'
+import { icon, ICONS } from './icons'
 import type { OwnThemes, ThemeEdit } from './themes'
 
 /** New theme, also Edit theme, in Preferences' place. */
@@ -28,14 +29,6 @@ export interface ThemeSheetOptions {
     done(): void
 }
 
-const PATHS = {
-    back: 'M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z',
-    bookmarkOn: 'M17 3H7c-1.1 0-1.99.9-1.99 2L5 21l7-3 7 3V5c0-1.1-.9-2-2-2z',
-    trash: 'M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z',
-}
-const icon = (path: string, size = 20): string =>
-    `<svg aria-hidden="true" width="${size}" height="${size}" viewBox="0 0 24 24" fill="currentColor"><path d="${path}"/></svg>`
-
 /** The words of the Delete theme dialog: its title and what it says will happen. */
 export const deleteWords = (name: string, inUse: boolean): { title: string, body: string } => ({
     title: `Delete ${name}?`,
@@ -54,14 +47,14 @@ export const createThemeSheet = (options: ThemeSheetOptions): ThemeSheet => {
     body.hidden = true
     body.innerHTML = `<label class="field">Name<input type="text" maxlength="${THEME_NAME_LENGTH}" placeholder="My theme" autocomplete="off"></label>`
         + '<div class="preview" role="img" aria-label="Preview of the theme">'
-        + `<div class="preview-header">${icon(PATHS.back, 18)}<span class="preview-title"></span><span class="preview-mark">${icon(PATHS.bookmarkOn, 18)}</span></div>`
+        + `<div class="preview-header">${icon(ICONS.back, 18)}<span class="preview-title"></span><span class="preview-mark">${icon(ICONS.bookmarkOn, 18)}</span></div>`
         + '<div class="preview-page"><span>It is a truth <span class="preview-selection">universally acknowledged</span>, that a single man in possession of a good fortune must be in want of a wife.</span>'
         + '<span class="preview-separator"></span>'
         + '<span class="preview-chapters"><span class="secondary">Chapter I</span><span class="accent">Chapter II</span><span class="grayed">Coming later</span></span></div>'
         + '<div class="preview-buttons"><span class="button">Button</span><span class="selected">Selected</span></div></div>'
         + '<div class="roles"></div>'
         + '<p class="message" role="status"></p>'
-        + `<div class="sheet-buttons"><button type="button" class="delete">${icon(PATHS.trash)}Delete theme</button><span class="spacer"></span><button type="button" class="cancel">Cancel</button><button type="button" class="save">Save</button></div>`
+        + `<div class="sheet-buttons"><button type="button" class="delete">${icon(ICONS.trash, 20)}Delete theme</button><span class="spacer"></span><button type="button" class="cancel">Cancel</button><button type="button" class="save">Save</button></div>`
     body.querySelector('.preview-title')!.textContent = options.title
     const name = body.querySelector<HTMLInputElement>('input[type="text"]')!
     const preview = body.querySelector<HTMLElement>('.preview')!

@@ -1,3 +1,4 @@
+import { icon, ICONS } from './icons'
 import { firstUnused, highlightFill, type Highlighter, type HighlighterEdit, highlighterName, type Highlighters, NAME_LENGTH, SWATCHES } from './highlighters'
 
 /** The New highlighter sheet, also Edit highlighter. */
@@ -9,8 +10,6 @@ export interface HighlighterSheet {
      */
     open(editing: Highlighter | null, done?: (id: string | null) => void): void
 }
-
-const CLOSE = 'M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z'
 
 /**
  * The sheet that adds or edits a highlighter, as the canvas's PhoneHlColor
@@ -25,7 +24,7 @@ export const createHighlighterSheet = (root: HTMLElement, highlighters: Highligh
     const sheet = document.createElement('section')
     sheet.id = 'highlighter'
     sheet.dataset.controls = ''
-    sheet.innerHTML = `<div class="panel-header"><h2></h2><button type="button" class="icon-button" aria-label="Close"><svg aria-hidden="true" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="${CLOSE}"/></svg></button></div>`
+    sheet.innerHTML = `<div class="panel-header"><h2></h2><button type="button" class="icon-button" aria-label="Close">${icon(ICONS.close)}</button></div>`
         + `<div class="panel-body"><label class="field">Name (optional)<input type="text" maxlength="${NAME_LENGTH}" placeholder="For example: Quotes" autocomplete="off"></label>`
         + '<div class="swatches" role="radiogroup" aria-label="Colour"></div>'
         + '<label class="another"><input type="color">Another colour</label>'

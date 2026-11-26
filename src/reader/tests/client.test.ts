@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+    accepted,
     addHighlight,
+    ask,
+    listOf,
     publicServerId,
     readBookmarks,
     readFontFile,
@@ -170,5 +173,45 @@ describe('publicServerId', () => {
         const started = Date.now()
         expect(await publicServerId('/jf', hanging, 50)).toBeNull()
         expect(Date.now() - started).toBeLessThan(2000)
+    })
+})
+
+describe('the request every call to the server makes', () => {
+    const isName = (value: unknown): value is { name: string } => typeof (value as { name?: unknown } | null)?.name === 'string'
+
+    it('sends the authorization and a JSON body, and gives the answer accepted by its guard', async () => {
+        const { fetchImpl, calls } = server(200, { name: 'Oriel' })
+        const response = await ask(fetchImpl, '/jf/x', 'auth', { method: 'PUT', json: { a: 1 }, keepalive: true })
+        expect(calls[0]).toMatchObject({ url: '/jf/x', init: { method: 'PUT', keepalive: true, headers: { Authorization: 'auth', 'Content-Type': 'application/json' } } })
+        expect(JSON.parse(calls[0].init?.body as string)).toEqual({ a: 1 })
+        expect(await accepted(response, isName)).toEqual({ name: 'Oriel' })
+    })
+
+    it('sends a file with its type, and nothing but a signal without an authorization', async () => {
+        const { fetchImpl, calls } = server(200, {})
+        const file = new Blob(['{}'])
+        await ask(fetchImpl, '/jf/f', 'auth', { method: 'POST', file: { body: file, type: 'application/octet-stream' } })
+        expect(calls[0].init).toEqual({ method: 'POST', body: file, headers: { Authorization: 'auth', 'Content-Type': 'application/octet-stream' } })
+        const signal = new AbortController().signal
+        await ask(fetchImpl, '/jf/p', null, { signal })
+        expect(calls[1].init).toEqual({ signal })
+    })
+
+    it('gives null for a refusal, a body its guard refuses and a body that is not JSON', async () => {
+        expect(await accepted(await ask(server(409, { name: 'Oriel' }).fetchImpl, '/jf/x', 'auth'), isName)).toBeNull()
+        expect(await accepted(await ask(server(200, { other: 1 }).fetchImpl, '/jf/x', 'auth'), isName)).toBeNull()
+        expect(await accepted(await ask(server(200, 'not JSON').fetchImpl, '/jf/x', 'auth'), isName)).toBeNull()
+    })
+
+    it('gives why no answer came, and null from it', async () => {
+        const response = await ask(offline, '/jf/x', 'auth')
+        expect(response).toBe('Failed to fetch')
+        expect(await accepted(response, isName)).toBeNull()
+    })
+
+    it('accepts a list only when every item passes', () => {
+        expect(listOf(isName)([{ name: 'a' }, { name: 'b' }])).toBe(true)
+        expect(listOf(isName)([{ name: 'a' }, {}])).toBe(false)
+        expect(listOf(isName)({ name: 'a' })).toBe(false)
     })
 })

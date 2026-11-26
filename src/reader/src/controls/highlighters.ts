@@ -1,4 +1,5 @@
 import type { HighlighterRecord } from '../api/client'
+import { createListeners } from './listeners'
 
 /** A highlighter as the reader shows it: its id, its name, the colour of its dot, how strongly it fills text, whether it is built in, and how many highlights use it. */
 export interface Highlighter {
@@ -92,10 +93,10 @@ export interface HighlighterSources {
 /** The reader's highlighters: the built-ins until the server's list loads. */
 export const createHighlighters = (sources: HighlighterSources): Highlighters => {
     let kept = BUILT_INS.map(asHighlighter)
-    const listeners: (() => void)[] = []
+    const listeners = createListeners()
     const take = (records: HighlighterRecord[]): Highlighter[] => {
         kept = records.map(asHighlighter)
-        for (const listener of listeners) listener()
+        listeners.tell()
         return kept
     }
     const refresh = async (): Promise<void> => {
@@ -111,8 +112,6 @@ export const createHighlighters = (sources: HighlighterSources): Highlighters =>
             return saved ? take(saved) : null
         },
         refresh,
-        onChange(listener) {
-            listeners.push(listener)
-        },
+        onChange: listeners.on,
     }
 }

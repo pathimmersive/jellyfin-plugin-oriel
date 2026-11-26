@@ -26,6 +26,29 @@ describe('module boundaries', () => {
     })
 })
 
+describe('shared code', () => {
+    const typed = sources.filter(s => s.path.endsWith('.ts'))
+    const holding = (pattern: RegExp): string[] => typed.flatMap(s => [...s.text.matchAll(pattern)].map(() => s.path))
+
+    it('only the icons module keeps icon paths and draws an icon', () => {
+        expect([...new Set(holding(/'M\d/g))]).toEqual(['src/controls/icons.ts'])
+        expect(sources.filter(s => s.text.includes('viewBox="0 0 24 24"')).map(s => s.path)).toEqual(['src/controls/icons.ts'])
+    })
+
+    it('only the client fetches: once in ask, and once for the book download', () => {
+        expect(holding(/\bfetch(?:Impl)?\(/g)).toEqual(['src/api/client.ts', 'src/api/client.ts'])
+        expect(sources.find(s => s.path === 'src/api/client.ts')?.text).toMatch(/export const ask = [\s\S]*?return await fetchImpl\(url, init\)/)
+    })
+
+    it('only the listeners module keeps a list of listeners', () => {
+        expect(holding(/: \(\(\) => void\)\[\] = \[\]/g)).toEqual(['src/controls/listeners.ts'])
+    })
+
+    it('only the events module reads an event as a CustomEvent', () => {
+        expect(holding(/as CustomEvent\b/g)).toEqual(['src/engine/events.ts'])
+    })
+})
+
 describe('foliate-js pin', () => {
     it('records the vendored commit', () => {
         const record = readFileSync(join(root, 'vendor/foliate-js.commit'), 'utf8')

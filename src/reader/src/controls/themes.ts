@@ -1,4 +1,5 @@
 import type { OwnTheme } from '../settings/settings'
+import { createListeners } from './listeners'
 
 /** A theme in a whole list sent to be kept: a new one has no id. */
 export type ThemeEdit = Omit<OwnTheme, 'id'> & { id?: string }
@@ -22,10 +23,10 @@ export interface ThemeSources {
 /** The reader's own themes: none until the server's list loads. `ready` settles once it has. */
 export const createOwnThemes = (sources: ThemeSources): OwnThemes & { ready: Promise<boolean> } => {
     let kept: OwnTheme[] = []
-    const listeners: (() => void)[] = []
+    const listeners = createListeners()
     const take = (themes: OwnTheme[]): OwnTheme[] => {
         kept = themes
-        for (const listener of listeners) listener()
+        listeners.tell()
         return kept
     }
     const ready = sources.load().then(loaded => {
@@ -39,8 +40,6 @@ export const createOwnThemes = (sources: ThemeSources): OwnThemes & { ready: Pro
             const saved = await sources.save(list)
             return saved ? take(saved) : null
         },
-        onChange(listener) {
-            listeners.push(listener)
-        },
+        onChange: listeners.on,
     }
 }

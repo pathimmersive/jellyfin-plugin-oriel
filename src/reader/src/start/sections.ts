@@ -1,4 +1,5 @@
 import type { LastInput } from '../controls/hint'
+import { detailOf } from '../engine/events'
 
 /** What listens in every section's window. */
 export interface SectionWatcher {
@@ -23,7 +24,7 @@ export const createSections = (input: LastInput): Sections => {
     let watching: SectionWatcher[] = []
     return {
         watch: view => view.addEventListener('load', event => {
-            const win = (event as CustomEvent<{ doc: Document }>).detail.doc.defaultView
+            const win = detailOf<{ doc: Document }>(event).doc.defaultView
             if (!win) return
             input.watch(win)
             windows?.push(win)
