@@ -108,34 +108,25 @@ public class FontsController : ControllerBase
 
         if (_configuration()?.EnableFontUploads != true)
         {
-            return StatusCode(StatusCodes.Status403Forbidden, new Refusal("uploadsOff"));
+            return StatusCode(StatusCodes.Status403Forbidden, new RequestRefusal("uploadsOff"));
         }
 
-        // Read one byte past the limit, to tell a file at the limit from one over it.
-        using var body = new MemoryStream();
-        var buffer = new byte[81920];
-        int read;
-        while ((read = await Request.Body.ReadAsync(buffer).ConfigureAwait(false)) > 0)
+        if (await LimitedBody.ReadAsync(Request.Body, ReadingRules.MaxFontFileBytes).ConfigureAwait(false) is not { } data)
         {
-            body.Write(buffer, 0, read);
-            if (body.Length > ReadingRules.MaxFontFileBytes)
-            {
-                return StatusCode(StatusCodes.Status413PayloadTooLarge, new Refusal("tooLarge"));
-            }
+            return StatusCode(StatusCodes.Status413PayloadTooLarge, new RequestRefusal("tooLarge"));
         }
 
-        var data = body.ToArray();
         if (FontFile.Read(data) is not { } font)
         {
-            return BadRequest(new Refusal("notAFont"));
+            return BadRequest(new RequestRefusal("notAFont"));
         }
 
         var (stored, result) = _fonts.Add(userId.Value, font, data, _time.GetUtcNow());
         return result switch
         {
             FontAdded.Added when stored is not null => Reply(stored),
-            FontAdded.QuotaFull => BadRequest(new Refusal("quotaFull")),
-            _ => BadRequest(new Refusal("tooMany")),
+            FontAdded.QuotaFull => BadRequest(new RequestRefusal("quotaFull")),
+            _ => BadRequest(new RequestRefusal("tooMany")),
         };
     }
 
@@ -205,10 +196,4 @@ public class FontsController : ControllerBase
         [property: JsonPropertyName("weight")] int Weight,
         [property: JsonPropertyName("italic")] bool Italic,
         [property: JsonPropertyName("format")] string Format);
-
-    /// <summary>
-    /// Why a font file was refused.
-    /// </summary>
-    /// <param name="Reason">notAFont, tooMany, quotaFull or uploadsOff.</param>
-    public record Refusal([property: JsonPropertyName("reason")] string Reason);
 }

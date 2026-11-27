@@ -127,7 +127,7 @@ public partial class ReadingDataController : ControllerBase
         string? reason;
         try
         {
-            var body = new LimitedStream(Request.Body, MaxImportBytes);
+            var body = LimitedBody.Limit(Request.Body, MaxImportBytes);
             (file, reason) = await ReadingData.ReadAsync(body).ConfigureAwait(false);
 
             // Reading stops where the JSON is wrong. What is left is counted too, so a body past the limit is
@@ -151,7 +151,7 @@ public partial class ReadingDataController : ControllerBase
         }
         catch (ImportRunningException)
         {
-            return Conflict(new ConflictReason("importRunning"));
+            return Conflict(new RequestRefusal("importRunning"));
         }
         catch (Exception exception) when (exception is not StoreUnavailableException)
         {
@@ -184,43 +184,4 @@ public partial class ReadingDataController : ControllerBase
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "Oriel's import for user {UserId} failed part way ({Failure}) and stored nothing")]
     private static partial void LogImportFailed(ILogger logger, Guid userId, string failure);
-
-    // Reads a stream as it comes and throws once more than `limit` bytes of it have.
-    private sealed class LimitedStream(Stream stream, long limit) : Stream
-    {
-        private long _read;
-
-        public override bool CanRead => true;
-
-        public override bool CanSeek => false;
-
-        public override bool CanWrite => false;
-
-        public override long Length => throw new NotSupportedException();
-
-        public override long Position { get => throw new NotSupportedException(); set => throw new NotSupportedException(); }
-
-        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
-        {
-            var read = await stream.ReadAsync(buffer, cancellationToken).ConfigureAwait(false);
-            _read += read;
-            return _read > limit ? throw new BodyTooLargeException() : read;
-        }
-
-        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
-
-        public override void Flush()
-        {
-        }
-
-        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
-
-        public override void SetLength(long value) => throw new NotSupportedException();
-    }
-
-    private sealed class BodyTooLargeException : Exception
-    {
-    }
 }

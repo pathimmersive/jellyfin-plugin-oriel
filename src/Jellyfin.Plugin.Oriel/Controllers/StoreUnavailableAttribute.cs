@@ -23,14 +23,8 @@ public sealed class StoreUnavailableAttribute : ExceptionFilterAttribute
         if (!context.HttpContext.Response.HasStarted
             && context.Exception is StoreUnavailableException or SqliteException { SqliteErrorCode: SqliteBusy })
         {
-            context.Result = new ObjectResult(new Unavailable("storeUnavailable")) { StatusCode = StatusCodes.Status503ServiceUnavailable };
+            context.Result = new ObjectResult(new RequestRefusal("storeUnavailable")) { StatusCode = StatusCodes.Status503ServiceUnavailable };
             context.ExceptionHandled = true;
         }
     }
-
-    /// <summary>
-    /// Why a request could not be answered.
-    /// </summary>
-    /// <param name="Reason">storeUnavailable.</param>
-    public record Unavailable([property: JsonPropertyName("reason")] string Reason);
 }

@@ -52,7 +52,7 @@ public sealed class LimitsTests : IDisposable
         };
 
         var refused = Assert.IsType<ConflictObjectResult>((await controller.PostBookmark(Emma.ItemId, new(Cfi(0), 0.5, "One more"))).Result);
-        Assert.Equal("limitReached", Assert.IsType<ConflictReason>(refused.Value).Reason);
+        Assert.Equal("limitReached", Assert.IsType<RequestRefusal>(refused.Value).Reason);
         Assert.Equal(Cfi(0), (await controller.PostBookmark(Dune.ItemId, new(Cfi(0), 0.5, "Already here"))).Value!.Cfi);
         Assert.Equal(ReadingRules.MaxBookmarks, _store.Bookmarks.ListForUser(Reader).Count);
 
@@ -73,7 +73,7 @@ public sealed class LimitsTests : IDisposable
         };
 
         var refused = Assert.IsType<ConflictObjectResult>((await controller.PostHighlight(Emma.ItemId, new(Cfi(0), 0.5, "yellow", "One more"))).Result);
-        Assert.Equal("limitReached", Assert.IsType<ConflictReason>(refused.Value).Reason);
+        Assert.Equal("limitReached", Assert.IsType<RequestRefusal>(refused.Value).Reason);
         Assert.Equal(ReadingRules.MaxHighlights, _store.Highlights.ListForUser(Reader).Count);
     }
 
@@ -204,7 +204,7 @@ public sealed class LimitsTests : IDisposable
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext { Request = { Body = new MemoryStream(ReadingFiles.Serialize(file)) } } },
         };
         var refused = Assert.IsType<ConflictObjectResult>((await controller.Import()).Result);
-        Assert.Equal("importRunning", Assert.IsType<ConflictReason>(refused.Value).Reason);
+        Assert.Equal("importRunning", Assert.IsType<RequestRefusal>(refused.Value).Reason);
 
         catalog.Hold.Set();
         Assert.Equal(1, (await first).Imported);

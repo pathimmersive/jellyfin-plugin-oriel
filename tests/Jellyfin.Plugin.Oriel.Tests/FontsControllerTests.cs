@@ -150,7 +150,7 @@ public sealed class FontsControllerTests : IDisposable
         Assert.Null(FontFile.Read(HostileWoff2(what)));
 
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, HostileWoff2(what)).AddFont()).Result);
-        Assert.Equal("notAFont", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal("notAFont", Assert.IsType<RequestRefusal>(refused.Value).Reason);
         Assert.Empty((await Controller(Reader).GetFonts()).Value!);
     }
 
@@ -223,7 +223,7 @@ public sealed class FontsControllerTests : IDisposable
         }
 
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, Sfnt(0x00010000, Tables("Other", "Regular", 400, false))).AddFont()).Result);
-        Assert.Equal("tooMany", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal("tooMany", Assert.IsType<RequestRefusal>(refused.Value).Reason);
         Assert.Equal(ReadingRules.MaxFonts, (await Controller(Reader).GetFonts()).Value!.Count);
 
         Assert.Equal("Bold", (await Controller(Reader, Sfnt(0x00010000, Tables("Charter", "Bold", 700, false))).AddFont()).Value!.Style);
@@ -236,11 +236,11 @@ public sealed class FontsControllerTests : IDisposable
         var over = new byte[ReadingRules.MaxFontFileBytes + 1];
         var tooLarge = Assert.IsType<ObjectResult>((await Controller(Reader, over).AddFont()).Result);
         Assert.Equal(StatusCodes.Status413PayloadTooLarge, tooLarge.StatusCode);
-        Assert.Equal("tooLarge", Assert.IsType<FontsController.Refusal>(tooLarge.Value).Reason);
+        Assert.Equal("tooLarge", Assert.IsType<RequestRefusal>(tooLarge.Value).Reason);
 
         var atLimit = new byte[ReadingRules.MaxFontFileBytes];
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader, atLimit).AddFont()).Result);
-        Assert.Equal("notAFont", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal("notAFont", Assert.IsType<RequestRefusal>(refused.Value).Reason);
 
         Assert.Empty((await Controller(Reader).GetFonts()).Value!);
     }
@@ -268,7 +268,7 @@ public sealed class FontsControllerTests : IDisposable
 
         var refused = Assert.IsType<ObjectResult>((await Controller(Reader, Sfnt(0x00010000, Tables("Charter", "Bold", 700, false))).AddFont()).Result);
         Assert.Equal(StatusCodes.Status403Forbidden, refused.StatusCode);
-        Assert.Equal("uploadsOff", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal("uploadsOff", Assert.IsType<RequestRefusal>(refused.Value).Reason);
 
         Assert.Equal([added.Id], (await Controller(Reader).GetFonts()).Value!.Select(font => font.Id));
         Assert.IsType<FileContentResult>(await Controller(Reader).GetFont(Guid.ParseExact(added.Id, "N")));
@@ -296,7 +296,7 @@ public sealed class FontsControllerTests : IDisposable
         Assert.Equal(FontAdded.Added, _store.Fonts.Add(Reader, new FontFile("ttf", "Big", "Bold", 700, false), half, DateTimeOffset.UtcNow).Result);
 
         var refused = Assert.IsType<BadRequestObjectResult>((await Controller(Reader).AddFont()).Result);
-        Assert.Equal("quotaFull", Assert.IsType<FontsController.Refusal>(refused.Value).Reason);
+        Assert.Equal("quotaFull", Assert.IsType<RequestRefusal>(refused.Value).Reason);
         Assert.Equal(2, (await Controller(Reader).GetFonts()).Value!.Count);
 
         // A file that replaces one of them is measured without it.

@@ -102,7 +102,7 @@ public partial class PositionsController : ControllerBase
             return Unauthorized();
         }
 
-        if (request?.Cfi is not { Length: > 0 and <= ReadingRules.MaxCfiLength } cfi)
+        if (request?.Cfi is not { } cfi || !ReadingRules.IsCfi(cfi))
         {
             return BadRequest(new RequestRefusal("invalidCfi"));
         }

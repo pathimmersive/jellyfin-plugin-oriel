@@ -577,20 +577,25 @@ public class ReadingData
     }
 
     private static bool Valid(ExportedPosition? entry) =>
-        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, SavedAt: not null }
+        entry is { Fraction: { } fraction, SavedAt: not null }
+        && ReadingRules.IsCfi(entry.Cfi)
         && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedBookmark? entry) =>
-        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, Text.Length: <= ReadingRules.MaxBookmarkTextLength, CreatedAt: not null }
+        entry is { Fraction: { } fraction, CreatedAt: not null }
+        && ReadingRules.IsCfi(entry.Cfi)
+        && ReadingRules.IsBookmarkText(entry.Text)
         && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));
 
     private static bool Valid(ExportedHighlight? entry) =>
-        entry is { Cfi.Length: > 0 and <= ReadingRules.MaxCfiLength, Fraction: { } fraction, Colour.Length: > 0 and <= ReadingRules.MaxIdLength, Text.Length: <= ReadingRules.MaxHighlightTextLength, CreatedAt: not null }
-        && entry.Note is not { Length: > ReadingRules.MaxNoteLength }
+        entry is { Fraction: { } fraction, Colour.Length: > 0 and <= ReadingRules.MaxIdLength, CreatedAt: not null }
+        && ReadingRules.IsCfi(entry.Cfi)
+        && ReadingRules.IsHighlightText(entry.Text)
+        && ReadingRules.IsNote(entry.Note)
         && ReadingRules.IsFraction(fraction)
         && (entry.ItemId is null || Guid.TryParse(entry.ItemId, out _))
         && (entry.Authors is null || entry.Authors.All(author => author is not null));

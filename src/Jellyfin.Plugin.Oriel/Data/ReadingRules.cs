@@ -138,6 +138,34 @@ public static partial class ReadingRules
     public static bool IsColour(string? colour) => colour is not null && HexColour().IsMatch(colour);
 
     /// <summary>
+    /// Whether a CFI is one a position, bookmark or highlight may keep: 1 to 4,096 characters.
+    /// </summary>
+    /// <param name="cfi">The CFI.</param>
+    /// <returns>True for one that may be kept.</returns>
+    public static bool IsCfi(string? cfi) => cfi is { Length: > 0 and <= MaxCfiLength };
+
+    /// <summary>
+    /// Whether a bookmark's text may be kept: at most 500 characters.
+    /// </summary>
+    /// <param name="text">The text.</param>
+    /// <returns>True for text that may be kept; false for none.</returns>
+    public static bool IsBookmarkText(string? text) => text is { Length: <= MaxBookmarkTextLength };
+
+    /// <summary>
+    /// Whether a highlight's text may be kept: at most 1,000 characters.
+    /// </summary>
+    /// <param name="text">The text.</param>
+    /// <returns>True for text that may be kept; false for none.</returns>
+    public static bool IsHighlightText(string? text) => text is { Length: <= MaxHighlightTextLength };
+
+    /// <summary>
+    /// Whether a highlight's note may be kept: none, or at most 2,000 characters.
+    /// </summary>
+    /// <param name="note">The note.</param>
+    /// <returns>True for a note that may be kept.</returns>
+    public static bool IsNote(string? note) => note is not { Length: > MaxNoteLength };
+
+    /// <summary>
     /// Whether a fraction of a book is a number from 0 to 1.
     /// </summary>
     /// <param name="fraction">The fraction.</param>
